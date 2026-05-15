@@ -1,64 +1,94 @@
 package main
 
 import (
-    "encoding/json"
-    "log"
-    "net/http"
+	"flag"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/bootstrap"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/config"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/paths"
 )
 
-type Item struct {
-    ID   int    `json:"id"`
-    Name string `json:"name"`
-}
-
-var items = []Item{
-    {ID: 1, Name: "Item 1"},
-    {ID: 2, Name: "Item 2"},
-}
-
 func main() {
-    http.HandleFunc("/health", healthHandler)
-    http.HandleFunc("/items", itemsHandler)
-    http.HandleFunc("/items/", itemHandler)
+	configFile := flag.String("config", "", "path to hearth.yaml (overrides default location)")
+	validateOnly := flag.Bool("validate", false, "validate configuration and exit")
+	flag.Parse()
 
-    log.Println("Server running on :8080")
-    log.Fatal(http.ListenAndServe(":8080", nil))
+	p := resolvePaths(*configFile)
+
+	if err := bootstrap.Bootstrap(p); err != nil {
+		log.Fatalf("bootstrap failed: %v", err)
+	}
+
+	serverCfg, err := config.LoadServerConfig(p.ServerConfigFile())
+	if err != nil {
+		log.Fatalf("failed to load server config: %v", err)
+	}
+
+	agents, err := config.LoadAgents(p.AgentsConfigDir(), serverCfg)
+	if err != nil {
+		log.Fatalf("failed to load agents: %v", err)
+	}
+
+	log.Printf("loaded %d agent(s)", len(agents))
+	for name, agent := range agents {
+		perms, _ := agent.ParsedPermissions()
+		log.Printf("  %s: clearance=%d, permissions=%d", name, agent.Clearance, len(perms))
+	}
+
+	if *validateOnly {
+		fmt.Println("configuration valid")
+		return
+	}
+
+	startServer(serverCfg)
 }
 
-func healthHandler(w http.ResponseWriter, r *http.Request) {
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+func resolvePaths(configOverride string) *paths.Paths {
+	cfgHome := os.Getenv("HEARTH_CONFIG_HOME")
+	dataHome := os.Getenv("HEARTH_DATA_HOME")
+	cacheHome := os.Getenv("HEARTH_CACHE_HOME")
+
+	if cfgHome == "" {
+		cfgHome = os.Getenv("XDG_CONFIG_HOME")
+	}
+	if dataHome == "" {
+		dataHome = os.Getenv("XDG_DATA_HOME")
+	}
+	if cacheHome == "" {
+		cacheHome = os.Getenv("XDG_CACHE_HOME")
+	}
+
+	if cfgHome != "" || dataHome != "" || cacheHome != "" {
+		p := paths.NewPaths()
+		if cfgHome != "" {
+			p.ConfigRoot = cfgHome + "/hearth"
+		}
+		if dataHome != "" {
+			p.DataRoot = dataHome + "/hearth"
+		}
+		if cacheHome != "" {
+			p.CacheRoot = cacheHome + "/hearth"
+		}
+		return p
+	}
+
+	return paths.NewPaths()
 }
 
-func itemsHandler(w http.ResponseWriter, r *http.Request) {
-    w.Header().Set("Content-Type", "application/json")
-    
-    if r.Method == http.MethodGet {
-        json.NewEncoder(w).Encode(items)
-        return
-    }
+func startServer(cfg *config.ServerConfig) {
+	mux := http.NewServeMux()
 
-    if r.Method == http.MethodPost {
-        var item Item
-        json.NewDecoder(r.Body).Decode(&item)
-        item.ID = len(items) + 1
-        items = append(items, item)
-        w.WriteHeader(http.StatusCreated)
-        json.NewEncoder(w).Encode(item)
-        return
-    }
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"status":"ok"}`)
+	})
 
-    w.WriteHeader(http.StatusMethodNotAllowed)
-}
-
-func itemHandler(w http.ResponseWriter, r *http.Request) {
-    w.Header().Set("Content-Type", "application/json")
-    
-    if r.Method == http.MethodGet {
-        // In a real app, parse the ID from URL
-        json.NewEncoder(w).Encode(items[0])
-        return
-    }
-
-    w.WriteHeader(http.StatusMethodNotAllowed)
+	log.Printf("Hearth starting on %s", cfg.Listen)
+	if err := http.ListenAndServe(cfg.Listen, mux); err != nil {
+		log.Fatalf("server failed: %v", err)
+	}
 }

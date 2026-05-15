@@ -1,0 +1,24 @@
+name: housewife
+role_description: >
+  Personal agent. Manages household, calendar, meal planning, coordinates
+  other agents for projects.
+
+models:
+  primary: gemma-4-local
+  routine: gemma-4-local
+  sensitive: gemma-4-local
+
+feature_flags:
+  identity_continuity: true
+  daily_notes: true
+  proactive_triggers: true
+  dreaming: true
+
+clearance: 5
+
+permissions:
+  - tool:invoke[*]
+  - room:create
+  - config:write[self]:require_confirmation
+  - config:read[server]:require_confirmation
+  - proactive:act[low, medium]

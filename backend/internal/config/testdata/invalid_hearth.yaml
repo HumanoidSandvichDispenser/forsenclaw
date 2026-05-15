@@ -1,0 +1,14 @@
+listen: ":8080"
+
+providers:
+  - name: anthropic
+    protocol: anthropic
+    base_url: https://api.anthropic.com
+  - name: anthropic
+    protocol: anthropic
+    base_url: https://api2.anthropic.com
+
+models:
+  bad-model:
+    provider: nonexistent
+    provider_model: fake

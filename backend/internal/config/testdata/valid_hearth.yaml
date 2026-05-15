@@ -1,0 +1,19 @@
+listen: ":8080"
+
+providers:
+  - name: anthropic
+    protocol: anthropic
+    base_url: https://api.anthropic.com
+    api_key_env: ANTHROPIC_API_KEY
+
+  - name: ollama
+    protocol: openai_compatible
+    base_url: http://ollama-docker-container-name:11434
+
+models:
+  claude-sonnet-4.6:
+    provider: anthropic
+    provider_model: claude-sonnet-4-20250514
+  gemma-4-local:
+    provider: ollama
+    provider_model: gemma3:12b

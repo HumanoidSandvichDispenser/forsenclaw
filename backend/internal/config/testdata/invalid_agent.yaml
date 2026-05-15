@@ -1,0 +1,7 @@
+name: housewife
+role_description: >
+
+clearance: 0
+
+permissions:
+  - "":allow
