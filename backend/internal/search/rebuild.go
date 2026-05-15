@@ -2,6 +2,7 @@ package search
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -29,11 +30,17 @@ func NewRebuilder(index *SQLiteIndex, embedder Embedder, p *paths.Paths) *Rebuil
 
 // Rebuild walks all agent data directories and re-indexes all memory files.
 func (r *Rebuilder) Rebuild(ctx context.Context) error {
+	tx, err := r.index.db.Begin()
+	if err != nil {
+		return fmt.Errorf("beginning rebuild transaction: %w", err)
+	}
+	defer tx.Rollback()
+
 	// Clear existing documents
-	if _, err := r.index.db.Exec(`DELETE FROM documents`); err != nil {
+	if _, err := tx.Exec(`DELETE FROM documents`); err != nil {
 		return fmt.Errorf("clearing documents: %w", err)
 	}
-	if _, err := r.index.db.Exec(`DELETE FROM vectors`); err != nil {
+	if _, err := tx.Exec(`DELETE FROM vectors`); err != nil {
 		return fmt.Errorf("clearing vectors: %w", err)
 	}
 
@@ -53,25 +60,28 @@ func (r *Rebuilder) Rebuild(ctx context.Context) error {
 		agentName := entry.Name()
 		agentDir := filepath.Join(agentsDir, agentName)
 
-		if err := r.indexAgent(ctx, agentName, agentDir); err != nil {
+		if err := r.indexAgent(ctx, tx, agentName, agentDir); err != nil {
 			return fmt.Errorf("indexing agent %q: %w", agentName, err)
 		}
 	}
 
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("committing rebuild transaction: %w", err)
+	}
 	return nil
 }
 
-func (r *Rebuilder) indexAgent(ctx context.Context, agentName, agentDir string) error {
+func (r *Rebuilder) indexAgent(ctx context.Context, tx *sql.Tx, agentName, agentDir string) error {
 	// Index MEMORY.md
 	memPath := filepath.Join(agentDir, memory.MemoryFileName)
 	if data, err := os.ReadFile(memPath); err == nil {
 		chunks := chunkText(string(data), 1000) // ~1000 char chunks
 		for i, chunk := range chunks {
 			id := fmt.Sprintf("%s:memory:%d", agentName, i)
-			if err := r.index.AddDocument(id, agentName, memPath, chunk, 5, "memory"); err != nil {
+			if err := r.index.addDocumentExec(tx, id, agentName, memPath, chunk, 5, "memory"); err != nil {
 				return fmt.Errorf("adding memory chunk: %w", err)
 			}
-			if err := r.embedAndStore(ctx, id, chunk); err != nil {
+			if err := r.embedAndStoreTx(ctx, tx, id, chunk); err != nil {
 				return fmt.Errorf("embedding memory chunk: %w", err)
 			}
 		}
@@ -103,10 +113,10 @@ func (r *Rebuilder) indexAgent(ctx context.Context, agentName, agentDir string) 
 		chunks := chunkText(string(data), 1000)
 		for i, chunk := range chunks {
 			id := fmt.Sprintf("%s:daily:%s:%d", agentName, entry.Name(), i)
-			if err := r.index.AddDocument(id, agentName, path, chunk, 5, "daily"); err != nil {
+			if err := r.index.addDocumentExec(tx, id, agentName, path, chunk, 5, "daily"); err != nil {
 				return fmt.Errorf("adding daily chunk: %w", err)
 			}
-			if err := r.embedAndStore(ctx, id, chunk); err != nil {
+			if err := r.embedAndStoreTx(ctx, tx, id, chunk); err != nil {
 				return fmt.Errorf("embedding daily chunk: %w", err)
 			}
 		}
@@ -115,7 +125,7 @@ func (r *Rebuilder) indexAgent(ctx context.Context, agentName, agentDir string) 
 	return nil
 }
 
-func (r *Rebuilder) embedAndStore(ctx context.Context, id, text string) error {
+func (r *Rebuilder) embedAndStoreTx(ctx context.Context, tx *sql.Tx, id, text string) error {
 	vectors, err := r.embedder.Embed(ctx, []string{text})
 	if err != nil {
 		return err
@@ -123,7 +133,7 @@ func (r *Rebuilder) embedAndStore(ctx context.Context, id, text string) error {
 	if len(vectors) == 0 {
 		return fmt.Errorf("no embedding returned")
 	}
-	return r.index.Insert(id, vectors[0])
+	return r.index.insertExec(tx, id, vectors[0])
 }
 
 // chunkText splits text into chunks of approximately targetSize characters,

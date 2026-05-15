@@ -18,27 +18,27 @@ Frontend follow-up (optional):
 - [ ] Settings page to view/edit `hearth.yaml` (read-only by default)
 
 F2. Model Provider Registry + Inference
-- [ ] Define Provider interface with an `Infer(...)` entrypoint supporting streaming chunks
-- [ ] Implement adapter for Ollama (OpenAI-compatible) with streaming
-- [ ] Implement adapter for Anthropic (streaming)
-- [ ] Implement provider registry: resolve model string → provider + provider_model
-- [ ] Load API keys from env vars only (never write to files)
-- [ ] Add model-tier mapping (primary/routine/sensitive) resolution
-- [ ] Unit tests for registry and adapter normalization
+- [X] Define Provider interface with an `Infer(...)` entrypoint supporting streaming chunks
+- [X] Implement adapter for Ollama (OpenAI-compatible) with streaming
+- [X] Implement adapter for Anthropic (streaming)
+- [X] Implement provider registry: resolve model string → provider + provider_model
+- [X] Load API keys from env vars only (never write to files)
+- [X] Add model-tier mapping (primary/routine/sensitive) resolution
+- [X] Unit tests for registry and adapter normalization
 
 Frontend follow-up (optional):
 - [ ] Provider & model admin UI (list providers, test calls)
 
 F3. Agent Definitions + Memory Files
-- [ ] Load agent definitions from `$XDG_CONFIG_HOME/hearth/agents/*/agent.yaml` on startup
-- [ ] Hot-reload agent definitions on file changes (fsnotify/poll)
-- [ ] Implement read/write for `MEMORY.md` per agent
-- [ ] Implement daily notes at `memory/YYYY-MM-DD.md` (read today + yesterday; write observations)
-- [ ] Implement MEMORY.md truncation policy (configurable per-agent; default ≈ 4K tokens)
-- [ ] Implement context assembly pipeline (system prompt → MEMORY.md → daily notes → RAG → MCP tools → room history → turn budget → RFC payload)
-- [ ] Implement search index (SQLite hybrid) and embedding pipeline (Ollama embeddings)
-- [ ] Implement `hearth index --rebuild` command to rebuild index from files
-- [ ] RAG retrieval honoring requesting agent's clearance
+- [X] Load agent definitions from `$XDG_CONFIG_HOME/hearth/agents/*/agent.yaml` on startup
+- [X] Hot-reload agent definitions on file changes (fsnotify/poll)
+- [X] Implement read/write for `MEMORY.md` per agent
+- [X] Implement daily notes at `memory/YYYY-MM-DD.md` (read today + yesterday; write observations)
+- [X] Implement MEMORY.md truncation policy (configurable per-agent; default ≈ 4K tokens)
+- [X] Implement context assembly pipeline (system prompt → MEMORY.md → daily notes → RAG → MCP tools → room history → turn budget → RFC payload)
+- [X] Implement search index (SQLite hybrid) and embedding pipeline (Ollama embeddings)
+- [X] Implement `hearth index --rebuild` command to rebuild index from files
+- [X] RAG retrieval honoring requesting agent's clearance
 
 Frontend follow-up (optional):
 - [ ] Agent memory viewer: MEMORY.md, daily notes, DREAMS.md

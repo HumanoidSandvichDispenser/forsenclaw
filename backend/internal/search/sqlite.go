@@ -89,6 +89,16 @@ func (s *SQLiteIndex) migrate() error {
 		return fmt.Errorf("creating fts delete trigger: %w", err)
 	}
 
+	_, err = s.db.Exec(`
+		CREATE TRIGGER IF NOT EXISTS documents_fts_update AFTER UPDATE ON documents BEGIN
+			INSERT INTO documents_fts(documents_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
+			INSERT INTO documents_fts(rowid, content) VALUES (new.rowid, new.content);
+		END
+	`)
+	if err != nil {
+		return fmt.Errorf("creating fts update trigger: %w", err)
+	}
+
 	// Vectors table: stores embedding vectors as JSON blobs
 	_, err = s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS vectors (
@@ -104,14 +114,22 @@ func (s *SQLiteIndex) migrate() error {
 	return nil
 }
 
-// AddDocument adds a document chunk to the index.
-func (s *SQLiteIndex) AddDocument(id, agentName, sourcePath, content string, clearance int, chunkType string) error {
-	_, err := s.db.Exec(
+type execer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
+func (s *SQLiteIndex) addDocumentExec(e execer, id, agentName, sourcePath, content string, clearance int, chunkType string) error {
+	_, err := e.Exec(
 		`INSERT OR REPLACE INTO documents (id, agent_name, source_path, content, clearance, chunk_type)
 		 VALUES (?, ?, ?, ?, ?, ?)`,
 		id, agentName, sourcePath, content, clearance, chunkType,
 	)
 	return err
+}
+
+// AddDocument adds a document chunk to the index.
+func (s *SQLiteIndex) AddDocument(id, agentName, sourcePath, content string, clearance int, chunkType string) error {
+	return s.addDocumentExec(s.db, id, agentName, sourcePath, content, clearance, chunkType)
 }
 
 // DeleteAgentDocuments removes all documents for a given agent.
@@ -286,16 +304,20 @@ type DocumentResult struct {
 
 // VectorStore methods (interface implementation)
 
-func (s *SQLiteIndex) Insert(id string, vec []float32) error {
+func (s *SQLiteIndex) insertExec(e execer, id string, vec []float32) error {
 	jsonVec, err := json.Marshal(vec)
 	if err != nil {
 		return fmt.Errorf("marshaling vector: %w", err)
 	}
-	_, err = s.db.Exec(
+	_, err = e.Exec(
 		`INSERT OR REPLACE INTO vectors (doc_id, vector) VALUES (?, ?)`,
 		id, string(jsonVec),
 	)
 	return err
+}
+
+func (s *SQLiteIndex) Insert(id string, vec []float32) error {
+	return s.insertExec(s.db, id, vec)
 }
 
 func (s *SQLiteIndex) Search(query []float32, topK int) ([]Result, error) {

@@ -118,13 +118,7 @@ func isRetryable(err error) bool {
 	// Network errors
 	var netErr net.Error
 	if errors.As(err, &netErr) {
-		return netErr.Temporary() || netErr.Timeout()
-	}
-
-	// Syscall errors
-	var syscallErr *net.OpError
-	if errors.As(err, &syscallErr) {
-		return true
+		return netErr.Timeout()
 	}
 
 	// Connection refused, reset, etc.
@@ -147,7 +141,7 @@ func (e *httpError) Error() string {
 	return fmt.Sprintf("HTTP %d: %s", e.StatusCode, e.Message)
 }
 
-// newHTTPError creates an httpError if the status code indicates a retryable error.
+// newHTTPError creates an httpError for the given status code and message.
 func newHTTPError(statusCode int, message string) error {
 	return &httpError{StatusCode: statusCode, Message: message}
 }

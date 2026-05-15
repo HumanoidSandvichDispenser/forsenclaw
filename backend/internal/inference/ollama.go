@@ -97,6 +97,7 @@ func (o *OllamaAdapter) readStream(body io.ReadCloser, ch chan<- StreamingChunk)
 
 	scanner := bufio.NewScanner(body)
 	var usage Usage
+	var sentFinal bool
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -133,6 +134,7 @@ func (o *OllamaAdapter) readStream(body io.ReadCloser, ch chan<- StreamingChunk)
 		if choice.FinishReason != nil && *choice.FinishReason != "" {
 			out.FinishReason = *choice.FinishReason
 			out.Usage = usage
+			sentFinal = true
 		}
 
 		if out.Content != "" || out.FinishReason != "" {
@@ -142,7 +144,7 @@ func (o *OllamaAdapter) readStream(body io.ReadCloser, ch chan<- StreamingChunk)
 
 	// If we have usage but never sent a final chunk (e.g. stream ended without finish_reason),
 	// send one now.
-	if usage.TotalTokens > 0 {
+	if !sentFinal && usage.TotalTokens > 0 {
 		ch <- StreamingChunk{Usage: usage}
 	}
 }
