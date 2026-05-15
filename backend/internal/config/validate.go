@@ -57,6 +57,16 @@ func ValidateServerConfig(cfg *ServerConfig) []ConfigError {
 		}
 	}
 
+	// Validate embeddings config (optional — only if provider is set)
+	if cfg.Embeddings.Provider != "" {
+		if providerNames[cfg.Embeddings.Provider] == 0 {
+			errs = append(errs, ConfigError{Field: "embeddings.provider", Message: fmt.Sprintf("references unknown provider %q", cfg.Embeddings.Provider)})
+		}
+		if cfg.Embeddings.Model == "" {
+			errs = append(errs, ConfigError{Field: "embeddings.model", Message: "must not be empty"})
+		}
+	}
+
 	return errs
 }
 

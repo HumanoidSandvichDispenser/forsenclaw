@@ -8,9 +8,17 @@ import (
 )
 
 type ServerConfig struct {
-	Listen    string           `yaml:"listen"`
-	Providers []Provider       `yaml:"providers"`
-	Models    map[string]Model `yaml:"models"`
+	Listen     string           `yaml:"listen"`
+	Providers  []Provider       `yaml:"providers"`
+	Models     map[string]Model `yaml:"models"`
+	Embeddings EmbeddingsConfig `yaml:"embeddings"`
+}
+
+// EmbeddingsConfig configures the embedding provider for the search index.
+type EmbeddingsConfig struct {
+	Provider string `yaml:"provider"`
+	Model    string `yaml:"model"`
+	BaseURL  string `yaml:"base_url,omitempty"`
 }
 
 type Provider struct {
