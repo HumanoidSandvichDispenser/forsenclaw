@@ -38,10 +38,10 @@ func NewRegistry(cfg *config.ServerConfig) (*Registry, error) {
 
 		switch prov.Protocol {
 		case "anthropic":
-			apiKey := resolveAPIKey(prov.APIKeyEnv)
+			apiKey := resolveAPIKey(prov)
 			adapter, err = NewAnthropicAdapter(prov.BaseURL, apiKey)
 		case "openai_compatible":
-			apiKey := resolveAPIKey(prov.APIKeyEnv)
+			apiKey := resolveAPIKey(prov)
 			adapter, err = NewOllamaAdapter(prov.BaseURL, apiKey)
 		default:
 			return nil, fmt.Errorf("unknown provider protocol %q for provider %q", prov.Protocol, prov.Name)
@@ -109,11 +109,17 @@ func (r *Registry) EmbeddingProvider(cfg config.EmbeddingsConfig) (Provider, err
 	return prov, nil
 }
 
-// resolveAPIKey looks up an API key from an environment variable.
-// If envVar is empty, it returns an empty string (some providers like local Ollama don't need keys).
-func resolveAPIKey(envVar string) string {
-	if envVar == "" {
-		return ""
+// Checks the provider configuration for an API key, first looking at the
+// configured APIKey field, then looking up the environment variable specified
+// in
+func resolveAPIKey(prov *config.Provider) string {
+	if prov.APIKey != "" {
+		return prov.APIKey
 	}
-	return os.Getenv(envVar)
+
+	if prov.APIKeyEnv != "" {
+		return os.Getenv(prov.APIKeyEnv)
+	}
+
+	return ""
 }
