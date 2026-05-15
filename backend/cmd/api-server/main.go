@@ -7,10 +7,22 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/agent"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/api"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/bootstrap"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/config"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/dispatch"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/memory"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/paths"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/search"
 )
 
@@ -64,7 +76,7 @@ func runServer(args []string) {
 		return
 	}
 
-	startServer(serverCfg)
+	startServer(serverCfg, p)
 }
 
 func runIndex(args []string) {
@@ -141,16 +153,84 @@ func resolvePaths(configOverride string) *paths.Paths {
 	return paths.NewPaths()
 }
 
-func startServer(cfg *config.ServerConfig) {
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"status":"ok"}`)
-	})
-
-	log.Printf("Hearth starting on %s", cfg.Listen)
-	if err := http.ListenAndServe(cfg.Listen, mux); err != nil {
-		log.Fatalf("server failed: %v", err)
+func startServer(cfg *config.ServerConfig, p *paths.Paths) {
+	// 1. Open rooms DB
+	store, err := room.NewSQLiteStore(p.RoomsDBPath())
+	if err != nil {
+		log.Fatalf("failed to open rooms DB: %v", err)
 	}
+	defer store.Close()
+
+	// 2. Create agent manager (loads agents from disk, watches for changes)
+	agentMgr, err := agent.NewManager(p, cfg)
+	if err != nil {
+		log.Fatalf("failed to create agent manager: %v", err)
+	}
+	defer agentMgr.Close()
+
+	// 3. Create inference registry
+	registry, err := inference.NewRegistry(cfg)
+	if err != nil {
+		log.Fatalf("failed to create inference registry: %v", err)
+	}
+
+	// 4. Create context assembler
+	assembler := memory.NewAssembler(p, 4096)
+
+	// 5. Create WebSocket hub
+	hub := api.NewHub()
+	go hub.Run()
+
+	// 6. Create dispatcher
+	dispatcher := dispatch.NewDispatcher(agentMgr, registry, assembler, store, p)
+
+	// 7. Wire broadcaster
+	dispatcher.SetBroadcaster(hub)
+
+	// 8. Register all loaded agents
+	for _, ag := range agentMgr.All() {
+		dispatcher.RegisterAgent(ag)
+	}
+	// TODO: wire agent manager add/remove callbacks to dispatcher for dynamic agents
+
+	// 9. Create service and API
+	svc := api.NewService(dispatcher, store, agentMgr, hub, p)
+
+	router := chi.NewRouter()
+	router.Use(middleware.Logger)
+	router.Use(middleware.Recoverer)
+	router.Use(api.AuthMiddleware()) // placeholder auth
+
+	api.NewAPI(router, svc)
+
+	// 10. Start server with graceful shutdown
+	server := &http.Server{
+		Addr:    cfg.Listen,
+		Handler: router,
+	}
+
+	go func() {
+		log.Printf("Hearth starting on %s", cfg.Listen)
+		log.Printf("API docs:    http://%s/docs", cfg.Listen)
+		log.Printf("OpenAPI:     http://%s/openapi.json", cfg.Listen)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("server failed: %v", err)
+		}
+	}()
+
+	// Wait for shutdown signal
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	log.Println("shutting down server...")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Printf("server shutdown error: %v", err)
+	}
+
+	log.Println("server stopped")
 }

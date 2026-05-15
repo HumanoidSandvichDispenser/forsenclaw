@@ -1,0 +1,167 @@
+package api
+
+import (
+	"encoding/json"
+	"time"
+)
+
+// ---------------------------------------------------------------------------
+// Room endpoints
+// ---------------------------------------------------------------------------
+
+// CreateRoomRequest is the input for POST /api/rooms.
+type CreateRoomRequest struct {
+	Body struct {
+		ParticipantIDs   []string        `json:"participant_ids"   validate:"required,min=2,max=2" doc:"Actor IDs (user:<name> or agent:<name>)"`
+		ClearanceCeiling int             `json:"clearance_ceiling" validate:"min=1"              doc:"Max clearance tier for messages (default 5)" example:"5"`
+		ProtocolType     string          `json:"protocol_type"      validate:"required,oneof=freeform" doc:"Protocol type" example:"freeform"`
+		ProtocolConfig   json.RawMessage `json:"protocol_config,omitempty"  doc:"Protocol-specific configuration (JSON)"`
+	}
+}
+
+// CreateRoomResponse is the output for POST /api/rooms.
+type CreateRoomResponse struct {
+	Body RoomResponse
+}
+
+// GetRoomRequest is the input for GET /api/rooms/{room_id}.
+type GetRoomRequest struct {
+	RoomID string `path:"room_id" validate:"required" doc:"Room ID"`
+}
+
+// GetRoomResponse is the output for GET /api/rooms/{room_id}.
+type GetRoomResponse struct {
+	Body RoomResponse
+}
+
+// ListRoomsRequest is the input for GET /api/rooms.
+type ListRoomsRequest struct {
+	Participant string `query:"participant" doc:"Filter by participant actor ID" example:"user:alice"`
+	Protocol    string `query:"protocol"    doc:"Filter by protocol type" example:"freeform"`
+	Limit       int    `query:"limit"  default:"50" validate:"min=1,max=200" doc:"Max rooms to return"`
+	Offset      int    `query:"offset" default:"0"  validate:"min=0"         doc:"Offset for pagination"`
+}
+
+// ListRoomsResponse is the output for GET /api/rooms.
+type ListRoomsResponse struct {
+	Body struct {
+		Rooms []RoomResponse `json:"rooms"`
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Message endpoints
+// ---------------------------------------------------------------------------
+
+// SendMessageRequest is the input for POST /api/rooms/{room_id}/messages.
+type SendMessageRequest struct {
+	RoomID string `path:"room_id" validate:"required" doc:"Room ID"`
+	Body   struct {
+		Sender  string `json:"sender"  validate:"required" doc:"Actor ID of the sender" example:"user:alice"`
+		Content string `json:"content" validate:"required" doc:"Message body"`
+	}
+}
+
+// SendMessageResponse is the output for POST /api/rooms/{room_id}/messages.
+type SendMessageResponse struct {
+	Body MessageResponse
+}
+
+// ListMessagesRequest is the input for GET /api/rooms/{room_id}/messages.
+type ListMessagesRequest struct {
+	RoomID string `path:"room_id" validate:"required" doc:"Room ID"`
+	Limit  int    `query:"limit"  default:"50" validate:"min=1,max=200" doc:"Max messages to return"`
+	Before string `query:"before" doc:"Cursor: only messages before this RFC3339 timestamp"`
+}
+
+// ListMessagesResponse is the output for GET /api/rooms/{room_id}/messages.
+type ListMessagesResponse struct {
+	Body struct {
+		Messages []MessageResponse `json:"messages"`
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Agent endpoints
+// ---------------------------------------------------------------------------
+
+// ListAgentsResponse is the output for GET /api/agents.
+type ListAgentsResponse struct {
+	Body struct {
+		Agents []AgentResponse `json:"agents"`
+	}
+}
+
+// GetAgentRequest is the input for GET /api/agents/{name}.
+type GetAgentRequest struct {
+	Name string `path:"name" validate:"required" doc:"Agent name"`
+}
+
+// GetAgentResponse is the output for GET /api/agents/{name}.
+type GetAgentResponse struct {
+	Body AgentResponse
+}
+
+// ---------------------------------------------------------------------------
+// User endpoint
+// ---------------------------------------------------------------------------
+
+// GetMeRequest is the input for GET /api/me.
+type GetMeRequest struct{}
+
+// GetMeResponse is the output for GET /api/me.
+type GetMeResponse struct {
+	Body UserResponse
+}
+
+// ---------------------------------------------------------------------------
+// Shared response types
+// ---------------------------------------------------------------------------
+
+// RoomResponse is the API representation of a room.
+type RoomResponse struct {
+	ID               string          `json:"id"                          doc:"Unique room ID" example:"room_abc123"`
+	Participants     []ActorResponse `json:"participants"                doc:"Room participants"`
+	ClearanceCeiling int             `json:"clearance_ceiling"           doc:"Max clearance tier" example:"5"`
+	ProtocolType     string          `json:"protocol_type"               doc:"Protocol type" example:"freeform"`
+	ProtocolConfig   json.RawMessage `json:"protocol_config,omitempty"   doc:"Protocol configuration"`
+	CreatedAt        time.Time       `json:"created_at"                  doc:"Room creation time"`
+	UpdatedAt        time.Time       `json:"updated_at"                  doc:"Last update time"`
+}
+
+// MessageResponse is the API representation of a message.
+type MessageResponse struct {
+	ID           string        `json:"id"             doc:"Unique message ID"`
+	Timestamp    time.Time     `json:"timestamp"      doc:"Message timestamp"`
+	RoomID       string        `json:"room_id"        doc:"Room this message belongs to"`
+	Sender       ActorResponse `json:"sender"         doc:"Actor who sent this message"`
+	ClearanceTag int           `json:"clearance_tag"  doc:"Classification tier"`
+	Type         string        `json:"type"           doc:"Message type" example:"message"`
+	Content      string        `json:"content"        doc:"Message body"`
+}
+
+// ActorResponse is the API representation of an actor.
+type ActorResponse struct {
+	ID        string `json:"id"          doc:"Actor identifier" example:"user:alice"`
+	Type      string `json:"type"        doc:"Actor type" example:"user"`
+	Clearance int    `json:"clearance"   doc:"Clearance tier" example:"5"`
+	Name      string `json:"name"        doc:"Display name" example:"Alice"`
+}
+
+// AgentResponse is the API representation of an agent.
+type AgentResponse struct {
+	Name            string `json:"name"              doc:"Agent name" example:"housewife"`
+	RoleDescription string `json:"role_description"  doc:"Agent role description"`
+	PrimaryModel    string `json:"primary_model"     doc:"Primary model ID"`
+	RoutineModel    string `json:"routine_model"     doc:"Routine model ID"`
+	SensitiveModel  string `json:"sensitive_model"   doc:"Sensitive model ID"`
+	Clearance       int    `json:"clearance"          doc:"Agent clearance tier" example:"5"`
+	Active          bool   `json:"active"            doc:"Whether agent is currently loaded"`
+}
+
+// UserResponse is the API representation of the authenticated user.
+type UserResponse struct {
+	ID   string `json:"id"   doc:"User ID" example:"local"`
+	Name string `json:"name" doc:"Display name" example:"User"`
+	Role string `json:"role" doc:"User role" example:"owner"`
+}

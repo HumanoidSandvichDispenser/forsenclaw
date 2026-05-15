@@ -54,6 +54,9 @@ type Dispatcher struct {
 
 	// interjections queues messages that arrived while an agent was responding.
 	interjections map[string][]room.Message // room ID -> queued messages
+
+	// hub broadcasts real-time events to WebSocket clients. May be nil.
+	hub Broadcaster
 }
 
 // agentEntry represents a registered agent's goroutine and queue.
@@ -67,6 +70,34 @@ type agentEntry struct {
 // satisfies this interface.
 type ModelResolver interface {
 	ResolveTier(agentDef *config.AgentDefinition, tier inference.ModelTier) (inference.Provider, string, error)
+}
+
+// Broadcaster sends real-time events to connected WebSocket clients.
+type Broadcaster interface {
+	Broadcast(roomID string, event StreamEvent)
+}
+
+// StreamEvent represents a real-time event broadcast to room subscribers.
+type StreamEvent struct {
+	Type    string `json:"type"`    // "typing" | "chunk" | "message" | "agent_error" | "interjection_queued"
+	RoomID  string `json:"room_id"`
+	Content string `json:"content,omitempty"`
+	// Message contains the full message for "message" events.
+	// It is omitted for other event types.
+	Message *MessageEvent `json:"message,omitempty"`
+}
+
+// MessageEvent is a simplified message representation for WebSocket broadcasts.
+type MessageEvent struct {
+	ID           string `json:"id"`
+	Timestamp    string `json:"timestamp"`
+	RoomID       string `json:"room_id"`
+	SenderID     string `json:"sender_id"`
+	SenderName   string `json:"sender_name"`
+	SenderType   string `json:"sender_type"`
+	ClearanceTag int    `json:"clearance_tag"`
+	Type         string `json:"type"`
+	Content      string `json:"content"`
 }
 
 // NewDispatcher creates a new dispatcher with the given dependencies.
@@ -89,6 +120,14 @@ func NewDispatcher(
 		processing:    make(map[string]bool),
 		interjections: make(map[string][]room.Message),
 	}
+}
+
+// SetBroadcaster sets the real-time event broadcaster. Must be called before
+// any RFCs are processed if WebSocket streaming is desired.
+func (d *Dispatcher) SetBroadcaster(hub Broadcaster) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.hub = hub
 }
 
 // RegisterAgent starts a goroutine for the given agent and prepares it to
@@ -129,6 +168,18 @@ func (d *Dispatcher) UnregisterAgent(name string) {
 
 	<-entry.done
 	log.Printf("dispatcher: unregistered agent %q", name)
+}
+
+// All returns a snapshot of all registered agent names.
+func (d *Dispatcher) All() map[string]struct{} {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	snapshot := make(map[string]struct{}, len(d.agents))
+	for name := range d.agents {
+		snapshot[name] = struct{}{}
+	}
+	return snapshot
 }
 
 // IssueRFC enqueues an RFC to the target agent's processing queue. Returns an
@@ -221,6 +272,14 @@ func (d *Dispatcher) HandleUserMessage(ctx context.Context, roomID string, sende
 	if d.processing[roomID] {
 		d.interjections[roomID] = append(d.interjections[roomID], msg)
 		d.mu.Unlock()
+
+		// Broadcast that an interjection was queued
+		if d.hub != nil {
+			d.hub.Broadcast(roomID, StreamEvent{
+				Type:   "interjection_queued",
+				RoomID: roomID,
+			})
+		}
 		return nil
 	}
 	d.mu.Unlock()
@@ -347,6 +406,7 @@ func (d *Dispatcher) processRFC(ctx context.Context, ag *agent.Agent, rfc room.R
 	// 5. Resolve model tier (primary for room RFCs)
 	provider, modelID, err := d.registry.ResolveTier(ag.Definition, inference.TierPrimary)
 	if err != nil {
+		d.handleInferenceError(ctx, rfc, err, "")
 		return fmt.Errorf("resolve model: %w", err)
 	}
 
@@ -355,15 +415,43 @@ func (d *Dispatcher) processRFC(ctx context.Context, ag *agent.Agent, rfc room.R
 		Model:    modelID,
 		Messages: assembled.Messages,
 	}
+
+	// Broadcast typing indicator
+	if d.hub != nil {
+		d.hub.Broadcast(rfc.RoomID, StreamEvent{
+			Type:   "typing",
+			RoomID: rfc.RoomID,
+		})
+	}
+
 	ch, err := provider.Infer(ctx, req)
 	if err != nil {
+		d.handleInferenceError(ctx, rfc, err, "")
 		return fmt.Errorf("inference: %w", err)
 	}
 
-	// 7. Collect stream
+	// 7. Collect stream with real-time broadcasting
 	var content strings.Builder
+	streamComplete := false
 	for chunk := range ch {
+		if chunk.FinishReason != "" {
+			streamComplete = true
+		}
 		content.WriteString(chunk.Content)
+		if d.hub != nil {
+			d.hub.Broadcast(rfc.RoomID, StreamEvent{
+				Type:    "chunk",
+				RoomID:  rfc.RoomID,
+				Content: chunk.Content,
+			})
+		}
+	}
+
+	// If the stream ended without a finish reason, it was an error
+	if !streamComplete {
+		partial := content.String()
+		d.handleInferenceError(ctx, rfc, fmt.Errorf("inference stream ended unexpectedly"), partial)
+		return fmt.Errorf("inference stream ended unexpectedly")
 	}
 
 	// 8. Build response message
@@ -392,7 +480,26 @@ func (d *Dispatcher) processRFC(ctx context.Context, ag *agent.Agent, rfc room.R
 	delete(d.processing, rfc.RoomID)
 	d.mu.Unlock()
 
-	// 12. Notify protocol
+	// 12. Broadcast complete message
+	if d.hub != nil {
+		d.hub.Broadcast(rfc.RoomID, StreamEvent{
+			Type:   "message",
+			RoomID: rfc.RoomID,
+			Message: &MessageEvent{
+				ID:           responseMsg.ID,
+				Timestamp:    responseMsg.Timestamp.Format(time.RFC3339),
+				RoomID:       responseMsg.RoomID,
+				SenderID:     responseMsg.Sender.ID,
+				SenderName:   responseMsg.Sender.Name,
+				SenderType:   string(responseMsg.Sender.Type),
+				ClearanceTag: responseMsg.ClearanceTag,
+				Type:         string(responseMsg.Type),
+				Content:      responseMsg.Content,
+			},
+		})
+	}
+
+	// 13. Notify protocol
 	proto, err := d.getProtocol(ctx, r)
 	if err != nil {
 		return fmt.Errorf("get protocol: %w", err)
@@ -402,4 +509,46 @@ func (d *Dispatcher) processRFC(ctx context.Context, ag *agent.Agent, rfc room.R
 	}
 
 	return nil
+}
+
+// handleInferenceError writes a system error message to the transcript,
+// broadcasts an error event, and cleans up the processing state.
+func (d *Dispatcher) handleInferenceError(ctx context.Context, rfc room.RFC, err error, partialContent string) {
+	log.Printf("dispatcher: inference error for RFC %s: %v", rfc.ID, err)
+
+	// Write system error message to transcript
+	errorMsg := room.Message{
+		ID:        uuid.New().String(),
+		Timestamp: time.Now().UTC(),
+		RoomID:    rfc.RoomID,
+		Sender:    room.Actor{ID: "system", Type: room.ActorUser, Clearance: 0, Name: "System"},
+		ClearanceTag: 0,
+		Type:         room.MessageSystem,
+		Content:      fmt.Sprintf("Agent error: %v", err),
+	}
+	if err := d.appendToTranscript(ctx, rfc.RoomID, errorMsg); err != nil {
+		log.Printf("dispatcher: failed to append error message: %v", err)
+	}
+
+	// Broadcast error event
+	if d.hub != nil {
+		d.hub.Broadcast(rfc.RoomID, StreamEvent{
+			Type:    "agent_error",
+			RoomID:  rfc.RoomID,
+			Content: err.Error(),
+		})
+	}
+
+	// Notify protocol (if possible)
+	// NOTE: processing[roomID] is intentionally NOT cleared here.
+	// The caller (processRFC) is responsible for cleanup at step 11 so that
+	// the room is not prematurely marked idle mid-flight, which would allow
+	// interjections to bypass the queue.
+	if r, err := d.store.GetRoom(ctx, rfc.RoomID); err == nil {
+		if proto, err := d.getProtocol(ctx, r); err == nil {
+			proto.OnRFCResponse(r, rfc, errorMsg)
+		}
+	}
+
+	_ = partialContent // reserved for future use (e.g. partial response in error payload)
 }
