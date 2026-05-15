@@ -14,7 +14,8 @@
     "lint": "run-s lint:*",
     "lint:oxlint": "oxlint . --fix",
     "lint:eslint": "eslint . --fix --cache",
-    "format": "prettier --write --experimental-cli src/"
+    "format": "prettier --write --experimental-cli src/",
+    "openapi-generate": "openapi-ts -i 'http://localhost:8000/openapi.json' -o src/client"
   },
   "dependencies": {
     "pinia": "^3.0.4",
@@ -22,6 +23,7 @@
     "vue-router": "^5.0.4"
   },
   "devDependencies": {
+    "@hey-api/openapi-ts": "^0.97.1",
     "@playwright/test": "^1.59.1",
     "@tsconfig/node24": "^24.0.4",
     "@types/jsdom": "^28.0.1",
@@ -39,6 +41,7 @@
     "jiti": "^2.6.1",
     "jsdom": "^29.0.2",
     "npm-run-all2": "^8.0.4",
+    "openapi-typescript-codegen": "^0.30.0",
     "oxlint": "~1.60.0",
     "prettier": "3.8.3",
     "typescript": "~6.0.0",

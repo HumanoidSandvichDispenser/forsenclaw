@@ -2,13 +2,45 @@ version: '3.8'
 
 services:
   backend:
+    container_name: backend
     build:
       context: backend
       dockerfile: Dockerfile
-    ports:
-      - "8080:8080"
+    image: hearth-backend
+    #ports:
+    #  - "8080:8080"
     volumes:
       - ./backend:/app
       - /app/tmp
     environment:
       - CGO_ENABLED=0
+    networks:
+      - dev-network
+
+  frontend:
+    container_name: frontend
+    build:
+      context: ./frontend
+    image: hearth-frontend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - dev-network
+
+  nginx:
+    image: nginx:latest
+    container_name: nginx
+    ports:
+      - "8000:80"
+    volumes:
+      - ./nginx/development.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - dev-network
+
+networks:
+  dev-network:
+    driver: bridge
