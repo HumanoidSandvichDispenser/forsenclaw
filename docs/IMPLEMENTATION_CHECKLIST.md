@@ -7,12 +7,12 @@ Notes:
 - Prefer small, testable increments. Implementations should include basic unit/integration tests where practical.
 
 F1. Storage Layout + Server Config
-- [ ] Implement XDG path resolution for config/data/cache
-- [ ] Define Go structs for `hearth.yaml` and parse YAML on startup
-- [ ] Define Go structs for `agent.yaml` and validate on load
-- [ ] Bootstrap directories on first run: config agents/, data agents/, rooms/, staging/, db/, cache/
-- [ ] Add CLI/env override for config path
-- [ ] Implement config validation (required fields, model references, clearance ranges)
+- [X] Implement XDG path resolution for config/data/cache
+- [X] Define Go structs for `hearth.yaml` and parse YAML on startup
+- [X] Define Go structs for `agent.yaml` and validate on load
+- [X] Bootstrap directories on first run: config agents/, data agents/, rooms/, staging/, db/, cache/
+- [X] Add CLI/env override for config path
+- [X] Implement config validation (required fields, model references, clearance ranges)
 
 Frontend follow-up (optional):
 - [ ] Settings page to view/edit `hearth.yaml` (read-only by default)
