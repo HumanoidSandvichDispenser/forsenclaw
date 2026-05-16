@@ -50,7 +50,7 @@ func NewRetryingProvider(inner Provider, config RetryConfig) *RetryingProvider {
 }
 
 // Infer implements Provider. On transient errors, it retries with exponential backoff.
-func (r *RetryingProvider) Infer(ctx context.Context, req InferRequest) (<-chan StreamingChunk, error) {
+func (r *RetryingProvider) Infer(ctx context.Context, payload ContextPayload) (<-chan StreamingChunk, error) {
 	var lastErr error
 	for attempt := 0; attempt <= r.config.MaxRetries; attempt++ {
 		if attempt > 0 {
@@ -64,7 +64,7 @@ func (r *RetryingProvider) Infer(ctx context.Context, req InferRequest) (<-chan 
 			}
 		}
 
-		ch, err := r.inner.Infer(ctx, req)
+		ch, err := r.inner.Infer(ctx, payload)
 		if err == nil {
 			return ch, nil
 		}

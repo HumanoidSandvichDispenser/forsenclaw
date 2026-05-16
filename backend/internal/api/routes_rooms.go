@@ -84,19 +84,19 @@ func (svc *Service) createRoom(ctx context.Context, input *CreateRoomRequest) (*
 
 	// Persist room
 	if err := svc.store.CreateRoom(ctx, &r); err != nil {
-		return nil, huma.Error500InternalServerError("failed to create room: "+err.Error())
+		return nil, huma.Error500InternalServerError("failed to create room: " + err.Error())
 	}
 
 	// Create transcript file (will be reopened by dispatcher on first append)
 	writer, err := room.NewTranscriptWriter(svc.paths.RoomsDir(), r.ID)
 	if err != nil {
-		return nil, huma.Error500InternalServerError("failed to create transcript: "+err.Error())
+		return nil, huma.Error500InternalServerError("failed to create transcript: " + err.Error())
 	}
 	writer.Close()
 
 	// Start protocol
 	if err := svc.dispatcher.StartProtocol(&r); err != nil {
-		return nil, huma.Error500InternalServerError("failed to start protocol: "+err.Error())
+		return nil, huma.Error500InternalServerError("failed to start protocol: " + err.Error())
 	}
 
 	resp := &CreateRoomResponse{}
@@ -114,7 +114,7 @@ func (svc *Service) listRooms(ctx context.Context, input *ListRoomsRequest) (*Li
 
 	rooms, err := svc.store.ListRooms(ctx, opts)
 	if err != nil {
-		return nil, huma.Error500InternalServerError("failed to list rooms: "+err.Error())
+		return nil, huma.Error500InternalServerError("failed to list rooms: " + err.Error())
 	}
 
 	resp := &ListRoomsResponse{}
@@ -226,5 +226,6 @@ func toMessageResponse(m room.Message) MessageResponse {
 		ClearanceTag: m.ClearanceTag,
 		Type:         string(m.Type),
 		Content:      m.Content,
+		Usage:        m.Usage,
 	}
 }

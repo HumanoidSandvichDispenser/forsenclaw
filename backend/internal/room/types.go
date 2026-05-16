@@ -70,6 +70,12 @@ const (
 	MessageSystem MessageType = "system"
 )
 
+// Usage records token consumption for a message-producing inference call.
+type Usage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+}
+
 // Message is a single record in a room transcript. Messages are immutable
 // once written to the JSONL file.
 type Message struct {
@@ -94,6 +100,9 @@ type Message struct {
 
 	// Content is the message body.
 	Content string `json:"content"`
+
+	// Usage records token consumption for agent responses.
+	Usage *Usage `json:"usage,omitempty"`
 }
 
 // Validate checks that the message is well-formed.

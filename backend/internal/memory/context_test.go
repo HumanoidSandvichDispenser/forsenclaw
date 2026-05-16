@@ -57,20 +57,13 @@ func TestAssembler_Assemble(t *testing.T) {
 		t.Fatalf("Assemble: %v", err)
 	}
 
-	// Should have system message + room history + task
-	if len(result.Messages) < 2 {
-		t.Fatalf("expected at least 2 messages, got %d", len(result.Messages))
-	}
+	payload := result.ToContextPayload("test-model")
 
-	// First message should be system
-	if result.Messages[0].Role != inference.RoleSystem {
-		t.Errorf("first message role: got %q, want system", result.Messages[0].Role)
+	if !strings.Contains(payload.SystemPrompt, "helpful assistant") {
+		t.Errorf("system prompt missing role description: %q", payload.SystemPrompt)
 	}
-	if !strings.Contains(result.Messages[0].Content, "helpful assistant") {
-		t.Errorf("system message missing role description: %q", result.Messages[0].Content)
-	}
-	if !strings.Contains(result.Messages[0].Content, "likes tea") {
-		t.Errorf("system message missing memory: %q", result.Messages[0].Content)
+	if !strings.Contains(payload.Memory, "likes tea") {
+		t.Errorf("memory missing expected content: %q", payload.Memory)
 	}
 }
 
@@ -213,19 +206,23 @@ func TestAssembler_RoomHistoryRoles(t *testing.T) {
 		t.Fatalf("Assemble: %v", err)
 	}
 
-	// System message + 2 history messages + 1 task message = 4 total
-	if len(result.Messages) != 4 {
-		t.Fatalf("expected 4 messages, got %d", len(result.Messages))
+	payload := result.ToContextPayload("test-model")
+
+	// History should have 2 entries (msg_1, msg_2); msg_3 becomes the RFC
+	if len(payload.History) != 2 {
+		t.Fatalf("expected 2 history messages, got %d", len(payload.History))
 	}
 
-	// Check roles: msg_1 (user), msg_2 (assistant - same agent)
-	if result.Messages[1].Role != inference.RoleUser {
-		t.Errorf("msg_1 role: got %q, want user", result.Messages[1].Role)
+	// msg_1 → user, msg_2 → assistant (same agent)
+	if payload.History[0].Role != inference.RoleUser {
+		t.Errorf("history[0] role: got %q, want user", payload.History[0].Role)
 	}
-	if result.Messages[2].Role != inference.RoleAssistant {
-		t.Errorf("msg_2 role: got %q, want assistant", result.Messages[2].Role)
+	if payload.History[1].Role != inference.RoleAssistant {
+		t.Errorf("history[1] role: got %q, want assistant", payload.History[1].Role)
 	}
-	if !strings.Contains(result.Messages[3].Content, "How are you?") {
-		t.Errorf("task message missing last content: %q", result.Messages[3].Content)
+
+	// RFC should contain the last message content
+	if !strings.Contains(payload.RFC, "How are you?") {
+		t.Errorf("RFC missing last message content: %q", payload.RFC)
 	}
 }

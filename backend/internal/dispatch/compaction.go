@@ -112,12 +112,10 @@ func (d *Dispatcher) summariseBatch(ctx context.Context, ag *agent.Agent, roomID
 		return "", fmt.Errorf("resolve routine model for compaction: %w", err)
 	}
 
-	ch, err := provider.Infer(ctx, inference.InferRequest{
-		Model: modelID,
-		Messages: []inference.Message{
-			{Role: inference.RoleSystem, Content: ag.Definition.RoleDescription},
-			{Role: inference.RoleUser, Content: batchContent.String()},
-		},
+	ch, err := provider.Infer(ctx, inference.ContextPayload{
+		Model:        modelID,
+		SystemPrompt: ag.Definition.RoleDescription,
+		RFC:          batchContent.String(),
 	})
 	if err != nil {
 		return "", fmt.Errorf("compaction inference: %w", err)
@@ -192,18 +190,38 @@ func (d *Dispatcher) calculateCompactionBatch(roomID string, cursorOffset, bytes
 	return batchSize, accumulated, nil
 }
 
-// assembledContextSize returns the total byte size of all message content in
-// the assembled context, used to determine if compaction is needed.
+// assembledContextSize returns the total byte size of the assembled context
+// fields, used to determine if compaction is needed.
+//
+// CurrentRoomHistory excludes the last message because that message is
+// included in RFC, so counting both would double-count it.
 func assembledContextSize(assembled *memory.AssembledContext) int {
-	var total int
-	for _, m := range assembled.Messages {
-		total += len(m.Content)
+	total := len(assembled.SystemPrompt) + len(assembled.Memory) + len(assembled.RFC)
+	for _, s := range assembled.DailyNotes {
+		total += len(s)
 	}
+	for _, s := range assembled.CrossRoomFeed {
+		total += len(s)
+	}
+	// Exclude the last history message since it is also in RFC.
+	historyLen := len(assembled.CurrentRoomHistory)
+	if historyLen > 0 {
+		historyLen--
+	}
+	for i := 0; i < historyLen; i++ {
+		total += len(assembled.CurrentRoomHistory[i])
+	}
+	for _, s := range assembled.RAGResults {
+		total += len(s)
+	}
+	for _, s := range assembled.ToolSchemas {
+		total += len(s)
+	}
+	total += len(assembled.TurnBudget)
 	return total
 }
 
-// AssembledContextSize returns the total byte size of all message content in
-// the assembled context.
+// AssembledContextSize returns the total byte size of the assembled context.
 func AssembledContextSize(assembled *memory.AssembledContext) int {
 	return assembledContextSize(assembled)
 }

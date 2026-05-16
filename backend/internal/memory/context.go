@@ -14,7 +14,7 @@ import (
 
 // Assembler assembles the full context window for an agent invocation. It
 // reads MEMORY.md, daily notes, and room history, then composes them into a
-// ordered list of inference.Messages ready for the model API.
+// structured AssembledContext ready for model inference.
 type Assembler struct {
 	paths     *paths.Paths
 	memBudget int // token budget for MEMORY.md injection
@@ -60,7 +60,7 @@ type AssembleRequest struct {
 	RAGChunks []string
 }
 
-// AssembledContext is the ordered context window ready for model inference.
+// AssembledContext is the structured context window ready for model inference.
 type AssembledContext struct {
 	// SystemPrompt is the agent's role description.
 	SystemPrompt string
@@ -86,19 +86,35 @@ type AssembledContext struct {
 	// TurnBudget is the budget notice.
 	TurnBudget string
 
-	// RFC is the actual request payload.
-	RFC string
+	// History is the pre-role-assigned conversation history (all but the last
+	// message, which becomes the RFC).
+	History []inference.HistoryMessage
 
-	// Messages is the final ordered list of messages for the model API call.
-	Messages []inference.Message
+	// RFC is the final user request payload (interjections + last message).
+	RFC string
 }
 
-// Assemble builds the context window for an agent invocation. The returned
-// Messages slice is ordered as:
-//
-//	[0]   System message: role description + memory + daily notes
-//	[1..N] Alternating user/assistant from room history
-//	[N+1] User message: RFC payload (interjections + current task)
+// ToContextPayload converts the assembled context into an inference.ContextPayload
+// ready to pass to a provider. TurnBudget is pre-appended to the system prompt.
+func (a *AssembledContext) ToContextPayload(model string) inference.ContextPayload {
+	systemPrompt := a.SystemPrompt
+	if a.TurnBudget != "" {
+		systemPrompt += "\n\n" + a.TurnBudget
+	}
+	return inference.ContextPayload{
+		Model:         model,
+		SystemPrompt:  systemPrompt,
+		Memory:        a.Memory,
+		DailyNotes:    a.DailyNotes,
+		RAGResults:    a.RAGResults,
+		ToolSchemas:   a.ToolSchemas,
+		CrossRoomFeed: a.CrossRoomFeed,
+		History:       a.History,
+		RFC:           a.RFC,
+	}
+}
+
+// Assemble builds the context window for an agent invocation.
 func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req AssembleRequest) (*AssembledContext, error) {
 	if ag == nil {
 		return nil, fmt.Errorf("agent is nil")
@@ -136,140 +152,51 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req AssembleR
 		}
 	}
 
-	// 3. Cross-room feed → formatted strings for AssembledContext
+	// 3. Cross-room feed → formatted strings with relative timestamps
 	for _, crm := range req.CrossRoomFeed {
-		result.CrossRoomFeed = append(result.CrossRoomFeed, fmt.Sprintf("[#%s] %s: %s", crm.RoomID, crm.Message.Sender.Name, crm.Message.Content))
+		relTime := formatRelativeTime(crm.Message.Timestamp)
+		result.CrossRoomFeed = append(result.CrossRoomFeed, fmt.Sprintf("[#%s — %s] %s: %s", crm.RoomID, relTime, crm.Message.Sender.Name, crm.Message.Content))
 	}
 
-	// 4. Current room history → formatted strings for AssembledContext
+	// 4. Current room history → formatted strings for size tracking
 	for _, m := range req.CurrentRoomHistory {
 		result.CurrentRoomHistory = append(result.CurrentRoomHistory, fmt.Sprintf("%s: %s", m.Sender.Name, m.Content))
 	}
 
-	// 5. Build the inference.Messages slice
-	messages, err := a.buildMessages(ag, req, result)
-	if err != nil {
-		return nil, fmt.Errorf("build messages: %w", err)
+	// 5. Build pre-role-assigned History (all messages except the last, which
+	//    becomes the RFC).
+	historyMsgs := req.CurrentRoomHistory
+	if len(historyMsgs) > 0 {
+		historyMsgs = historyMsgs[:len(historyMsgs)-1]
 	}
-	result.Messages = messages
-
-	return result, nil
-}
-
-// buildMessages composes the final []inference.Message slice from the
-// assembled components.
-func (a *Assembler) buildMessages(ag *agent.Agent, req AssembleRequest, assembled *AssembledContext) ([]inference.Message, error) {
-	var msgs []inference.Message
-
-	// System message: role description + memory + daily notes + RAG + tool schemas
-	systemContent := &strings.Builder{}
-	systemContent.WriteString(assembled.SystemPrompt)
-
-	if assembled.Memory != "" {
-		systemContent.WriteString("\n\n## Memory\n\n")
-		systemContent.WriteString(assembled.Memory)
-	}
-
-	if len(assembled.DailyNotes) > 0 {
-		systemContent.WriteString("\n\n## Daily Notes\n\n")
-		for _, note := range assembled.DailyNotes {
-			systemContent.WriteString(note)
-			systemContent.WriteString("\n\n")
-		}
-	}
-
-	if len(assembled.RAGResults) > 0 {
-		systemContent.WriteString("\n\n## Relevant Context\n\n")
-		for _, r := range assembled.RAGResults {
-			systemContent.WriteString(r)
-			systemContent.WriteString("\n\n")
-		}
-	}
-
-	if len(assembled.ToolSchemas) > 0 {
-		systemContent.WriteString("\n\n## Available Tools\n\n")
-		for _, tool := range assembled.ToolSchemas {
-			systemContent.WriteString(tool)
-			systemContent.WriteString("\n\n")
-		}
-	}
-
-	if assembled.TurnBudget != "" {
-		systemContent.WriteString("\n\n")
-		systemContent.WriteString(assembled.TurnBudget)
-	}
-
-	if systemContent.Len() > 0 {
-		msgs = append(msgs, inference.Message{
-			Role:    inference.RoleSystem,
-			Content: systemContent.String(),
-		})
-	}
-
-	// Cross-room feed (Tier 2): messages from other rooms, chronologically
-	if len(req.CrossRoomFeed) > 0 {
-		var feedContent strings.Builder
-		feedContent.WriteString("## Cross-room activity\n\n")
-		for _, crm := range req.CrossRoomFeed {
-			relTime := formatRelativeTime(crm.Message.Timestamp)
-			feedContent.WriteString(fmt.Sprintf("[#%s — %s] %s: %s\n\n", crm.RoomID, relTime, crm.Message.Sender.Name, crm.Message.Content))
-		}
-		msgs = append(msgs, inference.Message{
-			Role:    inference.RoleUser,
-			Content: feedContent.String(),
-		})
-	}
-
-	// Current room history (Tier 3): convert room.Message to inference.Message
-	history := req.CurrentRoomHistory
-	if len(history) > 0 {
-		history = history[:len(history)-1]
-	}
-	for _, m := range history {
+	for _, m := range historyMsgs {
 		role := inference.RoleUser
-		if m.Sender.IsAgent() {
-			// If the sender is the agent being invoked, mark as assistant
-			if m.Sender.ID == "agent:"+ag.Name() {
-				role = inference.RoleAssistant
-			} else {
-				// Another agent speaking — treat as user message with name
-				role = inference.RoleUser
-			}
+		if m.Sender.IsAgent() && m.Sender.ID == "agent:"+ag.Name() {
+			role = inference.RoleAssistant
 		}
-		msgs = append(msgs, inference.Message{
+		result.History = append(result.History, inference.HistoryMessage{
 			Role:    role,
 			Content: fmt.Sprintf("%s: %s", m.Sender.Name, m.Content),
 			Name:    m.Sender.Name,
 		})
 	}
 
-	// RFC payload: interjections + current task
+	// 6. Build RFC: interjections + last message from room history.
 	var rfcContent strings.Builder
-
 	if len(req.Interjections) > 0 {
 		rfcContent.WriteString("## Interjections\n\n")
 		for _, m := range req.Interjections {
-			content := fmt.Sprintf("%s: %s\n\n", m.Sender.Name, m.Content)
-			rfcContent.WriteString(content)
+			rfcContent.WriteString(fmt.Sprintf("%s: %s\n\n", m.Sender.Name, m.Content))
 		}
 	}
-
 	rfcContent.WriteString("## Request for Comment\n\n")
-	// The RFC payload message is the current task
 	if len(req.CurrentRoomHistory) > 0 {
 		m := req.CurrentRoomHistory[len(req.CurrentRoomHistory)-1]
-		content := fmt.Sprintf("%s: %s", m.Sender.Name, m.Content)
-		rfcContent.WriteString(content)
+		rfcContent.WriteString(fmt.Sprintf("%s: %s", m.Sender.Name, m.Content))
 	}
+	result.RFC = rfcContent.String()
 
-	if rfcContent.Len() > 0 {
-		msgs = append(msgs, inference.Message{
-			Role:    inference.RoleUser,
-			Content: rfcContent.String(),
-		})
-	}
-
-	return msgs, nil
+	return result, nil
 }
 
 // formatRelativeTime returns a human-readable relative time string.

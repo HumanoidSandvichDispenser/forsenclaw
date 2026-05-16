@@ -42,7 +42,7 @@ func NewRegistry(cfg *config.ServerConfig) (*Registry, error) {
 			adapter, err = NewAnthropicAdapter(prov.BaseURL, apiKey)
 		case "openai_compatible":
 			apiKey := resolveAPIKey(prov)
-			adapter, err = NewOllamaAdapter(prov.BaseURL, apiKey)
+			adapter, err = NewOpenAICompatibleAdapter(prov.BaseURL, apiKey)
 		default:
 			return nil, fmt.Errorf("unknown provider protocol %q for provider %q", prov.Protocol, prov.Name)
 		}

@@ -7,7 +7,6 @@ import (
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
 )
 
-
 // mockProvider is a test provider that returns a pre-configured response.
 type mockProvider struct {
 	response string
@@ -18,7 +17,7 @@ func newMockProvider(response string, err error) *mockProvider {
 	return &mockProvider{response: response, err: err}
 }
 
-func (m *mockProvider) Infer(ctx context.Context, req inference.InferRequest) (<-chan inference.StreamingChunk, error) {
+func (m *mockProvider) Infer(ctx context.Context, payload inference.ContextPayload) (<-chan inference.StreamingChunk, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -29,6 +28,11 @@ func (m *mockProvider) Infer(ctx context.Context, req inference.InferRequest) (<
 		ch <- inference.StreamingChunk{
 			Content:      m.response,
 			FinishReason: "stop",
+			Usage: inference.Usage{
+				PromptTokens:     10,
+				CompletionTokens: 5,
+				TotalTokens:      15,
+			},
 		}
 	}()
 	return ch, nil

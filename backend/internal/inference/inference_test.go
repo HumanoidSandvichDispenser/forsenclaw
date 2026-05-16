@@ -23,7 +23,7 @@ type mockProvider struct {
 	err      error
 }
 
-func (m *mockProvider) Infer(ctx context.Context, req InferRequest) (<-chan StreamingChunk, error) {
+func (m *mockProvider) Infer(ctx context.Context, payload ContextPayload) (<-chan StreamingChunk, error) {
 	m.mu.Lock()
 	m.calls++
 	m.mu.Unlock()
@@ -47,6 +47,80 @@ func (m *mockProvider) CallCount() int {
 }
 
 // --- tests for core types ---
+
+func TestValidateContextPayload(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload ContextPayload
+		wantErr string
+	}{
+		{
+			name:    "missing model",
+			payload: ContextPayload{RFC: "hi"},
+			wantErr: "model is required",
+		},
+		{
+			name:    "empty payload",
+			payload: ContextPayload{Model: "test"},
+			wantErr: "at least one content field is required",
+		},
+		{
+			name:    "valid with RFC only",
+			payload: ContextPayload{Model: "test", RFC: "hi"},
+			wantErr: "",
+		},
+		{
+			name:    "valid with system prompt only",
+			payload: ContextPayload{Model: "test", SystemPrompt: "You are helpful."},
+			wantErr: "",
+		},
+		{
+			name:    "valid with memory only",
+			payload: ContextPayload{Model: "test", Memory: "Some memory."},
+			wantErr: "",
+		},
+		{
+			name:    "valid with daily notes only",
+			payload: ContextPayload{Model: "test", DailyNotes: []string{"note"}},
+			wantErr: "",
+		},
+		{
+			name:    "valid with RAG only",
+			payload: ContextPayload{Model: "test", RAGResults: []string{"result"}},
+			wantErr: "",
+		},
+		{
+			name:    "valid with tools only",
+			payload: ContextPayload{Model: "test", ToolSchemas: []string{"tool"}},
+			wantErr: "",
+		},
+		{
+			name:    "valid with cross-room feed only",
+			payload: ContextPayload{Model: "test", CrossRoomFeed: []string{"feed"}},
+			wantErr: "",
+		},
+		{
+			name:    "valid with history only",
+			payload: ContextPayload{Model: "test", History: []HistoryMessage{{Role: RoleUser, Content: "hi"}}},
+			wantErr: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateContextPayload(tt.payload)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("expected no error, got %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("expected error containing %q, got %v", tt.wantErr, err)
+			}
+		})
+	}
+}
 
 func TestValidateRequest(t *testing.T) {
 	tests := []struct {
@@ -104,9 +178,9 @@ func TestInferSync(t *testing.T) {
 		},
 	}
 
-	content, usage, err := InferSync(context.Background(), mock, InferRequest{
-		Model:    "test",
-		Messages: []Message{{Role: RoleUser, Content: "hi"}},
+	content, usage, err := InferSync(context.Background(), mock, ContextPayload{
+		Model: "test",
+		RFC:   "hi",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -217,7 +291,7 @@ func TestRetryingProviderSuccess(t *testing.T) {
 	}
 
 	rp := NewRetryingProvider(mock, RetryConfig{MaxRetries: 2, BaseDelay: 10 * time.Millisecond})
-	ch, err := rp.Infer(context.Background(), InferRequest{Model: "test", Messages: []Message{{Role: RoleUser, Content: "hi"}}})
+	ch, err := rp.Infer(context.Background(), ContextPayload{Model: "test", RFC: "hi"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -237,13 +311,11 @@ func TestRetryingProviderSuccess(t *testing.T) {
 
 func TestRetryingProviderRetriesThenSucceeds(t *testing.T) {
 	failures := 2
-	mock := &mockProvider{}
-	mock.err = fmt.Errorf("transient error")
 
 	// We'll override the Infer method to fail N times then succeed
 	callCount := 0
 	customProvider := &mockProviderWithFunc{
-		inferFn: func(ctx context.Context, req InferRequest) (<-chan StreamingChunk, error) {
+		inferFn: func(ctx context.Context, payload ContextPayload) (<-chan StreamingChunk, error) {
 			callCount++
 			if callCount <= failures {
 				return nil, &httpError{StatusCode: 503, Message: "service unavailable"}
@@ -256,7 +328,7 @@ func TestRetryingProviderRetriesThenSucceeds(t *testing.T) {
 	}
 
 	rp := NewRetryingProvider(customProvider, RetryConfig{MaxRetries: 3, BaseDelay: 10 * time.Millisecond})
-	ch, err := rp.Infer(context.Background(), InferRequest{Model: "test", Messages: []Message{{Role: RoleUser, Content: "hi"}}})
+	ch, err := rp.Infer(context.Background(), ContextPayload{Model: "test", RFC: "hi"})
 	if err != nil {
 		t.Fatalf("unexpected error after retries: %v", err)
 	}
@@ -276,13 +348,13 @@ func TestRetryingProviderRetriesThenSucceeds(t *testing.T) {
 
 func TestRetryingProviderExhausted(t *testing.T) {
 	customProvider := &mockProviderWithFunc{
-		inferFn: func(ctx context.Context, req InferRequest) (<-chan StreamingChunk, error) {
+		inferFn: func(ctx context.Context, payload ContextPayload) (<-chan StreamingChunk, error) {
 			return nil, &httpError{StatusCode: 503, Message: "service unavailable"}
 		},
 	}
 
 	rp := NewRetryingProvider(customProvider, RetryConfig{MaxRetries: 2, BaseDelay: 10 * time.Millisecond})
-	_, err := rp.Infer(context.Background(), InferRequest{Model: "test", Messages: []Message{{Role: RoleUser, Content: "hi"}}})
+	_, err := rp.Infer(context.Background(), ContextPayload{Model: "test", RFC: "hi"})
 	if err == nil {
 		t.Fatal("expected error after exhausted retries")
 	}
@@ -290,29 +362,29 @@ func TestRetryingProviderExhausted(t *testing.T) {
 
 func TestRetryingProviderNonRetryable(t *testing.T) {
 	customProvider := &mockProviderWithFunc{
-		inferFn: func(ctx context.Context, req InferRequest) (<-chan StreamingChunk, error) {
+		inferFn: func(ctx context.Context, payload ContextPayload) (<-chan StreamingChunk, error) {
 			return nil, &httpError{StatusCode: 400, Message: "bad request"}
 		},
 	}
 
 	rp := NewRetryingProvider(customProvider, RetryConfig{MaxRetries: 3, BaseDelay: 10 * time.Millisecond})
-	_, err := rp.Infer(context.Background(), InferRequest{Model: "test", Messages: []Message{{Role: RoleUser, Content: "hi"}}})
+	_, err := rp.Infer(context.Background(), ContextPayload{Model: "test", RFC: "hi"})
 	if err == nil {
 		t.Fatal("expected error for non-retryable status")
 	}
 }
 
 type mockProviderWithFunc struct {
-	inferFn func(ctx context.Context, req InferRequest) (<-chan StreamingChunk, error)
+	inferFn func(ctx context.Context, payload ContextPayload) (<-chan StreamingChunk, error)
 }
 
-func (m *mockProviderWithFunc) Infer(ctx context.Context, req InferRequest) (<-chan StreamingChunk, error) {
-	return m.inferFn(ctx, req)
+func (m *mockProviderWithFunc) Infer(ctx context.Context, payload ContextPayload) (<-chan StreamingChunk, error) {
+	return m.inferFn(ctx, payload)
 }
 
-// --- tests for Ollama adapter ---
+// --- tests for OpenAI-compatible adapter ---
 
-func TestOllamaAdapterInfer(t *testing.T) {
+func TestOpenAICompatibleAdapterInfer(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			t.Errorf("expected POST, got %s", r.Method)
@@ -338,14 +410,14 @@ func TestOllamaAdapterInfer(t *testing.T) {
 	}))
 	defer server.Close()
 
-	adapter, err := NewOllamaAdapter(server.URL, "")
+	adapter, err := NewOpenAICompatibleAdapter(server.URL, "")
 	if err != nil {
-		t.Fatalf("NewOllamaAdapter failed: %v", err)
+		t.Fatalf("NewOpenAICompatibleAdapter failed: %v", err)
 	}
 
-	ch, err := adapter.Infer(context.Background(), InferRequest{
-		Model:    "gemma",
-		Messages: []Message{{Role: RoleUser, Content: "hi"}},
+	ch, err := adapter.Infer(context.Background(), ContextPayload{
+		Model: "gemma",
+		RFC:   "hi",
 	})
 	if err != nil {
 		t.Fatalf("Infer failed: %v", err)
@@ -371,21 +443,21 @@ func TestOllamaAdapterInfer(t *testing.T) {
 	}
 }
 
-func TestOllamaAdapterError(t *testing.T) {
+func TestOpenAICompatibleAdapterError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]string{"error": "invalid key"})
 	}))
 	defer server.Close()
 
-	adapter, err := NewOllamaAdapter(server.URL, "bad-key")
+	adapter, err := NewOpenAICompatibleAdapter(server.URL, "bad-key")
 	if err != nil {
-		t.Fatalf("NewOllamaAdapter failed: %v", err)
+		t.Fatalf("NewOpenAICompatibleAdapter failed: %v", err)
 	}
 
-	_, err = adapter.Infer(context.Background(), InferRequest{
-		Model:    "gemma",
-		Messages: []Message{{Role: RoleUser, Content: "hi"}},
+	_, err = adapter.Infer(context.Background(), ContextPayload{
+		Model: "gemma",
+		RFC:   "hi",
 	})
 	if err == nil {
 		t.Fatal("expected error for 401 response")
@@ -431,9 +503,10 @@ func TestAnthropicAdapterInfer(t *testing.T) {
 		t.Fatalf("NewAnthropicAdapter failed: %v", err)
 	}
 
-	ch, err := adapter.Infer(context.Background(), InferRequest{
-		Model:    "claude-sonnet",
-		Messages: []Message{{Role: RoleUser, Content: "hi"}},
+	ch, err := adapter.Infer(context.Background(), ContextPayload{
+		Model:        "claude-sonnet",
+		SystemPrompt: "You are a helpful assistant.",
+		RFC:          "hi",
 	})
 	if err != nil {
 		t.Fatalf("Infer failed: %v", err)

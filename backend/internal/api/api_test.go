@@ -39,7 +39,7 @@ type mockProvider struct {
 	err      error
 }
 
-func (m *mockProvider) Infer(ctx context.Context, req inference.InferRequest) (<-chan inference.StreamingChunk, error) {
+func (m *mockProvider) Infer(ctx context.Context, payload inference.ContextPayload) (<-chan inference.StreamingChunk, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -92,7 +92,7 @@ models:
   sensitive: test-model
 feature_flags:
   identity_continuity: true
-  daily_notes: false
+  daily_notes: true
   proactive_triggers: false
   dreaming: false
 clearance: 5
@@ -473,6 +473,59 @@ func TestPreviewContext(t *testing.T) {
 
 	if len(body.Messages) == 0 {
 		t.Fatalf("expected context messages, got none")
+	}
+}
+
+// TestPreviewContext_HeadersMatchProviderRendering checks that the context
+// preview adds the same section headers that providers use.
+func TestPreviewContext_HeadersMatchProviderRendering(t *testing.T) {
+	svc, p, cleanup := newTestService(t)
+	defer cleanup()
+
+	router, _ := newTestRouter(t, svc)
+
+	// Create an agent with daily notes enabled and write a daily note.
+	agentDataDir := p.AgentDataDir("housewife")
+	if err := os.MkdirAll(filepath.Join(agentDataDir, "memory"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// Write a daily note for today so daily notes are included.
+	today := time.Now().UTC().Format("2006-01-02") + ".md"
+	if err := os.WriteFile(filepath.Join(agentDataDir, "memory", today), []byte("Today's note."), 0o644); err != nil {
+		t.Fatalf("write daily note: %v", err)
+	}
+
+	rm := createTestRoom(t, svc, router)
+	sendTestMessage(t, router, rm.ID, "user:alice", "Hello!")
+	time.Sleep(200 * time.Millisecond)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/rooms/"+rm.ID+"/agents/housewife/context-preview", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var body struct {
+		Messages []ContextMessageResponse `json:"messages"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if len(body.Messages) == 0 {
+		t.Fatalf("expected context messages, got none")
+	}
+
+	// The first message is the system message; it should contain section headers
+	// matching how the Anthropic adapter renders them.
+	sysContent := body.Messages[0].Content
+	if !strings.Contains(sysContent, "## Memory") {
+		t.Errorf("system message missing '## Memory' header")
+	}
+	if !strings.Contains(sysContent, "## Daily Notes") {
+		t.Errorf("system message missing '## Daily Notes' header")
 	}
 }
 

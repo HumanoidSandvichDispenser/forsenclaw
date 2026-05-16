@@ -3,6 +3,8 @@ package api
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
 )
 
 // ---------------------------------------------------------------------------
@@ -161,6 +163,7 @@ type MessageResponse struct {
 	ClearanceTag int           `json:"clearance_tag"  doc:"Classification tier"`
 	Type         string        `json:"type"           doc:"Message type" example:"message"`
 	Content      string        `json:"content"        doc:"Message body"`
+	Usage        *room.Usage   `json:"usage,omitempty" doc:"Token usage for agent responses"`
 }
 
 // ContextMessageResponse is a simplified message representation for context previews.

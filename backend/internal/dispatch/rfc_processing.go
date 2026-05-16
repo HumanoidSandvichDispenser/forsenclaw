@@ -50,12 +50,12 @@ func (d *Dispatcher) processRFC(ctx context.Context, ag *agent.Agent, rfc room.R
 
 	log.Printf("dispatcher: starting inference for RFC %s with model %q for agent %q in room %q", rfc.ID, modelID, ag.Name(), r.ID)
 
-	content, err := d.streamResponse(ctx, rfc, provider, modelID, assembled)
+	content, usage, err := d.streamResponse(ctx, rfc, provider, modelID, assembled)
 	if err != nil {
 		return err
 	}
 
-	responseMsg := d.buildResponseMessage(ag, rfc, content)
+	responseMsg := d.buildResponseMessage(ag, rfc, content, usage)
 
 	if err := d.deliverResponse(ctx, rfc, r, responseMsg); err != nil {
 		return err
@@ -106,34 +106,31 @@ func (d *Dispatcher) assembleContext(ctx context.Context, ag *agent.Agent, rfc r
 		return nil, nil, fmt.Errorf("assemble context: %w", err)
 	}
 
-	log.Printf("dispatcher: assembled context with %d messages for RFC %s", len(assembled.Messages), rfc.ID)
+	log.Printf("dispatcher: assembled context for RFC %s", rfc.ID)
 	return assembled, cursor, nil
 }
 
 // streamResponse broadcasts a typing indicator, calls inference, streams chunks
 // to connected clients, and returns the complete response content.
 // On inference failure, handleInferenceError is called before returning.
-func (d *Dispatcher) streamResponse(ctx context.Context, rfc room.RFC, provider inference.Provider, modelID string, assembled *memory.AssembledContext) (string, error) {
+func (d *Dispatcher) streamResponse(ctx context.Context, rfc room.RFC, provider inference.Provider, modelID string, assembled *memory.AssembledContext) (string, inference.Usage, error) {
 	if d.hub != nil {
 		d.hub.Broadcast(rfc.RoomID, StreamEvent{Type: "typing", RoomID: rfc.RoomID})
 	}
 
-	req := inference.InferRequest{
-		Model:    modelID,
-		Messages: assembled.Messages,
-	}
-
-	ch, err := provider.Infer(ctx, req)
+	ch, err := provider.Infer(ctx, assembled.ToContextPayload(modelID))
 	if err != nil {
 		d.handleInferenceError(ctx, rfc, err, "")
-		return "", fmt.Errorf("inference: %w", err)
+		return "", inference.Usage{}, fmt.Errorf("inference: %w", err)
 	}
 
 	var content strings.Builder
+	var usage inference.Usage
 	streamComplete := false
 	for chunk := range ch {
 		if chunk.FinishReason != "" {
 			streamComplete = true
+			usage = chunk.Usage
 		}
 		content.WriteString(chunk.Content)
 		if d.hub != nil {
@@ -148,14 +145,18 @@ func (d *Dispatcher) streamResponse(ctx context.Context, rfc room.RFC, provider 
 	if !streamComplete {
 		partial := content.String()
 		d.handleInferenceError(ctx, rfc, fmt.Errorf("inference stream ended unexpectedly"), partial)
-		return "", fmt.Errorf("inference stream ended unexpectedly")
+		return "", inference.Usage{}, fmt.Errorf("inference stream ended unexpectedly")
 	}
 
-	return content.String(), nil
+	return content.String(), usage, nil
 }
 
 // buildResponseMessage constructs the agent's response as a room.Message.
-func (d *Dispatcher) buildResponseMessage(ag *agent.Agent, rfc room.RFC, content string) room.Message {
+func (d *Dispatcher) buildResponseMessage(ag *agent.Agent, rfc room.RFC, content string, usage inference.Usage) room.Message {
+	msgUsage := room.Usage{
+		InputTokens:  usage.PromptTokens,
+		OutputTokens: usage.CompletionTokens,
+	}
 	return room.Message{
 		ID:           uuid.New().String(),
 		Timestamp:    time.Now().UTC(),
@@ -164,6 +165,7 @@ func (d *Dispatcher) buildResponseMessage(ag *agent.Agent, rfc room.RFC, content
 		ClearanceTag: ag.Definition.Clearance,
 		Type:         room.MessageText,
 		Content:      content,
+		Usage:        &msgUsage,
 	}
 }
 
@@ -192,6 +194,7 @@ func (d *Dispatcher) deliverResponse(ctx context.Context, rfc room.RFC, r *room.
 				ClearanceTag: msg.ClearanceTag,
 				Type:         string(msg.Type),
 				Content:      msg.Content,
+				Usage:        msg.Usage,
 			},
 		})
 	}

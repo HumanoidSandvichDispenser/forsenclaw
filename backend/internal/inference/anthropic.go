@@ -34,38 +34,78 @@ func NewAnthropicAdapter(baseURL, apiKey string) (*AnthropicAdapter, error) {
 }
 
 // Infer implements Provider for Anthropic.
-func (a *AnthropicAdapter) Infer(ctx context.Context, req InferRequest) (<-chan StreamingChunk, error) {
-	if err := ValidateRequest(req); err != nil {
+func (a *AnthropicAdapter) Infer(ctx context.Context, payload ContextPayload) (<-chan StreamingChunk, error) {
+	if err := ValidateContextPayload(payload); err != nil {
 		return nil, err
 	}
 
-	body := anthropicRequestBody{
-		Model:     req.Model,
-		Messages:  make([]anthropicMessage, 0, len(req.Messages)),
-		Stream:    true,
-		MaxTokens: 4096, // default; overridden below if set
+	// Build full system content from structured payload fields.
+	var systemContent strings.Builder
+	systemContent.WriteString(payload.SystemPrompt)
+	if payload.Memory != "" {
+		systemContent.WriteString("\n\n## Memory\n\n")
+		systemContent.WriteString(payload.Memory)
 	}
-
-	// Anthropic separates system prompt from messages
-	for _, m := range req.Messages {
-		if m.Role == RoleSystem {
-			body.System = m.Content
-			continue
+	if len(payload.DailyNotes) > 0 {
+		systemContent.WriteString("\n\n## Daily Notes\n\n")
+		for _, note := range payload.DailyNotes {
+			systemContent.WriteString(note)
+			systemContent.WriteString("\n\n")
 		}
-		body.Messages = append(body.Messages, anthropicMessage{
-			Role:    string(m.Role),
-			Content: m.Content,
-		})
+	}
+	if len(payload.RAGResults) > 0 {
+		systemContent.WriteString("\n\n## Relevant Context\n\n")
+		for _, r := range payload.RAGResults {
+			systemContent.WriteString(r)
+			systemContent.WriteString("\n\n")
+		}
+	}
+	if len(payload.ToolSchemas) > 0 {
+		systemContent.WriteString("\n\n## Available Tools\n\n")
+		for _, tool := range payload.ToolSchemas {
+			systemContent.WriteString(tool)
+			systemContent.WriteString("\n\n")
+		}
 	}
 
-	if req.MaxTokens != nil {
-		body.MaxTokens = *req.MaxTokens
+	body := anthropicRequestBody{
+		Model:     payload.Model,
+		System:    systemContent.String(),
+		Messages:  make([]anthropicMessage, 0),
+		Stream:    true,
+		MaxTokens: 4096,
 	}
-	if req.Temperature != nil {
-		body.Temperature = req.Temperature
+
+	if payload.MaxTokens != nil {
+		body.MaxTokens = *payload.MaxTokens
 	}
-	if len(req.Stop) > 0 {
-		body.StopSequences = req.Stop
+	if payload.Temperature != nil {
+		body.Temperature = payload.Temperature
+	}
+	if len(payload.Stop) > 0 {
+		body.StopSequences = payload.Stop
+	}
+
+	// Cross-room feed as first user message.
+	if len(payload.CrossRoomFeed) > 0 {
+		var sb strings.Builder
+		sb.WriteString("## Cross-room activity\n\n")
+		for _, line := range payload.CrossRoomFeed {
+			sb.WriteString(line)
+			sb.WriteString("\n\n")
+		}
+		anthropicAppendMerge(&body.Messages, "user", sb.String())
+	}
+
+	// History: add pre-role-assigned messages, merging consecutive same-role
+	// pairs to satisfy Anthropic's strict alternating constraint.
+	for _, h := range payload.History {
+		anthropicAppendMerge(&body.Messages, string(h.Role), h.Content)
+	}
+
+	// RFC as final user message.
+	if payload.RFC != "" {
+		anthropicAppendMerge(&body.Messages, "user", payload.RFC)
 	}
 
 	jsonBody, err := json.Marshal(body)
@@ -95,6 +135,17 @@ func (a *AnthropicAdapter) Infer(ctx context.Context, req InferRequest) (<-chan 
 	ch := make(chan StreamingChunk)
 	go a.readStream(resp.Body, ch)
 	return ch, nil
+}
+
+// anthropicAppendMerge appends a message to msgs. If the last message has the
+// same role, the content is merged with "\n\n" to satisfy Anthropic's strict
+// alternating user/assistant constraint.
+func anthropicAppendMerge(msgs *[]anthropicMessage, role, content string) {
+	if len(*msgs) > 0 && (*msgs)[len(*msgs)-1].Role == role {
+		(*msgs)[len(*msgs)-1].Content += "\n\n" + content
+	} else {
+		*msgs = append(*msgs, anthropicMessage{Role: role, Content: content})
+	}
 }
 
 func (a *AnthropicAdapter) readStream(body io.ReadCloser, ch chan<- StreamingChunk) {

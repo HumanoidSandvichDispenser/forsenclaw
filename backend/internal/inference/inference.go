@@ -32,7 +32,7 @@ const (
 	TierSensitive ModelTier = "sensitive"
 )
 
-// InferRequest is the input to a provider's Infer method.
+// InferRequest is kept for internal use (e.g. validation helpers).
 type InferRequest struct {
 	Model       string
 	Messages    []Message
@@ -60,19 +60,43 @@ type StreamingChunk struct {
 	Usage        Usage  `json:"usage,omitempty"`
 }
 
+// HistoryMessage is a pre-role-assigned message in the conversation history.
+type HistoryMessage struct {
+	Role    Role
+	Content string
+	Name    string
+}
+
+// ContextPayload is the structured context for a model invocation.
+// Providers receive this and render it natively for their API.
+type ContextPayload struct {
+	Model         string
+	SystemPrompt  string
+	Memory        string
+	DailyNotes    []string
+	RAGResults    []string
+	ToolSchemas   []string
+	CrossRoomFeed []string // pre-formatted strings, one per message
+	History       []HistoryMessage
+	RFC           string
+	Temperature   *float64
+	MaxTokens     *int
+	Stop          []string
+}
+
 // Provider is the interface for all model provider adapters.
 type Provider interface {
 	// Infer streams response chunks through the returned channel.
 	// The channel is closed when the stream completes or encounters an error.
 	// Setup errors (authentication, invalid request) are returned as the error value.
-	Infer(ctx context.Context, req InferRequest) (<-chan StreamingChunk, error)
+	Infer(ctx context.Context, payload ContextPayload) (<-chan StreamingChunk, error)
 }
 
 // InferSync is a convenience wrapper that collects all chunks from a stream
 // into a single response. It returns an error if the stream fails or if the
 // context is cancelled.
-func InferSync(ctx context.Context, p Provider, req InferRequest) (string, Usage, error) {
-	ch, err := p.Infer(ctx, req)
+func InferSync(ctx context.Context, p Provider, payload ContextPayload) (string, Usage, error) {
+	ch, err := p.Infer(ctx, payload)
 	if err != nil {
 		return "", Usage{}, err
 	}
@@ -112,6 +136,26 @@ func ValidateRequest(req InferRequest) error {
 		if m.Content == "" && m.Role != RoleTool {
 			return fmt.Errorf("message %d: content is required", i)
 		}
+	}
+	return nil
+}
+
+// ValidateContextPayload checks that a ContextPayload is well-formed before
+// sending it to a provider.
+func ValidateContextPayload(payload ContextPayload) error {
+	if payload.Model == "" {
+		return fmt.Errorf("model is required")
+	}
+	hasContent := payload.SystemPrompt != "" ||
+		payload.Memory != "" ||
+		len(payload.DailyNotes) > 0 ||
+		len(payload.RAGResults) > 0 ||
+		len(payload.ToolSchemas) > 0 ||
+		len(payload.CrossRoomFeed) > 0 ||
+		len(payload.History) > 0 ||
+		payload.RFC != ""
+	if !hasContent {
+		return fmt.Errorf("at least one content field is required")
 	}
 	return nil
 }

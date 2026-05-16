@@ -404,4 +404,7 @@ func TestDispatcher_FullFlow(t *testing.T) {
 	if !msgs[1].Sender.IsAgent() {
 		t.Errorf("expected sender to be agent, got %v", msgs[1].Sender.Type)
 	}
+	if msgs[1].Usage.InputTokens != 10 || msgs[1].Usage.OutputTokens != 5 {
+		t.Errorf("unexpected usage: got %+v", msgs[1].Usage)
+	}
 }

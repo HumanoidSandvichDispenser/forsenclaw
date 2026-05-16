@@ -76,7 +76,7 @@ type Broadcaster interface {
 
 // StreamEvent represents a real-time event broadcast to room subscribers.
 type StreamEvent struct {
-	Type    string `json:"type"`    // "typing" | "chunk" | "message" | "agent_error" | "interjection_queued"
+	Type    string `json:"type"` // "typing" | "chunk" | "message" | "agent_error" | "interjection_queued"
 	RoomID  string `json:"room_id"`
 	Content string `json:"content,omitempty"`
 	// Message contains the full message for "message" events.
@@ -86,15 +86,16 @@ type StreamEvent struct {
 
 // MessageEvent is a simplified message representation for WebSocket broadcasts.
 type MessageEvent struct {
-	ID           string `json:"id"`
-	Timestamp    string `json:"timestamp"`
-	RoomID       string `json:"room_id"`
-	SenderID     string `json:"sender_id"`
-	SenderName   string `json:"sender_name"`
-	SenderType   string `json:"sender_type"`
-	ClearanceTag int    `json:"clearance_tag"`
-	Type         string `json:"type"`
-	Content      string `json:"content"`
+	ID           string      `json:"id"`
+	Timestamp    string      `json:"timestamp"`
+	RoomID       string      `json:"room_id"`
+	SenderID     string      `json:"sender_id"`
+	SenderName   string      `json:"sender_name"`
+	SenderType   string      `json:"sender_type"`
+	ClearanceTag int         `json:"clearance_tag"`
+	Type         string      `json:"type"`
+	Content      string      `json:"content"`
+	Usage        *room.Usage `json:"usage,omitempty"`
 }
 
 // NewDispatcher creates a new dispatcher with the given dependencies.
