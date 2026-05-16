@@ -7,6 +7,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -42,6 +44,9 @@ type Dispatcher struct {
 
 	// paths resolves XDG directories.
 	paths *paths.Paths
+
+	// ctxConfig holds the context assembly configuration.
+	ctxConfig config.ContextConfig
 
 	// transcripts maps room IDs to their JSONL writers.
 	transcripts map[string]*room.TranscriptWriter
@@ -107,6 +112,7 @@ func NewDispatcher(
 	asm *memory.Assembler,
 	store room.Store,
 	p *paths.Paths,
+	ctxCfg config.ContextConfig,
 ) *Dispatcher {
 	return &Dispatcher{
 		agents:        make(map[string]*agentEntry),
@@ -115,6 +121,7 @@ func NewDispatcher(
 		assembler:     asm,
 		store:         store,
 		paths:         p,
+		ctxConfig:     ctxCfg,
 		transcripts:   make(map[string]*room.TranscriptWriter),
 		protocols:     make(map[string]room.Protocol),
 		processing:    make(map[string]bool),
@@ -343,6 +350,212 @@ func (d *Dispatcher) getProtocol(ctx context.Context, r *room.Room) (room.Protoc
 	return proto, nil
 }
 
+// loadCrossRoomFeed reads recent messages from all other rooms the agent
+// participates in, excluding the current room.
+func (d *Dispatcher) loadCrossRoomFeed(ctx context.Context, ag *agent.Agent, currentRoomID string) ([]memory.CrossRoomMessage, error) {
+	// Find all rooms where this agent is a participant
+	rooms, err := d.store.ListRooms(ctx, room.ListOpts{
+		Participant: "agent:" + ag.Name(),
+		Limit:       200,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list rooms: %w", err)
+	}
+
+	var feed []memory.CrossRoomMessage
+	for _, r := range rooms {
+		if r.ID == currentRoomID {
+			continue
+		}
+
+		// Get compaction cursor for this room
+		cursor, err := d.store.GetCompactionCursor(ctx, ag.Name(), r.ID)
+		if err != nil {
+			return nil, fmt.Errorf("get cursor for room %s: %w", r.ID, err)
+		}
+
+		// Read tail of this room
+		msgs, err := room.ReadMessagesTail(d.paths.RoomsDir(), r.ID, cursor.Offset, d.ctxConfig.OtherRoomWindow)
+		if err != nil {
+			return nil, fmt.Errorf("read tail for room %s: %w", r.ID, err)
+		}
+
+		// Filter by clearance and add to feed
+		for _, m := range msgs {
+			if m.ClearanceTag > ag.Definition.Clearance {
+				continue
+			}
+			feed = append(feed, memory.CrossRoomMessage{
+				Message: m,
+				RoomID:  r.ID,
+			})
+		}
+	}
+
+	return feed, nil
+}
+
+// maybeCompact checks if compaction is needed and performs it if so.
+// Compaction failure is non-fatal; the real RFC proceeds regardless.
+func (d *Dispatcher) maybeCompact(ctx context.Context, ag *agent.Agent, roomID string, cursor *room.CompactionCursor, assembled *memory.AssembledContext) error {
+	// Estimate assembled context size
+	var assembledSize int
+	for _, m := range assembled.Messages {
+		assembledSize += len(m.Content)
+	}
+
+	// Check if compaction is needed
+	if assembledSize < d.ctxConfig.CompactionTrigger {
+		return nil
+	}
+
+	// Get total message count
+	totalCount, err := room.TotalLineCount(d.paths.RoomsDir(), roomID)
+	if err != nil {
+		return fmt.Errorf("count transcript lines: %w", err)
+	}
+
+	// Check if there's enough to compact outside the guaranteed window
+	guaranteed := d.ctxConfig.MinimumGuaranteed
+	minBatch := d.ctxConfig.MinimumGuaranteed // Using minimum_guaranteed as min_batch floor
+	available := totalCount - cursor.Offset - guaranteed
+	if available < minBatch {
+		log.Printf("dispatcher: compaction skipped for room %s, not enough messages outside guaranteed window (%d < %d)", roomID, available, minBatch)
+		return nil
+	}
+
+	// Calculate batch size: how many messages to compact to reach target
+	// Walk forward from cursor, accumulating bytes until we'd drop enough
+	bytesToRemove := assembledSize - d.ctxConfig.CompactionTarget
+	batchSize, accumulatedBytes, err := d.calculateCompactionBatch(roomID, cursor.Offset, bytesToRemove, available)
+	if err != nil {
+		return fmt.Errorf("calculate compaction batch: %w", err)
+	}
+
+	if batchSize <= 0 {
+		log.Printf("dispatcher: compaction skipped for room %s, batch size <= 0", roomID)
+		return nil
+	}
+
+	log.Printf("dispatcher: compacting %d messages (%d bytes) from room %s for agent %s", batchSize, accumulatedBytes, roomID, ag.Name())
+
+	// Build compaction context: just the batch to summarize
+	batchMessages, err := room.ReadMessagesFromOffset(d.paths.RoomsDir(), roomID, cursor.Offset, batchSize)
+	if err != nil {
+		return fmt.Errorf("read compaction batch: %w", err)
+	}
+
+	// Build compaction request
+	var batchContent strings.Builder
+	batchContent.WriteString("## Compaction Request\n\n")
+	batchContent.WriteString("Summarize the following conversation messages into a concise summary. Write this summary to your daily note.\n\n")
+	for _, m := range batchMessages {
+		batchContent.WriteString(fmt.Sprintf("%s: %s\n", m.Sender.Name, m.Content))
+	}
+
+	// Call model for compaction (using routine tier to save cost)
+	provider, modelID, err := d.registry.ResolveTier(ag.Definition, inference.TierRoutine)
+	if err != nil {
+		return fmt.Errorf("resolve routine model for compaction: %w", err)
+	}
+
+	compactionReq := inference.InferRequest{
+		Model: modelID,
+		Messages: []inference.Message{
+			{Role: inference.RoleSystem, Content: ag.Definition.RoleDescription},
+			{Role: inference.RoleUser, Content: batchContent.String()},
+		},
+	}
+
+	ch, err := provider.Infer(ctx, compactionReq)
+	if err != nil {
+		return fmt.Errorf("compaction inference: %w", err)
+	}
+
+	var summary strings.Builder
+	streamComplete := false
+	for chunk := range ch {
+		if chunk.FinishReason != "" {
+			streamComplete = true
+		}
+		summary.WriteString(chunk.Content)
+	}
+	if !streamComplete {
+		return fmt.Errorf("compaction stream ended unexpectedly")
+	}
+
+	// Write summary to daily note
+	if ag.Definition.FeatureFlags.DailyNotes {
+		agentDir := d.paths.AgentDataDir(ag.Name())
+		memoryDir := filepath.Join(agentDir, "memory")
+		if err := os.MkdirAll(memoryDir, 0o755); err != nil {
+			return fmt.Errorf("mkdir memory: %w", err)
+		}
+		todayFile := filepath.Join(memoryDir, time.Now().UTC().Format("2006-01-02")+".md")
+		if err := func() error {
+			f, err := os.OpenFile(todayFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+			if err != nil {
+				return fmt.Errorf("open daily note: %w", err)
+			}
+			defer f.Close()
+
+			header := fmt.Sprintf("\n\n## Compacted summary from room %s (%s)\n\n", roomID, time.Now().UTC().Format("2006-01-02 15:04"))
+			if _, err := f.WriteString(header); err != nil {
+				return fmt.Errorf("write compaction header: %w", err)
+			}
+			if _, err := f.WriteString(summary.String()); err != nil {
+				return fmt.Errorf("write compaction summary: %w", err)
+			}
+			if _, err := f.WriteString("\n"); err != nil {
+				return fmt.Errorf("write newline: %w", err)
+			}
+			return nil
+		}(); err != nil {
+			return err
+		}
+	}
+
+	// Advance cursor
+	newCursor := &room.CompactionCursor{
+		AgentName: ag.Name(),
+		RoomID:    roomID,
+		Offset:    cursor.Offset + batchSize,
+	}
+	if err := d.store.SetCompactionCursor(ctx, newCursor); err != nil {
+		return fmt.Errorf("advance compaction cursor: %w", err)
+	}
+
+	log.Printf("dispatcher: compaction complete for room %s, cursor advanced to %d", roomID, newCursor.Offset)
+	return nil
+}
+
+// calculateCompactionBatch reads forward from the current cursor offset and
+// returns how many messages should be compacted to remove at least bytesToRemove.
+// It never returns more than maxAvailable.
+func (d *Dispatcher) calculateCompactionBatch(roomID string, cursorOffset, bytesToRemove, maxAvailable int) (int, int, error) {
+	if maxAvailable <= 0 || bytesToRemove <= 0 {
+		return 0, 0, nil
+	}
+
+	// Read messages from cursor offset
+	msgs, err := room.ReadMessagesFromOffset(d.paths.RoomsDir(), roomID, cursorOffset, maxAvailable)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	accumulated := 0
+	batchSize := 0
+	for _, m := range msgs {
+		accumulated += len(m.Content)
+		batchSize++
+		if accumulated >= bytesToRemove {
+			break
+		}
+	}
+
+	return batchSize, accumulated, nil
+}
+
 // appendToTranscript writes a message to the room's JSONL transcript file.
 func (d *Dispatcher) appendToTranscript(ctx context.Context, roomID string, msg room.Message) error {
 	d.mu.Lock()
@@ -395,23 +608,59 @@ func (d *Dispatcher) processRFC(ctx context.Context, ag *agent.Agent, rfc room.R
 	d.interjections[rfc.RoomID] = nil
 	d.mu.Unlock()
 
-	// 3. Read room history from transcript
-	history, err := room.ReadMessages(ctx, d.paths.RoomsDir(), rfc.RoomID, room.ReadOpts{})
+	// 3. Read current room history (windowed tail from compacted_offset)
+	cursor, err := d.store.GetCompactionCursor(ctx, ag.Name(), rfc.RoomID)
 	if err != nil {
-		return fmt.Errorf("read history: %w", err)
+		return fmt.Errorf("get compaction cursor: %w", err)
 	}
 
-	// 4. Assemble context
+	currentHistory, err := room.ReadMessagesTail(d.paths.RoomsDir(), rfc.RoomID, cursor.Offset, d.ctxConfig.CurrentRoomWindow)
+	if err != nil {
+		return fmt.Errorf("read current room tail: %w", err)
+	}
+
+	// 4. Load cross-room feed from other rooms this agent participates in
+	crossRoomFeed, err := d.loadCrossRoomFeed(ctx, ag, rfc.RoomID)
+	if err != nil {
+		return fmt.Errorf("load cross-room feed: %w", err)
+	}
+
+	// 5. Assemble context
 	assembled, err := d.assembler.Assemble(ctx, ag, memory.AssembleRequest{
-		RoomID:        rfc.RoomID,
-		RoomHistory:   history,
-		Interjections: interjections,
+		RoomID:             rfc.RoomID,
+		CrossRoomFeed:      crossRoomFeed,
+		CurrentRoomHistory: currentHistory,
+		Interjections:      interjections,
 	})
 	if err != nil {
 		return fmt.Errorf("assemble context: %w", err)
 	}
 
 	log.Printf("dispatcher: assembled context with %d messages for RFC %s in room %q", len(assembled.Messages), rfc.ID, r.ID)
+
+	// 6. Check if compaction is needed before processing the real RFC
+	if err := d.maybeCompact(ctx, ag, rfc.RoomID, cursor, assembled); err != nil {
+		log.Printf("dispatcher: compaction failed for RFC %s, proceeding anyway: %v", rfc.ID, err)
+	}
+	// Re-read current room history after compaction in case cursor advanced
+	cursor, err = d.store.GetCompactionCursor(ctx, ag.Name(), rfc.RoomID)
+	if err != nil {
+		return fmt.Errorf("get compaction cursor after compaction: %w", err)
+	}
+	currentHistory, err = room.ReadMessagesTail(d.paths.RoomsDir(), rfc.RoomID, cursor.Offset, d.ctxConfig.CurrentRoomWindow)
+	if err != nil {
+		return fmt.Errorf("re-read current room tail: %w", err)
+	}
+	// Re-assemble with potentially compacted context
+	assembled, err = d.assembler.Assemble(ctx, ag, memory.AssembleRequest{
+		RoomID:             rfc.RoomID,
+		CrossRoomFeed:      crossRoomFeed,
+		CurrentRoomHistory: currentHistory,
+		Interjections:      interjections,
+	})
+	if err != nil {
+		return fmt.Errorf("reassemble context: %w", err)
+	}
 
 	// 5. Resolve model tier (primary for room RFCs)
 	provider, modelID, err := d.registry.ResolveTier(ag.Definition, inference.TierPrimary)

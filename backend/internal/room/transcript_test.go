@@ -298,3 +298,229 @@ func TestTranscriptWriter_CreatesDirectory(t *testing.T) {
 		t.Fatal("expected directory to be created")
 	}
 }
+
+func TestReadMessagesTail_Basic(t *testing.T) {
+	dir := t.TempDir()
+	roomID := "room_tail"
+
+	w, err := NewTranscriptWriter(dir, roomID)
+	if err != nil {
+		t.Fatalf("NewTranscriptWriter: %v", err)
+	}
+
+	alice := Actor{ID: "user:alice", Type: ActorUser, Clearance: 5}
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	for i := 0; i < 10; i++ {
+		msg := Message{
+			ID:           fmt.Sprintf("msg_%d", i),
+			Timestamp:    now.Add(time.Duration(i) * time.Minute),
+			RoomID:       roomID,
+			Sender:       alice,
+			ClearanceTag: 5,
+			Type:         MessageText,
+			Content:      fmt.Sprintf("Message %d", i),
+		}
+		if err := w.Append(ctx, msg); err != nil {
+			t.Fatalf("Append %d: %v", i, err)
+		}
+	}
+	w.Close()
+
+	// Read last 3 messages
+	got, err := ReadMessagesTail(dir, roomID, 0, 3)
+	if err != nil {
+		t.Fatalf("ReadMessagesTail: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(got))
+	}
+	if got[0].ID != "msg_7" {
+		t.Errorf("first: got %q, want msg_7", got[0].ID)
+	}
+	if got[2].ID != "msg_9" {
+		t.Errorf("last: got %q, want msg_9", got[2].ID)
+	}
+}
+
+func TestReadMessagesTail_WithOffset(t *testing.T) {
+	dir := t.TempDir()
+	roomID := "room_tail_offset"
+
+	w, err := NewTranscriptWriter(dir, roomID)
+	if err != nil {
+		t.Fatalf("NewTranscriptWriter: %v", err)
+	}
+
+	alice := Actor{ID: "user:alice", Type: ActorUser, Clearance: 5}
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	for i := 0; i < 10; i++ {
+		msg := Message{
+			ID:           fmt.Sprintf("msg_%d", i),
+			Timestamp:    now.Add(time.Duration(i) * time.Minute),
+			RoomID:       roomID,
+			Sender:       alice,
+			ClearanceTag: 5,
+			Type:         MessageText,
+			Content:      fmt.Sprintf("Message %d", i),
+		}
+		if err := w.Append(ctx, msg); err != nil {
+			t.Fatalf("Append %d: %v", i, err)
+		}
+	}
+	w.Close()
+
+	// With offset far from end (5), tail of 3 should give last 3 messages
+	got, err := ReadMessagesTail(dir, roomID, 5, 3)
+	if err != nil {
+		t.Fatalf("ReadMessagesTail: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(got))
+	}
+	if got[0].ID != "msg_7" {
+		t.Errorf("first: got %q, want msg_7", got[0].ID)
+	}
+	if got[2].ID != "msg_9" {
+		t.Errorf("last: got %q, want msg_9", got[2].ID)
+	}
+}
+
+func TestReadMessagesTail_OffsetNearEnd(t *testing.T) {
+	dir := t.TempDir()
+	roomID := "room_tail_offset_near"
+
+	w, err := NewTranscriptWriter(dir, roomID)
+	if err != nil {
+		t.Fatalf("NewTranscriptWriter: %v", err)
+	}
+
+	alice := Actor{ID: "user:alice", Type: ActorUser, Clearance: 5}
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	for i := 0; i < 10; i++ {
+		msg := Message{
+			ID:           fmt.Sprintf("msg_%d", i),
+			Timestamp:    now.Add(time.Duration(i) * time.Minute),
+			RoomID:       roomID,
+			Sender:       alice,
+			ClearanceTag: 5,
+			Type:         MessageText,
+			Content:      fmt.Sprintf("Message %d", i),
+		}
+		if err := w.Append(ctx, msg); err != nil {
+			t.Fatalf("Append %d: %v", i, err)
+		}
+	}
+	w.Close()
+
+	// offset=8, limit=5: only 2 messages are after the cursor (msg_8, msg_9)
+	got, err := ReadMessagesTail(dir, roomID, 8, 5)
+	if err != nil {
+		t.Fatalf("ReadMessagesTail: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 messages (cursor-clamped), got %d", len(got))
+	}
+	if got[0].ID != "msg_8" {
+		t.Errorf("first: got %q, want msg_8", got[0].ID)
+	}
+	if got[1].ID != "msg_9" {
+		t.Errorf("last: got %q, want msg_9", got[1].ID)
+	}
+}
+
+func TestReadMessagesTail_OffsetPastEnd(t *testing.T) {
+	dir := t.TempDir()
+	roomID := "room_tail_offset_past"
+
+	w, err := NewTranscriptWriter(dir, roomID)
+	if err != nil {
+		t.Fatalf("NewTranscriptWriter: %v", err)
+	}
+
+	alice := Actor{ID: "user:alice", Type: ActorUser, Clearance: 5}
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	for i := 0; i < 5; i++ {
+		msg := Message{
+			ID:           fmt.Sprintf("msg_%d", i),
+			Timestamp:    now.Add(time.Duration(i) * time.Minute),
+			RoomID:       roomID,
+			Sender:       alice,
+			ClearanceTag: 5,
+			Type:         MessageText,
+			Content:      fmt.Sprintf("Message %d", i),
+		}
+		if err := w.Append(ctx, msg); err != nil {
+			t.Fatalf("Append %d: %v", i, err)
+		}
+	}
+	w.Close()
+
+	// offset >= totalCount: nothing is available
+	got, err := ReadMessagesTail(dir, roomID, 5, 3)
+	if err != nil {
+		t.Fatalf("ReadMessagesTail: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected 0 messages when offset >= total, got %d", len(got))
+	}
+}
+
+func TestReadMessagesTail_EmptyFile(t *testing.T) {
+	dir := t.TempDir()
+	roomID := "room_tail_empty"
+
+	// No file created
+	got, err := ReadMessagesTail(dir, roomID, 0, 10)
+	if err != nil {
+		t.Fatalf("ReadMessagesTail: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected 0 messages, got %d", len(got))
+	}
+}
+
+func TestTotalLineCount(t *testing.T) {
+	dir := t.TempDir()
+	roomID := "room_count"
+
+	w, err := NewTranscriptWriter(dir, roomID)
+	if err != nil {
+		t.Fatalf("NewTranscriptWriter: %v", err)
+	}
+
+	alice := Actor{ID: "user:alice", Type: ActorUser, Clearance: 5}
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	for i := 0; i < 5; i++ {
+		msg := Message{
+			ID:           uuid.New().String(),
+			Timestamp:    now.Add(time.Duration(i) * time.Minute),
+			RoomID:       roomID,
+			Sender:       alice,
+			ClearanceTag: 5,
+			Type:         MessageText,
+			Content:      fmt.Sprintf("Message %d", i),
+		}
+		if err := w.Append(ctx, msg); err != nil {
+			t.Fatalf("Append %d: %v", i, err)
+		}
+	}
+	w.Close()
+
+	count, err := TotalLineCount(dir, roomID)
+	if err != nil {
+		t.Fatalf("TotalLineCount: %v", err)
+	}
+	if count != 5 {
+		t.Fatalf("expected 5 lines, got %d", count)
+	}
+}

@@ -50,8 +50,8 @@ func TestAssembler_Assemble(t *testing.T) {
 
 	ctx := context.Background()
 	result, err := assembler.Assemble(ctx, ag, AssembleRequest{
-		RoomID:      "room_1",
-		RoomHistory: history,
+		RoomID:             "room_1",
+		CurrentRoomHistory: history,
 	})
 	if err != nil {
 		t.Fatalf("Assemble: %v", err)
@@ -106,8 +106,8 @@ func TestAssembler_Assemble_WithDailyNotes(t *testing.T) {
 	assembler := NewAssembler(p, 4096)
 	ctx := context.Background()
 	result, err := assembler.Assemble(ctx, ag, AssembleRequest{
-		RoomID:      "room_1",
-		RoomHistory: []room.Message{},
+		RoomID:             "room_1",
+		CurrentRoomHistory: []room.Message{},
 	})
 	if err != nil {
 		t.Fatalf("Assemble: %v", err)
@@ -208,7 +208,7 @@ func TestAssembler_RoomHistoryRoles(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result, err := assembler.Assemble(ctx, ag, AssembleRequest{RoomHistory: history})
+	result, err := assembler.Assemble(ctx, ag, AssembleRequest{CurrentRoomHistory: history})
 	if err != nil {
 		t.Fatalf("Assemble: %v", err)
 	}

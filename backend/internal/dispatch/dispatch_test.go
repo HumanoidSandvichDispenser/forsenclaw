@@ -68,9 +68,10 @@ func newTestDispatcher(t *testing.T) (*Dispatcher, *paths.Paths, func()) {
 	}
 
 	assembler := memory.NewAssembler(p, 4096)
+	ctxCfg := config.DefaultContextConfig()
 
 	// Create dispatcher
-	d := NewDispatcher(mgr, nil, assembler, store, p)
+	d := NewDispatcher(mgr, nil, assembler, store, p, ctxCfg)
 
 	cleanup := func() {
 		d.mu.Lock()
@@ -343,7 +344,8 @@ func TestDispatcher_FullFlow(t *testing.T) {
 	mockReg := newMockRegistry(mockProv, "test-model")
 
 	assembler := memory.NewAssembler(p, 4096)
-	d := NewDispatcher(nil, mockReg, assembler, store, p)
+	ctxCfg := config.DefaultContextConfig()
+	d := NewDispatcher(nil, mockReg, assembler, store, p, ctxCfg)
 
 	// Register agent
 	d.RegisterAgent(ag)

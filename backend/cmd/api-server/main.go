@@ -182,7 +182,7 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 	go hub.Run()
 
 	// 6. Create dispatcher
-	dispatcher := dispatch.NewDispatcher(agentMgr, registry, assembler, store, p)
+	dispatcher := dispatch.NewDispatcher(agentMgr, registry, assembler, store, p, cfg.Context)
 
 	// 7. Wire broadcaster
 	dispatcher.SetBroadcaster(hub)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/agent"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
@@ -28,13 +29,22 @@ func NewAssembler(p *paths.Paths, memBudget int) *Assembler {
 	return &Assembler{paths: p, memBudget: memBudget}
 }
 
+// CrossRoomMessage is a message from another room, labeled with its room ID.
+type CrossRoomMessage struct {
+	Message room.Message
+	RoomID  string
+}
+
 // AssembleRequest captures the inputs needed for context assembly.
 type AssembleRequest struct {
 	// RoomID is the target room for this invocation. Empty for proactive/system RFCs.
 	RoomID string
 
-	// RoomHistory is the recent message history from the room transcript.
-	RoomHistory []room.Message
+	// CrossRoomFeed is recent messages from other rooms the agent participates in.
+	CrossRoomFeed []CrossRoomMessage
+
+	// CurrentRoomHistory is the windowed tail of the target room's transcript.
+	CurrentRoomHistory []room.Message
 
 	// AvailableTools are the MCP tool schemas this agent may use.
 	// Populated by the MCP integration layer (F6).
@@ -45,6 +55,9 @@ type AssembleRequest struct {
 
 	// Interjections are messages that arrived while the agent was responding.
 	Interjections []room.Message
+
+	// RAGChunks are retrieved chunks from the search index. Always nil in v1.
+	RAGChunks []string
 }
 
 // AssembledContext is the ordered context window ready for model inference.
@@ -64,8 +77,11 @@ type AssembledContext struct {
 	// ToolSchemas are the permitted MCP tool schemas.
 	ToolSchemas []string
 
-	// RoomHistory is the recent transcript from the room.
-	RoomHistory []string
+	// CrossRoomFeed is the formatted recent transcript from other rooms.
+	CrossRoomFeed []string
+
+	// CurrentRoomHistory is the formatted windowed tail of the target room.
+	CurrentRoomHistory []string
 
 	// TurnBudget is the budget notice.
 	TurnBudget string
@@ -120,12 +136,17 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req AssembleR
 		}
 	}
 
-	// 3. Room history → formatted strings for AssembledContext
-	for _, m := range req.RoomHistory {
-		result.RoomHistory = append(result.RoomHistory, fmt.Sprintf("%s: %s", m.Sender.Name, m.Content))
+	// 3. Cross-room feed → formatted strings for AssembledContext
+	for _, crm := range req.CrossRoomFeed {
+		result.CrossRoomFeed = append(result.CrossRoomFeed, fmt.Sprintf("[#%s] %s: %s", crm.RoomID, crm.Message.Sender.Name, crm.Message.Content))
 	}
 
-	// 4. Build the inference.Messages slice
+	// 4. Current room history → formatted strings for AssembledContext
+	for _, m := range req.CurrentRoomHistory {
+		result.CurrentRoomHistory = append(result.CurrentRoomHistory, fmt.Sprintf("%s: %s", m.Sender.Name, m.Content))
+	}
+
+	// 5. Build the inference.Messages slice
 	messages, err := a.buildMessages(ag, req, result)
 	if err != nil {
 		return nil, fmt.Errorf("build messages: %w", err)
@@ -185,8 +206,22 @@ func (a *Assembler) buildMessages(ag *agent.Agent, req AssembleRequest, assemble
 		})
 	}
 
-	// Room history: convert room.Message to inference.Message
-	for _, m := range req.RoomHistory {
+	// Cross-room feed (Tier 2): messages from other rooms, chronologically
+	if len(req.CrossRoomFeed) > 0 {
+		var feedContent strings.Builder
+		feedContent.WriteString("## Cross-room activity\n\n")
+		for _, crm := range req.CrossRoomFeed {
+			relTime := formatRelativeTime(crm.Message.Timestamp)
+			feedContent.WriteString(fmt.Sprintf("[#%s — %s] %s: %s\n\n", crm.RoomID, relTime, crm.Message.Sender.Name, crm.Message.Content))
+		}
+		msgs = append(msgs, inference.Message{
+			Role:    inference.RoleUser,
+			Content: feedContent.String(),
+		})
+	}
+
+	// Current room history (Tier 3): convert room.Message to inference.Message
+	for _, m := range req.CurrentRoomHistory {
 		role := inference.RoleUser
 		if m.Sender.IsAgent() {
 			// If the sender is the agent being invoked, mark as assistant
@@ -216,7 +251,7 @@ func (a *Assembler) buildMessages(ag *agent.Agent, req AssembleRequest, assemble
 
 	rfcContent.WriteString("## Task\n\n")
 	// The RFC payload messages are the current task
-	for _, m := range req.RoomHistory {
+	for _, m := range req.CurrentRoomHistory {
 		// The last message is typically the one triggering this RFC
 		// For FreeForm, it's the user's most recent message
 		if m.Sender.IsUser() {
@@ -232,4 +267,21 @@ func (a *Assembler) buildMessages(ag *agent.Agent, req AssembleRequest, assemble
 	}
 
 	return msgs, nil
+}
+
+// formatRelativeTime returns a human-readable relative time string.
+func formatRelativeTime(t time.Time) string {
+	delta := time.Since(t)
+	switch {
+	case delta < time.Minute:
+		return "just now"
+	case delta < time.Hour:
+		return fmt.Sprintf("%dm ago", int(delta.Minutes()))
+	case delta < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(delta.Hours()))
+	case delta < 7*24*time.Hour:
+		return fmt.Sprintf("%dd ago", int(delta.Hours()/24))
+	default:
+		return t.Format("2006-01-02")
+	}
 }

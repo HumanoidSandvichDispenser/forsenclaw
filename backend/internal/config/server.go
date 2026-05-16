@@ -7,11 +7,31 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type ContextConfig struct {
+	CurrentRoomWindow   int `yaml:"current_room_window"`
+	OtherRoomWindow     int `yaml:"other_room_window"`
+	CompactionTrigger   int `yaml:"compaction_trigger"`
+	CompactionTarget    int `yaml:"compaction_target"`
+	MinimumGuaranteed   int `yaml:"minimum_guaranteed"`
+}
+
+// DefaultContextConfig returns the default context configuration.
+func DefaultContextConfig() ContextConfig {
+	return ContextConfig{
+		CurrentRoomWindow: 50,
+		OtherRoomWindow:   10,
+		CompactionTrigger: 524288,  // 512kb
+		CompactionTarget:  262144,  // 256kb
+		MinimumGuaranteed: 20,
+	}
+}
+
 type ServerConfig struct {
 	Listen     string           `yaml:"listen"`
 	Providers  []Provider       `yaml:"providers"`
 	Models     map[string]Model `yaml:"models"`
 	Embeddings EmbeddingsConfig `yaml:"embeddings"`
+	Context    ContextConfig    `yaml:"context"`
 }
 
 // EmbeddingsConfig configures the embedding provider for the search index.
@@ -43,6 +63,24 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 	var cfg ServerConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parsing server config: %w", err)
+	}
+
+	// Apply defaults for zero values in context config
+	defaults := DefaultContextConfig()
+	if cfg.Context.CurrentRoomWindow == 0 {
+		cfg.Context.CurrentRoomWindow = defaults.CurrentRoomWindow
+	}
+	if cfg.Context.OtherRoomWindow == 0 {
+		cfg.Context.OtherRoomWindow = defaults.OtherRoomWindow
+	}
+	if cfg.Context.CompactionTrigger == 0 {
+		cfg.Context.CompactionTrigger = defaults.CompactionTrigger
+	}
+	if cfg.Context.CompactionTarget == 0 {
+		cfg.Context.CompactionTarget = defaults.CompactionTarget
+	}
+	if cfg.Context.MinimumGuaranteed == 0 {
+		cfg.Context.MinimumGuaranteed = defaults.MinimumGuaranteed
 	}
 
 	if errs := ValidateServerConfig(&cfg); len(errs) > 0 {

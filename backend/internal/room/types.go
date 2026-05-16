@@ -253,6 +253,22 @@ type ProtocolState struct {
 	State json.RawMessage `json:"state"`
 }
 
+// CompactionCursor tracks how far an agent has compacted a room's transcript.
+type CompactionCursor struct {
+	// AgentName is the agent this cursor belongs to.
+	AgentName string `json:"agent_name"`
+
+	// RoomID is the room this cursor tracks.
+	RoomID string `json:"room_id"`
+
+	// Offset is the number of messages already compacted (0-based). Messages
+	// before this index are excluded from context assembly.
+	Offset int `json:"offset"`
+
+	// UpdatedAt is when the cursor was last modified.
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // Protocol is the behavioural contract that actively orchestrates agent
 // invocation. Protocols decide when agents speak by issuing RFCs via the
 // Dispatcher.

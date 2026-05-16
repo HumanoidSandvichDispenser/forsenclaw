@@ -15,6 +15,7 @@ func TestValidateServerConfig_valid(t *testing.T) {
 			"claude-sonnet-4.6": {Provider: "anthropic", ProviderModel: "claude-sonnet-4-20250514"},
 			"gemma-4-local":     {Provider: "ollama", ProviderModel: "gemma3:12b"},
 		},
+		Context: DefaultContextConfig(),
 	}
 
 	errs := ValidateServerConfig(cfg)

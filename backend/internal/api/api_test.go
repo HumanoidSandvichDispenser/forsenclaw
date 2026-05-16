@@ -133,7 +133,8 @@ permissions: []
 	mockReg := &mockRegistry{provider: mockProv, modelID: "test-model"}
 
 	assembler := memory.NewAssembler(p, 4096)
-	dispatcher := dispatch.NewDispatcher(agentMgr, mockReg, assembler, store, p)
+	ctxCfg := config.DefaultContextConfig()
+	dispatcher := dispatch.NewDispatcher(agentMgr, mockReg, assembler, store, p, ctxCfg)
 
 	// Register agents from manager
 	for _, ag := range agentMgr.All() {

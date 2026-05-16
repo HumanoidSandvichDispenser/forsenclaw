@@ -67,6 +67,24 @@ func ValidateServerConfig(cfg *ServerConfig) []ConfigError {
 		}
 	}
 
+	// Validate context config.
+	// Note: LoadServerConfig applies defaults before calling this function, so
+	// CompactionTrigger and CompactionTarget are always non-zero in production.
+	// The relationship check is unconditional so that invalid explicit values
+	// are always caught regardless of how ValidateServerConfig is called.
+	if cfg.Context.CompactionTarget >= cfg.Context.CompactionTrigger {
+		errs = append(errs, ConfigError{Field: "context.compaction_target", Message: "must be lower than context.compaction_trigger"})
+	}
+	if cfg.Context.CurrentRoomWindow < 1 {
+		errs = append(errs, ConfigError{Field: "context.current_room_window", Message: "must be at least 1"})
+	}
+	if cfg.Context.OtherRoomWindow < 0 {
+		errs = append(errs, ConfigError{Field: "context.other_room_window", Message: "must be non-negative"})
+	}
+	if cfg.Context.MinimumGuaranteed < 1 {
+		errs = append(errs, ConfigError{Field: "context.minimum_guaranteed", Message: "must be at least 1"})
+	}
+
 	return errs
 }
 

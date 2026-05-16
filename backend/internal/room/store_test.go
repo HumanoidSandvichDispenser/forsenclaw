@@ -293,6 +293,73 @@ func TestSQLiteStore_DeleteRoom_NotFound(t *testing.T) {
 	}
 }
 
+func TestSQLiteStore_CompactionCursor(t *testing.T) {
+	store, _ := newTestStore(t)
+	defer store.Close()
+
+	ctx := context.Background()
+
+	// Get cursor for non-existent entry → should default to 0
+	cursor, err := store.GetCompactionCursor(ctx, "housewife", "room_1")
+	if err != nil {
+		t.Fatalf("GetCompactionCursor: %v", err)
+	}
+	if cursor.Offset != 0 {
+		t.Fatalf("expected offset 0 for new cursor, got %d", cursor.Offset)
+	}
+
+	// Set cursor
+	newCursor := &CompactionCursor{AgentName: "housewife", RoomID: "room_1", Offset: 50}
+	if err := store.SetCompactionCursor(ctx, newCursor); err != nil {
+		t.Fatalf("SetCompactionCursor: %v", err)
+	}
+
+	// Get again
+	cursor, err = store.GetCompactionCursor(ctx, "housewife", "room_1")
+	if err != nil {
+		t.Fatalf("GetCompactionCursor after set: %v", err)
+	}
+	if cursor.Offset != 50 {
+		t.Fatalf("expected offset 50, got %d", cursor.Offset)
+	}
+
+	// Update cursor
+	newCursor.Offset = 100
+	if err := store.SetCompactionCursor(ctx, newCursor); err != nil {
+		t.Fatalf("SetCompactionCursor update: %v", err)
+	}
+
+	cursor, err = store.GetCompactionCursor(ctx, "housewife", "room_1")
+	if err != nil {
+		t.Fatalf("GetCompactionCursor after update: %v", err)
+	}
+	if cursor.Offset != 100 {
+		t.Fatalf("expected offset 100, got %d", cursor.Offset)
+	}
+}
+
+func TestSQLiteStore_CompactionCursor_Invalid(t *testing.T) {
+	store, _ := newTestStore(t)
+	defer store.Close()
+
+	ctx := context.Background()
+
+	// Missing agent name
+	if err := store.SetCompactionCursor(ctx, &CompactionCursor{AgentName: "", RoomID: "room_1", Offset: 10}); err == nil {
+		t.Fatal("expected error for missing agent_name")
+	}
+
+	// Missing room ID
+	if err := store.SetCompactionCursor(ctx, &CompactionCursor{AgentName: "housewife", RoomID: "", Offset: 10}); err == nil {
+		t.Fatal("expected error for missing room_id")
+	}
+
+	// Negative offset
+	if err := store.SetCompactionCursor(ctx, &CompactionCursor{AgentName: "housewife", RoomID: "room_1", Offset: -1}); err == nil {
+		t.Fatal("expected error for negative offset")
+	}
+}
+
 func TestSQLiteStore_DBFileCreated(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "rooms.db")

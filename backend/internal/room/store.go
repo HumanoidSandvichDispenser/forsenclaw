@@ -19,6 +19,10 @@ type Store interface {
 	ListRooms(ctx context.Context, opts ListOpts) ([]Room, error)
 	UpdateRoom(ctx context.Context, room *Room) error
 	DeleteRoom(ctx context.Context, id string) error
+
+	// Compaction cursor operations
+	GetCompactionCursor(ctx context.Context, agentName, roomID string) (*CompactionCursor, error)
+	SetCompactionCursor(ctx context.Context, cursor *CompactionCursor) error
 }
 
 // Ensure SQLiteStore implements Store.
@@ -73,6 +77,20 @@ func (s *SQLiteStore) migrate() error {
 
 	if _, err := s.db.Exec(schemaV1); err != nil {
 		return fmt.Errorf("schema v1: %w", err)
+	}
+
+	const schemaV2 = `
+	CREATE TABLE IF NOT EXISTS compaction_cursors (
+		agent_name       TEXT NOT NULL,
+		room_id          TEXT NOT NULL,
+		compacted_offset INTEGER NOT NULL DEFAULT 0,
+		updated_at       DATETIME NOT NULL,
+		PRIMARY KEY (agent_name, room_id)
+	);
+	`
+
+	if _, err := s.db.Exec(schemaV2); err != nil {
+		return fmt.Errorf("schema v2: %w", err)
 	}
 
 	return nil
@@ -289,6 +307,61 @@ func (s *SQLiteStore) DeleteRoom(ctx context.Context, id string) error {
 	}
 	if rowsAffected == 0 {
 		return fmt.Errorf("room %q not found", id)
+	}
+
+	return nil
+}
+
+// GetCompactionCursor retrieves the compaction cursor for an agent+room pair.
+// Returns offset 0 and no error if the cursor does not exist.
+func (s *SQLiteStore) GetCompactionCursor(ctx context.Context, agentName, roomID string) (*CompactionCursor, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT agent_name, room_id, compacted_offset, updated_at
+		FROM compaction_cursors
+		WHERE agent_name = ? AND room_id = ?
+	`, agentName, roomID)
+
+	var cursor CompactionCursor
+	var updatedAtStr string
+	err := row.Scan(&cursor.AgentName, &cursor.RoomID, &cursor.Offset, &updatedAtStr)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return &CompactionCursor{AgentName: agentName, RoomID: roomID, Offset: 0}, nil
+		}
+		return nil, fmt.Errorf("get compaction cursor: %w", err)
+	}
+
+	cursor.UpdatedAt, err = time.Parse(time.RFC3339Nano, updatedAtStr)
+	if err != nil {
+		return nil, fmt.Errorf("parse updated_at: %w", err)
+	}
+
+	return &cursor, nil
+}
+
+// SetCompactionCursor upserts the compaction cursor for an agent+room pair.
+func (s *SQLiteStore) SetCompactionCursor(ctx context.Context, cursor *CompactionCursor) error {
+	if cursor.AgentName == "" {
+		return fmt.Errorf("agent_name is required")
+	}
+	if cursor.RoomID == "" {
+		return fmt.Errorf("room_id is required")
+	}
+	if cursor.Offset < 0 {
+		return fmt.Errorf("offset must be non-negative")
+	}
+
+	cursor.UpdatedAt = time.Now().UTC()
+
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO compaction_cursors (agent_name, room_id, compacted_offset, updated_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(agent_name, room_id) DO UPDATE SET
+			compacted_offset = excluded.compacted_offset,
+			updated_at = excluded.updated_at
+	`, cursor.AgentName, cursor.RoomID, cursor.Offset, cursor.UpdatedAt.Format(time.RFC3339Nano))
+	if err != nil {
+		return fmt.Errorf("set compaction cursor: %w", err)
 	}
 
 	return nil

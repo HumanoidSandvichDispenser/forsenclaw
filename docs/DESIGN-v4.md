@@ -176,6 +176,7 @@ fallback — tiers have different roles, not different quality levels.
 | `daily_notes` | Daily note files maintained, indexed for search | No daily notes; context from MEMORY.md only |
 | `proactive_triggers` | Runs scheduled and interrupt-driven proactive ticks | Acts only when invoked via RFC |
 | `dreaming` | Background consolidation from daily notes → MEMORY.md | No automatic promotion; manual curation only |
+| `rag` | Index worker starts; future retrieval chunks may be injected | No embedding model, no index worker, `RAGChunks` stays nil |
 
 Companion-style agents typically have all four on. Task-style agents typically
 have all four off.
@@ -188,14 +189,35 @@ Assembled fresh each invocation (per RFC). Order:
 2. **MEMORY.md** — always injected. The agent's curated long-term memory.
 3. **Daily notes** — today's and yesterday's `memory/YYYY-MM-DD.md`, if
    `daily_notes=on`.
-4. **RAG retrieval** — search index queried against the RFC payload. Retrieves
-   relevant chunks from older daily notes and MEMORY.md.
-5. **MCP tool schemas** — the agent's permitted tools, resolved and injected
-   (§9).
-6. **Room history** — target room's recent transcript, up to configured window.
-7. **Turn budget notice** — remaining turns before user approval required.
-8. **RFC payload** — the actual request the agent is responding to, including
+4. **Cross-room feed (Tier 2)** — recent messages from all other rooms the
+   agent participates in, labeled by room ID and merged chronologically.
+5. **Current room history (Tier 3)** — windowed tail of the target room's
+   transcript, starting at that room's `compacted_offset`.
+6. **Turn budget notice** — remaining turns before user approval required.
+7. **RFC payload** — the actual request the agent is responding to, including
    any pending interjections.
+
+Cross-room feed comes before the current-room tail so the agent gets ambient,
+multi-room awareness first and the most local context last. The current room is
+kept late on purpose: recency bias matters for the immediate turn, and the tail
+of the active room should dominate the specific response being formed. RAG is
+reserved for a later release; in v1, the assembler reserves a `RAGChunks` slot
+but it remains nil unless a future flag enables it.
+
+#### Cross-room feed (Tier 2)
+
+At assembly time, query SQLite for all rooms where the agent participates,
+excluding the current room. Read the last `other_room_window` messages from
+each room, filter by clearance, merge the results chronologically, and format
+each message as `[#<room-id> — <relative-time>] Sender: Content`. If the agent
+participates in no other rooms, this tier is empty.
+
+#### Current room history (Tier 3)
+
+Read only the tail of the current room transcript, starting from that room's
+`compacted_offset`. Tail reads must not load the full file into memory; they
+seek from the end of the JSONL file and scan backward until the window is
+satisfied. This keeps the hot path bounded even for large rooms.
 
 ### Agents are not knowledge specialists
 
@@ -243,6 +265,10 @@ Daily notes are the working layer. Agents write to them during sessions —
 capturing observations, decisions, reasoning that may be useful later but isn't
 yet curated into MEMORY.md.
 
+Compaction summaries from older room transcripts are appended here so they fall
+outside the current-room window on later assemblies without mutating the
+transcript itself.
+
 ### Dreaming — background consolidation
 
 For agents with `dreaming=on`, a background pass periodically reviews daily
@@ -270,14 +296,18 @@ Retrieval is parameterized by the requesting agent's clearance tier. An agent
 can search its own memory freely. Cross-agent memory search is possible where
 clearance permits, but the default is agent-scoped.
 
+With `rag: false` (the v1 default), no embedding model is loaded and no index
+worker starts.
+
 ### Sessions and lifecycle
 
 A **session** is a bounded period of agent activity.
 
 - Ends after **30 minutes of inactivity** on a per-agent basis.
 - Within a session: agents write observations to today's daily note.
-- At session end: if `dreaming=on`, a consolidation pass is scheduled (does not
-  block).
+- At session end: if there are uncompacted messages outside the guaranteed
+  window, a compaction pass is scheduled. If `dreaming=on`, a consolidation pass
+  may also run.
 - Proactive actions run in isolated session contexts — they do not extend or
   contaminate user-facing sessions.
 
@@ -304,6 +334,10 @@ of what matters.
 
 Room transcripts are indexed by the search system for cross-room retrieval
 where clearance permits.
+
+The active tail of each transcript is also windowed by a per-agent, per-room
+compaction cursor stored in SQLite. Context assembly never re-injects messages
+before that cursor.
 
 ---
 
@@ -819,9 +853,34 @@ On teardown:
 ### Compaction
 
 A persistent agent (typically housewife) may trigger compaction of another
-persistent agent, subject to `agent:compact[<target>]`. Compaction forces a
-dreaming pass: consolidate daily notes into MEMORY.md, clean up stale entries.
-Bounded by permission scope and audit logging.
+persistent agent, subject to `agent:compact[<target>]`. Compaction is a
+housekeeping pass that summarizes old room transcript messages into the
+agent's daily note, then advances the per-agent, per-room `compacted_offset`
+cursor in SQLite.
+
+Compaction is triggered when either of these happens:
+
+- The assembled context exceeds `context.compaction_trigger`.
+- The agent session ends after 30 minutes of inactivity.
+
+The batch size is dynamic. On a byte-threshold trigger, Hearth walks forward
+from `compacted_offset`, accumulating message sizes until the removed bytes are
+enough to bring the assembled context down toward `context.compaction_target`.
+That batch is capped so compaction never crosses the guaranteed tail window
+(`context.minimum_guaranteed`). If the remaining uncompacted tail is smaller
+than `min_compaction_batch`, compaction is skipped.
+
+Session-end compaction compacts all messages outside the guaranteed window,
+regardless of byte size. If even compacting everything outside the guaranteed
+window still leaves the context above target, Hearth proceeds anyway. The floor
+is hard; the model handles the larger context.
+
+Before a real RFC is assembled, the dispatcher may issue a system compaction
+RFC that tells the agent to summarize a specific room/message range into its
+daily note. When compaction succeeds, the cursor advances to the end of the
+compacted batch and the real RFC is assembled afterward. If compaction fails
+(model error, timeout), the real RFC still proceeds with the uncompacted
+context.
 
 ---
 
@@ -968,13 +1027,33 @@ $XDG_DATA_HOME/hearth/                    # Data — large, persistent
 │       └── housewife/
 │           └── agent.yaml.proposed
 └── db/
-    ├── rooms.db                          # Room metadata, protocol state
+    ├── rooms.db                          # Room metadata, protocol state, compaction cursors
     └── audit.db                          # Audit log
 
 $XDG_CACHE_HOME/hearth/                   # Cache — rebuildable
 ├── search.db                             # Hybrid search index
 └── embeddings/                           # Cached embedding vectors
 ```
+
+`hearth.yaml` includes a `context:` block:
+
+```yaml
+context:
+  current_room_window: 50
+  other_room_window: 10
+  compaction_trigger: 524288
+  compaction_target: 262144
+  minimum_guaranteed: 20
+```
+
+- `current_room_window` is the guaranteed minimum tail size for the active room.
+- `other_room_window` is the number of recent messages read from each other room.
+- `compaction_trigger` is the assembled-context byte threshold that triggers compaction.
+- `compaction_target` is the desired size after compaction.
+- `minimum_guaranteed` is the hard floor that compaction never crosses.
+
+Invalid values are rejected at startup. In particular, `compaction_target` must
+be lower than `compaction_trigger`.
 
 ### What lives where and why
 
@@ -986,6 +1065,7 @@ $XDG_CACHE_HOME/hearth/                   # Cache — rebuildable
 | Room transcripts | Data | Append-only conversation records. |
 | Config proposals | Data | Staging area for pending changes. Not yet config. |
 | Room metadata | Data (SQLite) | Dynamic, queryable (list rooms, filter by participant). |
+| Compaction cursors | Data (SQLite) | Per-agent, per-room `compacted_offset`. |
 | Audit log | Data (SQLite) | Structured queries, append-only guarantees. |
 | Search index | Cache | Rebuildable from files. Excludable from backups. |
 | Embeddings | Cache | Rebuildable. Expensive to recompute but not critical. |
@@ -999,6 +1079,18 @@ they're append-only so git handles them, but they grow.
 
 The `db/` directory is excluded from version control. SQLite databases are
 queryable runtime state; audit can be exported if archival is needed.
+
+`rooms.db` also stores the per-agent, per-room compaction cursor table:
+
+```sql
+CREATE TABLE IF NOT EXISTS compaction_cursors (
+  agent_name TEXT NOT NULL,
+  room_id TEXT NOT NULL,
+  compacted_offset INTEGER NOT NULL DEFAULT 0,
+  updated_at DATETIME NOT NULL,
+  PRIMARY KEY (agent_name, room_id)
+);
+```
 
 ### Docker volume mapping
 
@@ -1098,6 +1190,9 @@ persistent agents who remember things, use MCP tools, and manage rooms.
 - Memory architecture: MEMORY.md + daily notes + search index. Dreaming pass.
 - Rooms with FreeForm protocol (2 participants).
 - RFC-based invocation, dispatcher, context assembly.
+- Cross-room feed plus bounded current-room tail in context assembly.
+- Tail reads from transcript end, keyed by per-agent, per-room compaction cursor.
+- Compaction RFC flow and `compacted_offset` persistence.
 - Clearance (5-tier default) enforced at retrieval, send, spawn.
 - Permissions (IAM-style) enforced at dispatcher, including config read/write
   with staging and approval.
@@ -1129,6 +1224,7 @@ persistent agents who remember things, use MCP tools, and manage rooms.
 - Cross-clearance handoff UI (side-by-side diff review).
 - Cost accounting per agent/room.
 - Memory budget management (auto-truncation of MEMORY.md).
+- RAG-enabled context injection.
 - Export/import room + agent bundles.
 
 ### Build order
@@ -1202,9 +1298,9 @@ including a structured marker in their response.
 
 ### Transcript growth
 
-JSONL transcript files grow indefinitely for long-lived rooms. Rotation?
-Archival? Initial approach: unbounded. Revisit if observed as a problem.
-Transcripts compress well.
+Resolved by compaction and cursor-based tail reads. JSONL transcript files still
+grow on disk, but older messages are compacted into daily notes and excluded
+from later assemblies via the per-agent, per-room `compacted_offset` cursor.
 
 ### Cost accounting
 
