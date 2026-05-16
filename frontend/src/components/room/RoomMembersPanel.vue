@@ -19,11 +19,6 @@ defineProps<{
         <div class="member-meta">{{ m.type }}</div>
       </div>
     </div>
-
-    <h2 class="right-title">Memory</h2>
-    <div class="memory">
-      <p class="muted">Not implemented yet.</p>
-    </div>
   </aside>
 </template>
 

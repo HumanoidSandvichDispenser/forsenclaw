@@ -113,16 +113,20 @@ async function send() {
     <main class="room-main">
       <section class="chat">
         <div ref="scrollerEl" class="messages" aria-label="Messages">
-          <p v-if="messagesStore.loadingByRoomId[roomId]" class="muted">Loading…</p>
-          <p v-else-if="messagesStore.errorByRoomId[roomId]" class="error">{{ messagesStore.errorByRoomId[roomId] }}</p>
+          <div class="margins">
+            <p v-if="messagesStore.loadingByRoomId[roomId]" class="muted">Loading…</p>
+            <p v-else-if="messagesStore.errorByRoomId[roomId]" class="error">
+              {{ messagesStore.errorByRoomId[roomId] }}
+            </p>
 
-          <RoomMessageItem
-            v-for="m in messages"
-            :key="m.id"
-            :message="m"
-            :mine="m.sender.id === meActorId"
-            :timestamp-label="formatTime(m.timestamp)"
-          />
+            <RoomMessageItem
+              v-for="m in messages"
+              :key="m.id"
+              :message="m"
+              :mine="m.sender.id === meActorId"
+              :timestamp-label="formatTime(m.timestamp)"
+            />
+          </div>
         </div>
 
         <RoomComposer
@@ -156,6 +160,7 @@ async function send() {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  overflow-y: auto;
 }
 
 .messages {
@@ -163,9 +168,14 @@ async function send() {
   min-height: 0;
   overflow-y: auto;
   padding: 1.25rem;
-  background: var(--bg-primary);
-  display: grid;
+}
+
+.margins {
+  display: flex;
+  flex-direction: column;
   gap: 0.75rem;
+  max-width: 40rem;
+  margin: 0 auto;
 }
 
 .muted {

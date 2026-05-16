@@ -8,5 +8,6 @@
 #app, body {
   margin: 0;
   padding: 0;
+  background-color: var(--bg-primary);
 }
 </style>

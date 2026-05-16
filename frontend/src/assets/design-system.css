@@ -12,7 +12,8 @@
 
 :root {
   --font-display: 'Georgia', 'Times New Roman', serif;
-  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-body: Helvetica, Arial, sans-serif;
+  --font-body-serif: var(--font-display);
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Menlo', 'Consolas', monospace;
 
   /* Font Weights */
@@ -86,6 +87,7 @@
   /* Accents */
   --accent-primary: var(--coral-400);
   --accent-primary-hover: var(--coral-500);
+  --accent-primary-soft: var(--coral-100);
   --accent-secondary: var(--amber-400);
   --accent-secondary-hover: var(--amber-500);
 
@@ -160,9 +162,6 @@
 
   /* Overlays */
   --overlay-scrim: rgba(0, 0, 0, 0.42);
-
-  /* Soft accent fills (avoid CSS color-mix dependency) */
-  --accent-primary-soft: var(--coral-50);
 }
 
 /* ==================== UTILITY CLASSES ==================== */
