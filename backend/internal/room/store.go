@@ -63,6 +63,7 @@ func (s *SQLiteStore) migrate() error {
 	const schemaV1 = `
 	CREATE TABLE IF NOT EXISTS rooms (
 		id                TEXT PRIMARY KEY,
+		name              TEXT,
 		participants      TEXT NOT NULL,
 		clearance_ceiling INTEGER NOT NULL DEFAULT 5,
 		protocol_type     TEXT NOT NULL DEFAULT 'freeform',
@@ -93,6 +94,25 @@ func (s *SQLiteStore) migrate() error {
 		return fmt.Errorf("schema v2: %w", err)
 	}
 
+	// Schema v3: add name column to existing databases.
+	// SQLite doesn't support IF NOT EXISTS on ALTER TABLE ADD COLUMN,
+	// so we check pragma_table_info first.
+	var hasName bool
+	rows, err := s.db.Query(`SELECT 1 FROM pragma_table_info('rooms') WHERE name = 'name'`)
+	if err != nil {
+		return fmt.Errorf("schema v3 check: %w", err)
+	}
+	if rows.Next() {
+		hasName = true
+	}
+	rows.Close()
+
+	if !hasName {
+		if _, err := s.db.Exec(`ALTER TABLE rooms ADD COLUMN name TEXT DEFAULT ''`); err != nil {
+			return fmt.Errorf("schema v3: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -119,10 +139,11 @@ func (s *SQLiteStore) CreateRoom(ctx context.Context, room *Room) error {
 	}
 
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO rooms (id, participants, clearance_ceiling, protocol_type, protocol_config, protocol_state, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO rooms (id, name, participants, clearance_ceiling, protocol_type, protocol_config, protocol_state, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		room.ID,
+		room.Name,
 		participantsJSON,
 		room.ClearanceCeiling,
 		room.ProtocolType,
@@ -141,7 +162,7 @@ func (s *SQLiteStore) CreateRoom(ctx context.Context, room *Room) error {
 // GetRoom retrieves a room by ID. Returns an error if the room does not exist.
 func (s *SQLiteStore) GetRoom(ctx context.Context, id string) (*Room, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, participants, clearance_ceiling, protocol_type, protocol_config, protocol_state, created_at, updated_at
+		SELECT id, name, participants, clearance_ceiling, protocol_type, protocol_config, protocol_state, created_at, updated_at
 		FROM rooms
 		WHERE id = ?
 	`, id)
@@ -174,7 +195,7 @@ func (s *SQLiteStore) ListRooms(ctx context.Context, opts ListOpts) ([]Room, err
 	}
 
 	query := `
-		SELECT id, participants, clearance_ceiling, protocol_type, protocol_config, protocol_state, created_at, updated_at
+		SELECT id, name, participants, clearance_ceiling, protocol_type, protocol_config, protocol_state, created_at, updated_at
 		FROM rooms
 		WHERE 1=1
 	`
@@ -261,7 +282,8 @@ func (s *SQLiteStore) UpdateRoom(ctx context.Context, room *Room) error {
 
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE rooms
-		SET participants = ?,
+		SET name = ?,
+		    participants = ?,
 		    clearance_ceiling = ?,
 		    protocol_type = ?,
 		    protocol_config = ?,
@@ -269,6 +291,7 @@ func (s *SQLiteStore) UpdateRoom(ctx context.Context, room *Room) error {
 		    updated_at = ?
 		WHERE id = ?
 	`,
+		room.Name,
 		participantsJSON,
 		room.ClearanceCeiling,
 		room.ProtocolType,
@@ -378,6 +401,7 @@ func (s *SQLiteStore) scanRoom(sc interface {
 
 	err := sc.Scan(
 		&room.ID,
+		&room.Name,
 		&participantsJSON,
 		&room.ClearanceCeiling,
 		&room.ProtocolType,

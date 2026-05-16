@@ -360,6 +360,56 @@ func TestSQLiteStore_CompactionCursor_Invalid(t *testing.T) {
 	}
 }
 
+func TestSQLiteStore_RoomName(t *testing.T) {
+	store, _ := newTestStore(t)
+	defer store.Close()
+
+	alice := Actor{ID: "user:alice", Type: ActorUser, Clearance: 5, Name: "Alice"}
+	housewife := Actor{ID: "agent:housewife", Type: ActorAgent, Clearance: 5, Name: "Housewife"}
+	room := newTestRoom(alice, housewife)
+	room.Name = "Alice's Kitchen"
+
+	ctx := context.Background()
+	if err := store.CreateRoom(ctx, &room); err != nil {
+		t.Fatalf("CreateRoom: %v", err)
+	}
+
+	// Verify name persisted
+	got, err := store.GetRoom(ctx, room.ID)
+	if err != nil {
+		t.Fatalf("GetRoom: %v", err)
+	}
+	if got.Name != "Alice's Kitchen" {
+		t.Errorf("name: got %q, want %q", got.Name, "Alice's Kitchen")
+	}
+
+	// Update name
+	room.Name = "Renamed Kitchen"
+	if err := store.UpdateRoom(ctx, &room); err != nil {
+		t.Fatalf("UpdateRoom: %v", err)
+	}
+
+	got, err = store.GetRoom(ctx, room.ID)
+	if err != nil {
+		t.Fatalf("GetRoom after update: %v", err)
+	}
+	if got.Name != "Renamed Kitchen" {
+		t.Errorf("name after update: got %q, want %q", got.Name, "Renamed Kitchen")
+	}
+
+	// List should also return the name
+	rooms, err := store.ListRooms(ctx, ListOpts{Limit: 10})
+	if err != nil {
+		t.Fatalf("ListRooms: %v", err)
+	}
+	if len(rooms) != 1 {
+		t.Fatalf("expected 1 room, got %d", len(rooms))
+	}
+	if rooms[0].Name != "Renamed Kitchen" {
+		t.Errorf("list name: got %q, want %q", rooms[0].Name, "Renamed Kitchen")
+	}
+}
+
 func TestSQLiteStore_DBFileCreated(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "rooms.db")

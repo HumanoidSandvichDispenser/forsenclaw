@@ -175,6 +175,15 @@ func TestRoom_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "valid room with name",
+			room: Room{
+				ID: "room_1", Name: "Alice's Chat",
+				Participants: []Actor{alice, housewife},
+				ClearanceCeiling: 5, ProtocolType: ProtocolFreeForm,
+			},
+			wantErr: false,
+		},
+		{
 			name:    "missing id",
 			room:    Room{Participants: []Actor{alice}, ClearanceCeiling: 5, ProtocolType: ProtocolFreeForm},
 			wantErr: true,

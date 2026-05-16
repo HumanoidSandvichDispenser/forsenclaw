@@ -73,6 +73,7 @@ func (svc *Service) createRoom(ctx context.Context, input *CreateRoomRequest) (*
 	// Build room
 	r := room.Room{
 		ID:               uuid.New().String(),
+		Name:             input.Body.Name,
 		Participants:     participants,
 		ClearanceCeiling: clearanceCeiling,
 		ProtocolType:     room.ProtocolType(input.Body.ProtocolType),
@@ -195,6 +196,7 @@ func toRoomResponse(r room.Room) RoomResponse {
 
 	return RoomResponse{
 		ID:               r.ID,
+		Name:             r.Name,
 		Participants:     participants,
 		ClearanceCeiling: r.ClearanceCeiling,
 		ProtocolType:     string(r.ProtocolType),

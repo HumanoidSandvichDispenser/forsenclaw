@@ -131,6 +131,9 @@ type Room struct {
 	// ID is a unique room identifier (UUID).
 	ID string `json:"id"`
 
+	// Name is a human-readable name for the room (optional).
+	Name string `json:"name"`
+
 	// Participants are the actors currently in the room.
 	Participants []Actor `json:"participants"`
 

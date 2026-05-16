@@ -13,6 +13,7 @@ import (
 type CreateRoomRequest struct {
 	Body struct {
 		ParticipantIDs   []string        `json:"participant_ids"   validate:"required,min=2,max=2" doc:"Actor IDs (user:<name> or agent:<name>)"`
+		Name             string          `json:"name,omitempty"     doc:"Human-readable room name" example:"Alice's Kitchen"`
 		ClearanceCeiling int             `json:"clearance_ceiling" validate:"min=1"              doc:"Max clearance tier for messages (default 5)" example:"5"`
 		ProtocolType     string          `json:"protocol_type"      validate:"required,oneof=freeform" doc:"Protocol type" example:"freeform"`
 		ProtocolConfig   json.RawMessage `json:"protocol_config,omitempty"  doc:"Protocol-specific configuration (JSON)"`
@@ -142,6 +143,7 @@ type GetMeResponse struct {
 // RoomResponse is the API representation of a room.
 type RoomResponse struct {
 	ID               string          `json:"id"                          doc:"Unique room ID" example:"room_abc123"`
+	Name             string          `json:"name"                        doc:"Human-readable room name" example:"Alice's Kitchen"`
 	Participants     []ActorResponse `json:"participants"                doc:"Room participants"`
 	ClearanceCeiling int             `json:"clearance_ceiling"           doc:"Max clearance tier" example:"5"`
 	ProtocolType     string          `json:"protocol_type"               doc:"Protocol type" example:"freeform"`
