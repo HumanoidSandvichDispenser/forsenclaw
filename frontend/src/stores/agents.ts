@@ -16,8 +16,11 @@ export const useAgentsStore = defineStore('agents', () => {
     loading.value = true;
     error.value = null;
     try {
-      const res = await listAgents({ client: clientStore.client });
-      agents.value = res.agents ?? [];
+      const res = await listAgents({
+        client: clientStore.client,
+        throwOnError: true,
+      });
+      agents.value = (res as any)?.data?.agents ?? (res as any)?.agents ?? [];
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e);
     } finally {

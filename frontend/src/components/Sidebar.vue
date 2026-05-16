@@ -21,18 +21,20 @@ onMounted(() => {
 });
 
 const roomTabs = computed(() =>
-  roomsStore.rooms.map((r) => {
-    const participants = r.participants ?? [];
-    const title =
-      participants.length > 0
-        ? participants.map((p) => p.name).join(' · ')
-        : r.id;
-    return {
-      id: r.id,
-      title,
-      subtitle: r.protocol_type,
-    };
-  }),
+  roomsStore.rooms
+    .filter((r) => Boolean(r && r.id))
+    .map((r) => {
+      const participants = r.participants ?? [];
+      const title =
+        participants.length > 0
+          ? participants.map((p) => p.name).join(' · ')
+          : r.id;
+      return {
+        id: r.id,
+        title,
+        subtitle: r.protocol_type,
+      };
+    }),
 );
 
 const agentTabs = computed(() =>

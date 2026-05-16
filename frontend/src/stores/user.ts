@@ -24,9 +24,13 @@ export const useUserStore = defineStore('user', () => {
     loading.value = true;
     error.value = null;
     try {
-      const me: UserResponse = await getMe({ client: clientStore.client });
-      user.value = { id: me.id, name: me.name };
-      return me;
+      const me = await getMe({
+        client: clientStore.client,
+        throwOnError: true,
+      });
+      const data = (me as any)?.data ?? me;
+      user.value = { id: data.id, name: data.name };
+      return data;
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e);
       // Keep app usable even if auth isn't configured yet.

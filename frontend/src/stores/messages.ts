@@ -30,8 +30,12 @@ export const useMessagesStore = defineStore('messages', () => {
         client: clientStore.client,
         path: { room_id: roomId },
         query: { limit: 200 },
+        throwOnError: true,
       });
-      const msgs = (res.messages ?? []).slice().sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+      const raw = (res as any)?.data?.messages ?? (res as any)?.messages ?? [];
+      const msgs = (raw as MessageResponse[])
+        .slice()
+        .sort((a: MessageResponse, b: MessageResponse) => a.timestamp.localeCompare(b.timestamp));
       byRoomId.value = { ...byRoomId.value, [roomId]: msgs };
     } catch (e) {
       setRoomError(roomId, e instanceof Error ? e.message : String(e));
@@ -46,10 +50,12 @@ export const useMessagesStore = defineStore('messages', () => {
       client: clientStore.client,
       path: { room_id: roomId },
       body: { sender, content },
+      throwOnError: true,
     });
     const current = byRoomId.value[roomId] ?? [];
-    byRoomId.value = { ...byRoomId.value, [roomId]: [...current, msg] };
-    return msg;
+    const m = (msg as any)?.data ?? msg;
+    byRoomId.value = { ...byRoomId.value, [roomId]: [...current, m] };
+    return m;
   }
 
   return {

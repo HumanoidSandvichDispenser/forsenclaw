@@ -17,8 +17,12 @@ export const useRoomsStore = defineStore('rooms', () => {
     loading.value = true;
     error.value = null;
     try {
-      const res = await listRooms({ client: clientStore.client, query: { limit: 200, offset: 0 } });
-      rooms.value = res.rooms ?? [];
+      const res = await listRooms({
+        client: clientStore.client,
+        query: { limit: 200, offset: 0 },
+        throwOnError: true,
+      });
+      rooms.value = (res as any)?.data?.rooms ?? (res as any)?.rooms ?? [];
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e);
     } finally {
@@ -29,11 +33,16 @@ export const useRoomsStore = defineStore('rooms', () => {
   async function fetchRoom(roomId: string) {
     error.value = null;
     try {
-      const room = await getRoom({ client: clientStore.client, path: { room_id: roomId } });
-      const idx = rooms.value.findIndex((r) => r.id === room.id);
-      if (idx === -1) rooms.value.unshift(room);
-      else rooms.value[idx] = room;
-      return room;
+      const room = await getRoom({
+        client: clientStore.client,
+        path: { room_id: roomId },
+        throwOnError: true,
+      });
+      const r = (room as any)?.data ?? room;
+      const idx = rooms.value.findIndex((x) => x.id === r.id);
+      if (idx === -1) rooms.value.unshift(r);
+      else rooms.value[idx] = r;
+      return r;
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e);
       return null;
@@ -45,14 +54,16 @@ export const useRoomsStore = defineStore('rooms', () => {
     // backend currently enforces exactly 2 participants.
     const room = await createRoom({
       client: clientStore.client,
+      throwOnError: true,
       body: {
         clearance_ceiling: 5,
         participant_ids: participantIds,
         protocol_type: 'freeform',
       },
     });
-    rooms.value.unshift(room);
-    return room;
+    const r = (room as any)?.data ?? room;
+    rooms.value.unshift(r);
+    return r;
   }
 
   return {
