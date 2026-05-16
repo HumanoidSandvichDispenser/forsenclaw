@@ -441,6 +441,41 @@ func TestGetAgent(t *testing.T) {
 	}
 }
 
+// TestPreviewContext tests previewing the assembled context window.
+func TestPreviewContext(t *testing.T) {
+	svc, _, cleanup := newTestService(t)
+	defer cleanup()
+
+	router, _ := newTestRouter(t, svc)
+
+	rm := createTestRoom(t, svc, router)
+
+	// Send a message to seed context.
+	sendTestMessage(t, router, rm.ID, "user:alice", "Hello!")
+
+	// Wait for async processing to append agent response.
+	time.Sleep(200 * time.Millisecond)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/rooms/"+rm.ID+"/agents/housewife/context-preview", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var body struct {
+		Messages []ContextMessageResponse `json:"messages"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if len(body.Messages) == 0 {
+		t.Fatalf("expected context messages, got none")
+	}
+}
+
 // TestGetMe tests the /api/me endpoint.
 func TestGetMe(t *testing.T) {
 	svc, _, cleanup := newTestService(t)

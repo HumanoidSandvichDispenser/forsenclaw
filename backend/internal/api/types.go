@@ -82,6 +82,27 @@ type ListMessagesResponse struct {
 }
 
 // ---------------------------------------------------------------------------
+// Context preview endpoint
+// ---------------------------------------------------------------------------
+
+// GetContextPreviewRequest is the input for GET /api/rooms/{room_id}/agents/{agent_name}/context-preview.
+type GetContextPreviewRequest struct {
+	RoomID               string `path:"room_id" validate:"required" doc:"Room ID"`
+	AgentName            string `path:"agent_name" validate:"required" doc:"Agent name"`
+	IncludeCrossRoom     bool   `query:"include_cross_room" default:"true" doc:"Include cross-room feed"`
+	IncludeInterjections bool   `query:"include_interjections" default:"false" doc:"Include queued interjections"`
+}
+
+// GetContextPreviewResponse is the output for GET /api/rooms/{room_id}/agents/{agent_name}/context-preview.
+type GetContextPreviewResponse struct {
+	Body struct {
+		Messages         []ContextMessageResponse `json:"messages"`
+		CompactionOffset int                      `json:"compaction_offset" doc:"Current compaction cursor offset"`
+		AssembledBytes   int                      `json:"assembled_bytes" doc:"Total byte size of assembled message content"`
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Agent endpoints
 // ---------------------------------------------------------------------------
 
@@ -138,6 +159,13 @@ type MessageResponse struct {
 	ClearanceTag int           `json:"clearance_tag"  doc:"Classification tier"`
 	Type         string        `json:"type"           doc:"Message type" example:"message"`
 	Content      string        `json:"content"        doc:"Message body"`
+}
+
+// ContextMessageResponse is a simplified message representation for context previews.
+type ContextMessageResponse struct {
+	Role    string `json:"role" doc:"Message role" example:"user"`
+	Content string `json:"content" doc:"Message content"`
+	Name    string `json:"name,omitempty" doc:"Tool or actor name if provided"`
 }
 
 // ActorResponse is the API representation of an actor.

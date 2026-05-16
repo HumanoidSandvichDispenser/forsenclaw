@@ -201,3 +201,9 @@ func assembledContextSize(assembled *memory.AssembledContext) int {
 	}
 	return total
 }
+
+// AssembledContextSize returns the total byte size of all message content in
+// the assembled context.
+func AssembledContextSize(assembled *memory.AssembledContext) int {
+	return assembledContextSize(assembled)
+}
