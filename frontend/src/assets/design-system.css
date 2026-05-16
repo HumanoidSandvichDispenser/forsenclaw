@@ -154,6 +154,9 @@
   --code-line: 1.5;
   --code-weight: var(--weight-normal);
   --code-family: var(--font-mono);
+
+  /* Borders */
+  --border-radius: 4px;
 }
 
 /* ==================== UTILITY CLASSES ==================== */

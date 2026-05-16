@@ -1,0 +1,13 @@
+button {
+  padding: 0.5rem 1rem;
+  border: 1px var(--border-default) solid;
+  border-radius: var(--border-radius);
+  background-color: var(--bg-primary);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+button:hover {
+  background-color: var(--bg-secondary);
+  border-color: var(--border-hover);
+}
