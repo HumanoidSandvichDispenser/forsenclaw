@@ -1,11 +1,16 @@
 <script setup lang="ts">
-import type { MessageResponse } from '@/client';
+import { ref } from 'vue';
 
-defineProps<{
+import type { MessageResponse } from '@/client';
+import RoomMessageSourceModal from '@/components/room/RoomMessageSourceModal.vue';
+
+const props = defineProps<{
   message: MessageResponse;
   mine: boolean;
   timestampLabel: string;
 }>();
+
+const sourceOpen = ref(false);
 
 // TODO: use xml and markdown parsers, for markdown output and structured
 // content beyond thought tags like images, files, tool calls, etc.
@@ -29,12 +34,20 @@ function parseContent(content: string) {
 
   return parts
 }
+
+function openSource() {
+  sourceOpen.value = true;
+}
+
+function closeSource() {
+  sourceOpen.value = false;
+}
 </script>
 
 <template>
-  <article class="msg" :class="{ mine, other: !mine, system: message.sender.type === 'system' }">
+  <article class="msg" :class="{ mine: props.mine, other: !props.mine, system: props.message.sender.type === 'system' }">
     <div class="bubble">
-      <template v-for="part in parseContent(message.content)">
+      <template v-for="part in parseContent(props.message.content)">
         <details v-if="part.type === 'thought'" class="thought">
           <summary>{{ part.title }}</summary>
           <!--div v-html="renderMarkdown(part.content)" /-->
@@ -43,14 +56,15 @@ function parseContent(content: string) {
         <p v-else class="content">{{ part.content }}</p>
       </template>
       <div class="speaker">
-        <span class="name">{{ message.sender.name }}</span>
+        <span class="name">{{ props.message.sender.name }}</span>
         <div class="side">
-          <span class="time">View Source</span>
+          <button class="time-btn" type="button" @click="openSource">View Source</button>
           <span class="time">Copy</span>
-          <span class="time">{{ timestampLabel }}</span>
+          <span class="time">{{ props.timestampLabel }}</span>
         </div>
       </div>
     </div>
+    <RoomMessageSourceModal :open="sourceOpen" :message="props.message" @close="closeSource" />
   </article>
 </template>
 
@@ -142,5 +156,17 @@ p.content {
 
 .time {
   color: var(--fg-muted);
+}
+
+.time-btn {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+}
+
+.time-btn:hover {
+  color: var(--fg-primary);
 }
 </style>
