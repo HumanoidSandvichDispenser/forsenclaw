@@ -1,6 +1,67 @@
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 
+import { createRoom, getRoom, listRooms, type RoomResponse } from '@/client';
+import { useClientStore } from '@/stores/client';
+
 export const useRoomsStore = defineStore('rooms', () => {
-  return { };
+  const clientStore = useClientStore();
+
+  const rooms = ref<RoomResponse[]>([]);
+  const byId = computed(() => new Map(rooms.value.map((r) => [r.id, r])));
+
+  const loading = ref(false);
+  const error = ref<string | null>(null);
+
+  async function fetchRooms() {
+    loading.value = true;
+    error.value = null;
+    try {
+      const res = await listRooms({ client: clientStore.client, query: { limit: 200, offset: 0 } });
+      rooms.value = res.rooms ?? [];
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e);
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  async function fetchRoom(roomId: string) {
+    error.value = null;
+    try {
+      const room = await getRoom({ client: clientStore.client, path: { room_id: roomId } });
+      const idx = rooms.value.findIndex((r) => r.id === room.id);
+      if (idx === -1) rooms.value.unshift(room);
+      else rooms.value[idx] = room;
+      return room;
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e);
+      return null;
+    }
+  }
+
+  async function createFreeformRoom(participantIds: string[]) {
+    error.value = null;
+    // backend currently enforces exactly 2 participants.
+    const room = await createRoom({
+      client: clientStore.client,
+      body: {
+        clearance_ceiling: 5,
+        participant_ids: participantIds,
+        protocol_type: 'freeform',
+      },
+    });
+    rooms.value.unshift(room);
+    return room;
+  }
+
+  return {
+    rooms,
+    byId,
+    loading,
+    error,
+    fetchRooms,
+    fetchRoom,
+    createFreeformRoom,
+  };
 });

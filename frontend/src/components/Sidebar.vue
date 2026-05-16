@@ -1,6 +1,52 @@
 <script setup lang="ts">
+import { computed, onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
+
 import SidebarList from '@/components/SidebarList.vue';
 import SidebarTab from '@/components/SidebarTab.vue';
+import CreateRoomModal from '@/components/CreateRoomModal.vue';
+
+import { useAgentsStore } from '@/stores/agents';
+import { useRoomsStore } from '@/stores/rooms';
+
+const router = useRouter();
+const roomsStore = useRoomsStore();
+const agentsStore = useAgentsStore();
+
+const createOpen = ref(false);
+
+onMounted(() => {
+  roomsStore.fetchRooms();
+  agentsStore.fetchAgents();
+});
+
+const roomTabs = computed(() =>
+  roomsStore.rooms.map((r) => {
+    const participants = r.participants ?? [];
+    const title =
+      participants.length > 0
+        ? participants.map((p) => p.name).join(' · ')
+        : r.id;
+    return {
+      id: r.id,
+      title,
+      subtitle: r.protocol_type,
+    };
+  }),
+);
+
+const agentTabs = computed(() =>
+  agentsStore.agents
+    .filter((a) => a.active)
+    .map((a) => ({
+      name: a.name,
+      label: a.name,
+    })),
+);
+
+function onRoomCreated(roomId: string) {
+  router.push(`/rooms/${roomId}`);
+}
 </script>
 
 <template>
@@ -10,36 +56,25 @@ import SidebarTab from '@/components/SidebarTab.vue';
 
     <div class="group">
       <div class="padding">
-        <button class="create-room-btn">Create Room</button>
+        <button class="create-room-btn" @click="createOpen = true">+ New Room</button>
       </div>
 
       <div class="group scrollable-container">
         <SidebarList label="Rooms" class="padding">
-          <SidebarTab to="/rooms/uuid-here">Shiet</SidebarTab>
+          <SidebarTab v-for="r in roomTabs" :key="r.id" :to="`/rooms/${r.id}`">
+            {{ r.title }}
+          </SidebarTab>
         </SidebarList>
 
         <SidebarList label="Agents" class="padding">
-          <SidebarTab to="/agents/xyz">xyz</SidebarTab>
-          <SidebarTab to="/agents/xyz">xyz</SidebarTab>
-          <SidebarTab to="/agents/xyz">xyz</SidebarTab>
-          <SidebarTab to="/agents/xyz">xyz</SidebarTab>
-          <SidebarTab to="/agents/xyz">xyz</SidebarTab>
-          <SidebarTab to="/agents/xyz">xyz</SidebarTab>
-          <SidebarTab to="/agents/xyz">xyz</SidebarTab>
-          <SidebarTab to="/agents/xyz">xyz</SidebarTab>
-          <SidebarTab to="/agents/xyz">xyz</SidebarTab>
-          <SidebarTab to="/agents/xyz">xyz</SidebarTab>
-          <SidebarTab to="/agents/xyz">xyz</SidebarTab>
-          <SidebarTab to="/agents/xyz">xyz</SidebarTab>
-          <SidebarTab to="/agents/xyz">xyz</SidebarTab>
-          <SidebarTab to="/agents/xyz">xyz</SidebarTab>
-          <SidebarTab to="/agents/xyz">xyz</SidebarTab>
-          <SidebarTab to="/agents/xyz">xyz</SidebarTab>
-          <SidebarTab to="/agents/xyz">xyz</SidebarTab>
-          <SidebarTab to="/agents/xyz">xyz</SidebarTab>
+          <SidebarTab v-for="a in agentTabs" :key="a.name" :to="`/agents/${a.name}`">
+            {{ a.label }}
+          </SidebarTab>
         </SidebarList>
       </div>
     </div>
+
+    <CreateRoomModal :open="createOpen" @close="createOpen = false" @created="onRoomCreated" />
   </aside>
 </template>
 

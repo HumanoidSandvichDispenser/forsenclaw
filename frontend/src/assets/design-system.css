@@ -157,6 +157,12 @@
 
   /* Borders */
   --border-radius: 4px;
+
+  /* Overlays */
+  --overlay-scrim: rgba(0, 0, 0, 0.42);
+
+  /* Soft accent fills (avoid CSS color-mix dependency) */
+  --accent-primary-soft: var(--coral-50);
 }
 
 /* ==================== UTILITY CLASSES ==================== */
