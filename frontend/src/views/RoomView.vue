@@ -2,6 +2,10 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 
+import RoomComposer from '@/components/room/RoomComposer.vue';
+import RoomHeader from '@/components/room/RoomHeader.vue';
+import RoomMembersPanel from '@/components/room/RoomMembersPanel.vue';
+import RoomMessageItem from '@/components/room/RoomMessageItem.vue';
 import { useMessagesStore } from '@/stores/messages';
 import { useRoomsStore } from '@/stores/rooms';
 import { useUserStore } from '@/stores/user';
@@ -99,18 +103,12 @@ async function send() {
 
 <template>
   <section class="room-layout">
-    <header class="room-header">
-      <div class="title-block">
-        <h1 class="h2 title">{{ (members.map((m) => m.name).join(' · ')) || roomId }}</h1>
-        <p class="meta">
-          <span class="text-tertiary">{{ room?.protocol_type || 'room' }}</span>
-          <span class="dot" aria-hidden="true">•</span>
-          <span class="text-tertiary">{{ members.length }} participants</span>
-        </p>
-      </div>
-
-      <button class="settings" type="button" aria-label="Room settings">⚙</button>
-    </header>
+    <RoomHeader
+      :title="members.map((m) => m.name).join(' · ') || roomId"
+      :protocol-type="room?.protocol_type || 'room'"
+      :participant-count="members.length"
+      @settings="() => {}"
+    />
 
     <main class="room-main">
       <section class="chat">
@@ -118,52 +116,24 @@ async function send() {
           <p v-if="messagesStore.loadingByRoomId[roomId]" class="muted">Loading…</p>
           <p v-else-if="messagesStore.errorByRoomId[roomId]" class="error">{{ messagesStore.errorByRoomId[roomId] }}</p>
 
-          <article
+          <RoomMessageItem
             v-for="m in messages"
             :key="m.id"
-            class="msg"
-            :class="{ mine: m.sender.id === meActorId }"
-          >
-            <div class="bubble">
-              <p class="body">{{ m.content }}</p>
-              <p class="speaker">
-                <span class="name">{{ m.sender.name }}</span>
-                <span class="time">{{ formatTime(m.timestamp) }}</span>
-              </p>
-            </div>
-          </article>
+            :message="m"
+            :mine="m.sender.id === meActorId"
+            :timestamp-label="formatTime(m.timestamp)"
+          />
         </div>
 
-        <form class="composer" @submit.prevent="send">
-          <input
-            v-model="messageText"
-            class="input"
-            type="text"
-            placeholder="Message…"
-            :disabled="sending"
-          />
-          <button class="send" type="submit" :disabled="sending || !messageText.trim()">→</button>
-          <p v-if="composerError" class="error composer-error">{{ composerError }}</p>
-        </form>
+        <RoomComposer
+          v-model="messageText"
+          :error="composerError"
+          :sending="sending"
+          @submit="send"
+        />
       </section>
 
-      <aside class="right">
-        <h2 class="right-title">Members</h2>
-        <div class="members">
-          <div v-for="m in members" :key="m.id" class="member">
-            <div class="member-name">
-              <span>{{ m.name }}</span>
-              <span v-if="m.id === meActorId" class="you">You</span>
-            </div>
-            <div class="member-meta">{{ m.type }}</div>
-          </div>
-        </div>
-
-        <h2 class="right-title">Memory</h2>
-        <div class="memory">
-          <p class="muted">Not implemented yet.</p>
-        </div>
-      </aside>
+      <RoomMembersPanel :members="members" :me-actor-id="meActorId" />
     </main>
   </section>
 </template>
@@ -173,43 +143,6 @@ async function send() {
   display: flex;
   flex-direction: column;
   height: 100vh;
-}
-
-.room-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1rem 1.25rem;
-  border-bottom: 1px solid var(--border-subtle);
-  background: var(--bg-elevated);
-}
-
-.title-block {
-  min-width: 0;
-}
-
-.title {
-  margin: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.meta {
-  margin: 0.25rem 0 0;
-  font-size: var(--body-sm-size);
-}
-
-.dot {
-  margin: 0 0.5rem;
-  color: var(--fg-muted);
-}
-
-.settings {
-  width: 2.25rem;
-  height: 2.25rem;
-  display: grid;
-  place-items: center;
 }
 
 .room-main {
@@ -235,134 +168,6 @@ async function send() {
   gap: 0.75rem;
 }
 
-.msg {
-  display: flex;
-}
-
-.msg.mine {
-  justify-content: flex-end;
-}
-
-.bubble {
-  width: min(48rem, 100%);
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-elevated);
-  border-radius: 0.9rem;
-  padding: 0.75rem 0.9rem;
-}
-
-.msg.mine .bubble {
-  background: var(--bg-secondary);
-}
-
-.body {
-  margin: 0;
-  white-space: pre-wrap;
-}
-
-.speaker {
-  margin: 0.5rem 0 0;
-  display: flex;
-  gap: 0.5rem;
-  align-items: baseline;
-  justify-content: space-between;
-  color: var(--fg-tertiary);
-  font-size: var(--body-xs-size);
-}
-
-.name {
-  font-weight: 600;
-}
-
-.time {
-  color: var(--fg-muted);
-}
-
-.composer {
-  border-top: 1px solid var(--border-subtle);
-  background: var(--bg-elevated);
-  padding: 0.75rem 1.25rem;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 0.75rem;
-  align-items: center;
-}
-
-.input {
-  padding: 0.7rem 0.9rem;
-  border-radius: 0.6rem;
-  border: 1px solid var(--border-default);
-  background: var(--bg-primary);
-}
-
-.send {
-  width: 2.4rem;
-  height: 2.4rem;
-  padding: 0;
-}
-
-.composer-error {
-  grid-column: 1 / -1;
-  margin: 0;
-}
-
-.right {
-  border-left: 1px solid var(--border-subtle);
-  background: var(--bg-elevated);
-  padding: 1rem;
-  overflow-y: auto;
-  min-height: 0;
-}
-
-.right-title {
-  margin: 0;
-  color: var(--fg-tertiary);
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.members {
-  margin-top: 0.75rem;
-  display: grid;
-  gap: 0.5rem;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.member {
-  padding: 0.5rem 0.6rem;
-  border: 1px solid var(--border-subtle);
-  border-radius: 0.75rem;
-  background: var(--bg-primary);
-}
-
-.member-name {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.you {
-  color: var(--fg-tertiary);
-  font-size: var(--body-xs-size);
-}
-
-.member-meta {
-  color: var(--fg-tertiary);
-  font-size: var(--body-xs-size);
-  margin-top: 0.15rem;
-}
-
-.memory {
-  margin-top: 0.75rem;
-  border: 1px solid var(--border-subtle);
-  border-radius: 0.75rem;
-  background: var(--bg-primary);
-  padding: 0.75rem;
-}
-
 .muted {
   color: var(--fg-tertiary);
   margin: 0;
@@ -371,15 +176,5 @@ async function send() {
 .error {
   color: var(--error-dark);
   margin: 0;
-}
-
-@media (max-width: 900px) {
-  .room-main {
-    grid-template-columns: 1fr;
-  }
-
-  .right {
-    display: none;
-  }
 }
 </style>
