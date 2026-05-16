@@ -364,6 +364,8 @@ func (d *Dispatcher) appendToTranscript(ctx context.Context, roomID string, msg 
 // agentLoop is the per-agent goroutine. It drains the RFC queue and sleeps
 // when empty.
 func (d *Dispatcher) agentLoop(entry *agentEntry) {
+	log.Printf("dispatcher: agent loop started for %q", entry.agent.Name())
+
 	defer close(entry.done)
 
 	for rfc := range entry.queue {
@@ -375,11 +377,17 @@ func (d *Dispatcher) agentLoop(entry *agentEntry) {
 
 // processRFC assembles context, invokes the model, and delivers the response.
 func (d *Dispatcher) processRFC(ctx context.Context, ag *agent.Agent, rfc room.RFC) error {
+	delete(d.processing, rfc.RoomID) // ensure processing state is cleared on exit
+
+	log.Printf("dispatcher: begin processing RFC %s for agent %q in room %q", rfc.ID, ag.Name(), rfc.RoomID)
+
 	// 1. Get room
 	r, err := d.store.GetRoom(ctx, rfc.RoomID)
 	if err != nil {
 		return fmt.Errorf("get room: %w", err)
 	}
+
+	log.Printf("dispatcher: fetched room %q for RFC %s; participants=%d", r.ID, rfc.ID, len(r.Participants))
 
 	// 2. Collect any pending interjections for this room
 	d.mu.Lock()
@@ -403,6 +411,8 @@ func (d *Dispatcher) processRFC(ctx context.Context, ag *agent.Agent, rfc room.R
 		return fmt.Errorf("assemble context: %w", err)
 	}
 
+	log.Printf("dispatcher: assembled context with %d messages for RFC %s in room %q", len(assembled.Messages), rfc.ID, r.ID)
+
 	// 5. Resolve model tier (primary for room RFCs)
 	provider, modelID, err := d.registry.ResolveTier(ag.Definition, inference.TierPrimary)
 	if err != nil {
@@ -423,6 +433,8 @@ func (d *Dispatcher) processRFC(ctx context.Context, ag *agent.Agent, rfc room.R
 			RoomID: rfc.RoomID,
 		})
 	}
+
+	log.Printf("dispatcher: starting inference for RFC %s with model %q for agent %q in room %q", rfc.ID, modelID, ag.Name(), r.ID)
 
 	ch, err := provider.Infer(ctx, req)
 	if err != nil {
@@ -446,6 +458,8 @@ func (d *Dispatcher) processRFC(ctx context.Context, ag *agent.Agent, rfc room.R
 			})
 		}
 	}
+
+	log.Printf("dispatcher: inference stream ended for RFC %s in room %q; complete=%v", rfc.ID, r.ID, streamComplete)
 
 	// If the stream ended without a finish reason, it was an error
 	if !streamComplete {
@@ -507,6 +521,8 @@ func (d *Dispatcher) processRFC(ctx context.Context, ag *agent.Agent, rfc room.R
 	if err := proto.OnRFCResponse(r, rfc, responseMsg); err != nil {
 		return fmt.Errorf("protocol onRFCResponse: %w", err)
 	}
+
+	log.Printf("dispatcher: successfully processed RFC %s for agent %q in room %q", rfc.ID, ag.Name(), r.ID)
 
 	return nil
 }

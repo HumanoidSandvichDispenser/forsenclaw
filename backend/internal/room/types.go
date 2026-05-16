@@ -17,6 +17,8 @@ const (
 	ActorUser ActorType = "user"
 	// ActorAgent represents an LLM agent.
 	ActorAgent ActorType = "agent"
+	// ActorSystem represents the system itself (e.g. for system messages).
+	ActorSystem ActorType = "system"
 )
 
 // Actor represents any entity that can participate in rooms, send messages,
@@ -43,7 +45,7 @@ func (a Actor) Validate() error {
 	if a.ID == "" {
 		return fmt.Errorf("actor ID is required")
 	}
-	if a.Type != ActorUser && a.Type != ActorAgent {
+	if a.Type != ActorUser && a.Type != ActorAgent && a.Type != ActorSystem {
 		return fmt.Errorf("invalid actor type: %q", a.Type)
 	}
 	if a.Clearance < 0 {
