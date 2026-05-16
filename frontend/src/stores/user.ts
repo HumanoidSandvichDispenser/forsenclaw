@@ -13,5 +13,10 @@ export const useUserStore = defineStore('user', () => {
     user.value = null;
   }
 
-  return { user, isLoggedIn, setUser, clearUser };
+  return {
+    user,
+    isLoggedIn,
+    setUser,
+    clearUser,
+  };
 });

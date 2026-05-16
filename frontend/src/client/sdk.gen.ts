@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { CreateRoomData, CreateRoomErrors, CreateRoomResponses, GetAgentData, GetAgentErrors, GetAgentResponses, GetMeData, GetMeErrors, GetMeResponses, GetRoomData, GetRoomErrors, GetRoomResponses, ListAgentsData, ListAgentsErrors, ListAgentsResponses, ListMessagesData, ListMessagesErrors, ListMessagesResponses, ListRoomsData, ListRoomsErrors, ListRoomsResponses, SendMessageData, SendMessageErrors, SendMessageResponses } from './types.gen';
+import type { CreateRoomData, CreateRoomErrors, CreateRoomResponses, GetAgentData, GetAgentErrors, GetAgentResponses, GetMeData, GetMeErrors, GetMeResponses, GetRoomData, GetRoomErrors, GetRoomResponses, ListAgentsData, ListAgentsErrors, ListAgentsResponses, ListMessagesData, ListMessagesErrors, ListMessagesResponses, ListRoomsData, ListRoomsErrors, ListRoomsResponses, PreviewContextData, PreviewContextErrors, PreviewContextResponses, SendMessageData, SendMessageErrors, SendMessageResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -54,6 +54,11 @@ export const createRoom = <ThrowOnError extends boolean = false>(options: Option
  * Get room details
  */
 export const getRoom = <ThrowOnError extends boolean = false>(options: Options<GetRoomData, ThrowOnError>) => (options.client ?? client).get<GetRoomResponses, GetRoomErrors, ThrowOnError>({ url: '/api/rooms/{room_id}', ...options });
+
+/**
+ * Preview agent context window
+ */
+export const previewContext = <ThrowOnError extends boolean = false>(options: Options<PreviewContextData, ThrowOnError>) => (options.client ?? client).get<PreviewContextResponses, PreviewContextErrors, ThrowOnError>({ url: '/api/rooms/{room_id}/agents/{agent_name}/context-preview', ...options });
 
 /**
  * List messages in a room

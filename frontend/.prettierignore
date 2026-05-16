@@ -1,3 +1,4 @@
 # do not format generated files
 **/*.gen.js
 **/*.gen.ts
+src/client

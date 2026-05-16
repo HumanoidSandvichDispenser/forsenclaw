@@ -58,6 +58,21 @@ export type AgentResponse = {
     sensitive_model: string;
 };
 
+export type ContextMessageResponse = {
+    /**
+     * Message content
+     */
+    content: string;
+    /**
+     * Tool or actor name if provided
+     */
+    name?: string;
+    /**
+     * Message role
+     */
+    role: string;
+};
+
 export type CreateRoomRequestBody = {
     /**
      * A URL to the JSON Schema for this object.
@@ -125,6 +140,22 @@ export type ErrorModel = {
      * A URI reference to human-readable documentation for the error.
      */
     type?: string;
+};
+
+export type GetContextPreviewResponseBody = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    /**
+     * Total byte size of assembled message content
+     */
+    assembled_bytes: number;
+    /**
+     * Current compaction cursor offset
+     */
+    compaction_offset: number;
+    messages: Array<ContextMessageResponse> | null;
 };
 
 export type ListAgentsResponseBody = {
@@ -330,6 +361,18 @@ export type ErrorModelWritable = {
      * A URI reference to human-readable documentation for the error.
      */
     type?: string;
+};
+
+export type GetContextPreviewResponseBodyWritable = {
+    /**
+     * Total byte size of assembled message content
+     */
+    assembled_bytes: number;
+    /**
+     * Current compaction cursor offset
+     */
+    compaction_offset: number;
+    messages: Array<ContextMessageResponse> | null;
 };
 
 export type ListAgentsResponseBodyWritable = {
@@ -608,6 +651,49 @@ export type GetRoomResponses = {
 };
 
 export type GetRoomResponse = GetRoomResponses[keyof GetRoomResponses];
+
+export type PreviewContextData = {
+    body?: never;
+    path: {
+        /**
+         * Room ID
+         */
+        room_id: string;
+        /**
+         * Agent name
+         */
+        agent_name: string;
+    };
+    query?: {
+        /**
+         * Include cross-room feed
+         */
+        include_cross_room?: boolean;
+        /**
+         * Include queued interjections
+         */
+        include_interjections?: boolean;
+    };
+    url: '/api/rooms/{room_id}/agents/{agent_name}/context-preview';
+};
+
+export type PreviewContextErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type PreviewContextError = PreviewContextErrors[keyof PreviewContextErrors];
+
+export type PreviewContextResponses = {
+    /**
+     * OK
+     */
+    200: GetContextPreviewResponseBody;
+};
+
+export type PreviewContextResponse = PreviewContextResponses[keyof PreviewContextResponses];
 
 export type ListMessagesData = {
     body?: never;
