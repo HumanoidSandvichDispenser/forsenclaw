@@ -105,10 +105,10 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req AssembleR
 	}
 
 	result := &AssembledContext{
-		SystemPrompt:  ag.Definition.RoleDescription,
-		ToolSchemas:   req.AvailableTools,
-		TurnBudget:    req.TurnBudget,
-		RAGResults:    []string{},
+		SystemPrompt: ag.Definition.RoleDescription,
+		ToolSchemas:  req.AvailableTools,
+		TurnBudget:   req.TurnBudget,
+		RAGResults:   []string{},
 	}
 
 	// 1. MEMORY.md
@@ -221,7 +221,11 @@ func (a *Assembler) buildMessages(ag *agent.Agent, req AssembleRequest, assemble
 	}
 
 	// Current room history (Tier 3): convert room.Message to inference.Message
-	for _, m := range req.CurrentRoomHistory {
+	history := req.CurrentRoomHistory
+	if len(history) > 0 {
+		history = history[:len(history)-1]
+	}
+	for _, m := range history {
 		role := inference.RoleUser
 		if m.Sender.IsAgent() {
 			// If the sender is the agent being invoked, mark as assistant
@@ -245,18 +249,17 @@ func (a *Assembler) buildMessages(ag *agent.Agent, req AssembleRequest, assemble
 	if len(req.Interjections) > 0 {
 		rfcContent.WriteString("## Interjections\n\n")
 		for _, m := range req.Interjections {
-			rfcContent.WriteString(fmt.Sprintf("%s: %s\n\n", m.Sender.Name, m.Content))
+			content := fmt.Sprintf("%s: %s\n\n", m.Sender.Name, m.Content)
+			rfcContent.WriteString(content)
 		}
 	}
 
-	rfcContent.WriteString("## Task\n\n")
-	// The RFC payload messages are the current task
-	for _, m := range req.CurrentRoomHistory {
-		// The last message is typically the one triggering this RFC
-		// For FreeForm, it's the user's most recent message
-		if m.Sender.IsUser() {
-			rfcContent.WriteString(fmt.Sprintf("%s: %s", m.Sender.Name, m.Content))
-		}
+	rfcContent.WriteString("## Request for Comment\n\n")
+	// The RFC payload message is the current task
+	if len(req.CurrentRoomHistory) > 0 {
+		m := req.CurrentRoomHistory[len(req.CurrentRoomHistory)-1]
+		content := fmt.Sprintf("%s: %s", m.Sender.Name, m.Content)
+		rfcContent.WriteString(content)
 	}
 
 	if rfcContent.Len() > 0 {

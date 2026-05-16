@@ -213,19 +213,19 @@ func TestAssembler_RoomHistoryRoles(t *testing.T) {
 		t.Fatalf("Assemble: %v", err)
 	}
 
-	// System message + 3 history messages + 1 task message = 5 total
-	if len(result.Messages) != 5 {
-		t.Fatalf("expected 5 messages, got %d", len(result.Messages))
+	// System message + 2 history messages + 1 task message = 4 total
+	if len(result.Messages) != 4 {
+		t.Fatalf("expected 4 messages, got %d", len(result.Messages))
 	}
 
-	// Check roles: msg_1 (user), msg_2 (assistant - same agent), msg_3 (user)
+	// Check roles: msg_1 (user), msg_2 (assistant - same agent)
 	if result.Messages[1].Role != inference.RoleUser {
 		t.Errorf("msg_1 role: got %q, want user", result.Messages[1].Role)
 	}
 	if result.Messages[2].Role != inference.RoleAssistant {
 		t.Errorf("msg_2 role: got %q, want assistant", result.Messages[2].Role)
 	}
-	if result.Messages[3].Role != inference.RoleUser {
-		t.Errorf("msg_3 role: got %q, want user", result.Messages[3].Role)
+	if !strings.Contains(result.Messages[3].Content, "How are you?") {
+		t.Errorf("task message missing last content: %q", result.Messages[3].Content)
 	}
 }
