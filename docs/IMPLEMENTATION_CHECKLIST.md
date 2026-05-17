@@ -33,10 +33,10 @@ F3. Agent Definitions + Memory Files
 - [X] Load agent definitions from `$XDG_CONFIG_HOME/hearth/agents/*/agent.yaml` on startup
 - [X] Hot-reload agent definitions on file changes (fsnotify/poll)
 - [X] Implement read/write for `MEMORY.md` per agent
-- [X] Implement daily notes at `memory/YYYY-MM-DD.md` (read today + yesterday; write observations)
+- [ ] Implement daily notes at `memory/YYYY-MM-DD.md` (read today + yesterday; write observations)
 - [X] Implement MEMORY.md truncation policy (configurable per-agent; default ≈ 4K tokens)
 - [X] Implement context assembly pipeline (system prompt → MEMORY.md → daily notes → RAG → MCP tools → room history → turn budget → RFC payload)
-- [X] Implement search index (SQLite hybrid) and embedding pipeline (Ollama embeddings)
+- [ ] Implement search index (SQLite hybrid) and embedding pipeline (Ollama embeddings)
 - [X] Implement `hearth index --rebuild` command to rebuild index from files
 - [X] RAG retrieval honoring requesting agent's clearance
 
@@ -44,14 +44,14 @@ Frontend follow-up (optional):
 - [ ] Agent memory viewer: MEMORY.md, daily notes, DREAMS.md
 
 F4. Rooms + FreeForm Protocol + RFC Dispatcher
-- [ ] Define Room, Message, RFC, RFCPayload, Actor types
-- [ ] SQLite schema: rooms table (participants, clearance_ceiling, protocol_type, protocol_state)
-- [ ] Implement JSONL append-only transcript writer for rooms
-- [ ] Implement Dispatcher interface and per-agent RFC queue
-- [ ] Implement Protocol interface and the FreeForm protocol (2 participants)
-- [ ] Implement per-agent goroutine lifecycle: wake on RFC, process queue, sleep when empty
-- [ ] Implement interjection behavior (queue user messages while agent mid-response)
-- [ ] REST endpoints: create room, post message, get room/messages
+- [X] Define Room, Message, RFC, RFCPayload, Actor types
+- [X] SQLite schema: rooms table (participants, clearance_ceiling, protocol_type, protocol_state)
+- [X] Implement JSONL append-only transcript writer for rooms
+- [X] Implement Dispatcher interface and per-agent RFC queue
+- [X] Implement Protocol interface and the FreeForm protocol (2 participants)
+- [X] Implement per-agent goroutine lifecycle: wake on RFC, process queue, sleep when empty
+- [X] Implement interjection behavior (queue user messages while agent mid-response)
+- [X] REST endpoints: create room, post message, get room/messages
 - [ ] WebSocket / real-time hub for room updates
 - [ ] Enforce turn limits (soft/hard) with extension request flow
 
