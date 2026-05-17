@@ -111,7 +111,7 @@ func (r *Registry) EmbeddingProvider(cfg config.EmbeddingsConfig) (Provider, err
 
 // Checks the provider configuration for an API key, first looking at the
 // configured APIKey field, then looking up the environment variable specified
-// in
+// in APIKeyEnv. Returns an empty string if no API key is found.
 func resolveAPIKey(prov *config.Provider) string {
 	if prov.APIKey != "" {
 		return prov.APIKey
