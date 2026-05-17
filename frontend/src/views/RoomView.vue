@@ -35,6 +35,12 @@ const meActorId = computed(() => {
 
 const members = computed(() => room.value?.participants ?? []);
 
+const isLoading = computed(() => {
+  // display loading if we are making the request AND not showing any messages yet
+  return messagesStore.loadingByRoomId[roomId.value] &&
+    messages.value.length === 0;
+});
+
 function formatTime(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
@@ -114,7 +120,7 @@ async function send() {
       <section class="chat">
         <div ref="scrollerEl" class="messages" aria-label="Messages">
           <div class="margins">
-            <p v-if="messagesStore.loadingByRoomId[roomId]" class="muted">Loading…</p>
+            <p v-if="isLoading" class="muted">Loading…</p>
             <p v-else-if="messagesStore.errorByRoomId[roomId]" class="error">
               {{ messagesStore.errorByRoomId[roomId] }}
             </p>

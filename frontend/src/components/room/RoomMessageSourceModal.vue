@@ -22,7 +22,12 @@ function onClose() {
         <header class="header">
           <div>
             <h2 class="h2">Message Source</h2>
-            <p class="meta">{{ props.message.sender.name }}</p>
+            <div class="meta">{{ props.message.sender.name }}</div>
+            <div class="meta" v-if="props.message.usage">
+              <span>{{ props.message.usage.input_tokens }} input tokens</span>
+              &middot;
+              <span>{{ props.message.usage.output_tokens }} output tokens</span>
+            </div>
           </div>
           <button class="icon-btn" type="button" @click="onClose" aria-label="Close">✕</button>
         </header>

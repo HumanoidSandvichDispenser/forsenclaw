@@ -83,6 +83,11 @@ func (o *OpenAICompatibleAdapter) Infer(ctx context.Context, payload ContextPayl
 		},
 	}
 
+	// include usage if streaming
+	if body.Stream {
+		body.StreamOptions = &openaiStreamOptions{IncludeUsage: true}
+	}
+
 	// History is appended as separate role-assigned messages so that tool-role
 	// messages can carry proper wire semantics.
 	for _, h := range payload.History {
@@ -151,6 +156,10 @@ func (o *OpenAICompatibleAdapter) readStream(body io.ReadCloser, ch chan<- Strea
 	defer body.Close()
 	defer close(ch)
 
+	// TODO: for most providers, they will typically stream a few tokens at a
+	// time. we might need to consider increasing the buffer size if for some
+	// reason the provider sends larger chunks at once (bufio uses a default of
+	// 64KiB)
 	scanner := bufio.NewScanner(body)
 	var usage Usage
 	var sentFinal bool
@@ -207,13 +216,18 @@ func (o *OpenAICompatibleAdapter) readStream(body io.ReadCloser, ch chan<- Strea
 
 // --- request/response types ---
 
+type openaiStreamOptions struct {
+	IncludeUsage bool `json:"include_usage,omitempty"`
+}
+
 type openaiCompatRequest struct {
-	Model       string                `json:"model"`
-	Messages    []openaiCompatMessage `json:"messages"`
-	Stream      bool                  `json:"stream"`
-	Temperature *float64              `json:"temperature,omitempty"`
-	MaxTokens   *int                  `json:"max_tokens,omitempty"`
-	Stop        []string              `json:"stop,omitempty"`
+	Model         string                `json:"model"`
+	Messages      []openaiCompatMessage `json:"messages"`
+	Stream        bool                  `json:"stream"`
+	Temperature   *float64              `json:"temperature,omitempty"`
+	MaxTokens     *int                  `json:"max_tokens,omitempty"`
+	Stop          []string              `json:"stop,omitempty"`
+	StreamOptions *openaiStreamOptions  `json:"stream_options,omitempty"`
 }
 
 type openaiCompatMessage struct {
@@ -232,9 +246,9 @@ type openaiCompatStreamChunk struct {
 }
 
 type openaiCompatChoice struct {
-	Index        int                `json:"index"`
-	Delta        openaiCompatDelta  `json:"delta"`
-	FinishReason *string            `json:"finish_reason"`
+	Index        int               `json:"index"`
+	Delta        openaiCompatDelta `json:"delta"`
+	FinishReason *string           `json:"finish_reason"`
 }
 
 type openaiCompatDelta struct {

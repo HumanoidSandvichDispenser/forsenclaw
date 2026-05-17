@@ -13,7 +13,7 @@ defineEmits<{
 <template>
   <header class="room-header">
     <div class="title-block">
-      <h1 class="h2 title">{{ title }}</h1>
+      <h1 class="title">{{ title }}</h1>
       <p class="meta">
         <span class="text-tertiary">{{ protocolType || 'room' }}</span>
         <span class="dot" aria-hidden="true">•</span>
@@ -40,6 +40,9 @@ defineEmits<{
 }
 
 .title {
+  font-size: var(--body-lg-size);
+  font-weight: var(--weight-medium);
+  color: var(--fg-secondary);
   margin: 0;
   white-space: nowrap;
   overflow: hidden;

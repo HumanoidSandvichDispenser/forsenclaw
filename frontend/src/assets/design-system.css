@@ -12,7 +12,7 @@
 
 :root {
   --font-display: 'Georgia', 'Times New Roman', serif;
-  --font-body: Helvetica, Arial, sans-serif;
+  --font-body: sans-serif;
   --font-body-serif: var(--font-display);
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Menlo', 'Consolas', monospace;
 
