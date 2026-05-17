@@ -50,8 +50,10 @@ func TestOpenAICompatibleAdapter_XMLEscaping(t *testing.T) {
 	if err := json.Unmarshal([]byte(capturedBody), &req); err != nil {
 		t.Fatalf("failed to unmarshal request body: %v", err)
 	}
-	if len(req.Messages) != 2 {
-		t.Fatalf("expected 2 messages, got %d", len(req.Messages))
+	// Expect 3 messages: system, user XML preamble, user RFC.
+	// History is empty in this test, so no history messages are added.
+	if len(req.Messages) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(req.Messages))
 	}
 
 	// Verify system prompt is sent as the dedicated system message.
@@ -62,22 +64,19 @@ func TestOpenAICompatibleAdapter_XMLEscaping(t *testing.T) {
 		t.Errorf("system message content mismatch: got %q", req.Messages[0].Content)
 	}
 
-	userContent := req.Messages[1].Content
+	// messages[1] is the XML context preamble (memory, notes, tools, cross-room).
+	preambleContent := req.Messages[1].Content
 
-	// Verify XML metacharacters are escaped in the user message content.
-	if !strings.Contains(userContent, "<memory>") {
-		t.Errorf("memory tag missing in user message")
+	// Verify XML metacharacters are escaped in the preamble.
+	if !strings.Contains(preambleContent, "<memory>") {
+		t.Errorf("memory tag missing in preamble message")
 	}
-	if !strings.Contains(userContent, "5 &lt; 10 &amp;&amp; 10 &gt; 5") {
-		t.Errorf("memory content not properly escaped in user message")
-	}
-	if !strings.Contains(userContent, "&lt;script&gt;alert(1)&lt;/script&gt;") {
-		t.Errorf("RFC content not properly escaped in user message")
+	if !strings.Contains(preambleContent, "5 &lt; 10 &amp;&amp; 10 &gt; 5") {
+		t.Errorf("memory content not properly escaped in preamble message")
 	}
 
-	// Verify the user message content is valid XML by wrapping it in a root
-	// element and parsing it.
-	wrapped := "<root>" + userContent + "</root>"
+	// Verify the preamble is valid XML by wrapping it in a root element.
+	wrapped := "<root>" + preambleContent + "</root>"
 	type System struct {
 		Memory     string `xml:"memory"`
 		DailyNotes string `xml:"daily_notes"`
@@ -87,21 +86,24 @@ func TestOpenAICompatibleAdapter_XMLEscaping(t *testing.T) {
 	type Root struct {
 		System            System `xml:"system"`
 		CrossRoomActivity string `xml:"cross_room_activity"`
-		History           string `xml:"history"`
-		RequestForComment string `xml:"request_for_comment"`
 	}
 
 	var root Root
 	if err := xml.Unmarshal([]byte(wrapped), &root); err != nil {
-		t.Errorf("user message content is not valid XML: %v", err)
+		t.Errorf("preamble content is not valid XML: %v", err)
 	}
 
-	// Verify that the parsed content matches the original (unescaped) values.
+	// Verify that the parsed memory content matches the original (unescaped) value.
 	if root.System.Memory != "User said: 5 < 10 && 10 > 5" {
 		t.Errorf("parsed memory mismatch: got %q", root.System.Memory)
 	}
-	if strings.TrimSpace(root.RequestForComment) != "What about <script>alert(1)</script>?" {
-		t.Errorf("parsed RFC mismatch: got %q", root.RequestForComment)
+
+	// messages[2] is the RFC as a plain user message.
+	if req.Messages[2].Role != "user" {
+		t.Errorf("expected RFC message role to be user, got %q", req.Messages[2].Role)
+	}
+	if req.Messages[2].Content != "What about <script>alert(1)</script>?" {
+		t.Errorf("RFC message content mismatch: got %q", req.Messages[2].Content)
 	}
 }
 

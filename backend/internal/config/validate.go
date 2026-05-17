@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 )
 
@@ -83,6 +84,21 @@ func ValidateServerConfig(cfg *ServerConfig) []ConfigError {
 	}
 	if cfg.Context.MinimumGuaranteed < 1 {
 		errs = append(errs, ConfigError{Field: "context.minimum_guaranteed", Message: "must be at least 1"})
+	}
+
+	// Validate tools config.
+	if cfg.Tools.MaxToolIterations < 0 {
+		errs = append(errs, ConfigError{Field: "tools.max_tool_iterations", Message: "must be non-negative (0 = use default of 10)"})
+	}
+	for i, srv := range cfg.Tools.Servers {
+		if srv.Name == "" {
+			errs = append(errs, ConfigError{Field: fmt.Sprintf("tools.servers[%d].name", i), Message: "must not be empty"})
+		}
+		if srv.URL == "" {
+			errs = append(errs, ConfigError{Field: fmt.Sprintf("tools.servers[%d].url", i), Message: "must not be empty"})
+		} else if u, err := url.ParseRequestURI(srv.URL); err != nil || u.Scheme == "" || u.Host == "" {
+			errs = append(errs, ConfigError{Field: fmt.Sprintf("tools.servers[%d].url", i), Message: fmt.Sprintf("invalid URL %q", srv.URL)})
+		}
 	}
 
 	return errs

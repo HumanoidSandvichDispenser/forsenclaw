@@ -99,8 +99,14 @@ func (a *AnthropicAdapter) Infer(ctx context.Context, payload ContextPayload) (<
 
 	// History: add pre-role-assigned messages, merging consecutive same-role
 	// pairs to satisfy Anthropic's strict alternating constraint.
+	// Tool-role messages are rendered as user-role since this adapter uses the
+	// text-based protocol (not Anthropic's native tool_result blocks).
 	for _, h := range payload.History {
-		anthropicAppendMerge(&body.Messages, string(h.Role), h.Content)
+		role := string(h.Role)
+		if h.Role == RoleTool {
+			role = "user"
+		}
+		anthropicAppendMerge(&body.Messages, role, h.Content)
 	}
 
 	// RFC as final user message.

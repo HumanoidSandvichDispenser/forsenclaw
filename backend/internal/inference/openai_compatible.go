@@ -74,21 +74,6 @@ func (o *OpenAICompatibleAdapter) Infer(ctx context.Context, payload ContextPayl
 		xml.WriteString("</cross_room_activity>\n")
 	}
 
-	if len(payload.History) > 0 {
-		xml.WriteString("<history>\n")
-		for _, h := range payload.History {
-			xml.WriteString(html.EscapeString(h.Content))
-			xml.WriteString("\n")
-		}
-		xml.WriteString("</history>\n")
-	}
-
-	if payload.RFC != "" {
-		xml.WriteString("<request_for_comment>\n")
-		xml.WriteString(html.EscapeString(payload.RFC))
-		xml.WriteString("\n</request_for_comment>")
-	}
-
 	body := openaiCompatRequest{
 		Model:  payload.Model,
 		Stream: true,
@@ -96,6 +81,31 @@ func (o *OpenAICompatibleAdapter) Infer(ctx context.Context, payload ContextPayl
 			{Role: "system", Content: payload.SystemPrompt},
 			{Role: "user", Content: xml.String()},
 		},
+	}
+
+	// History is appended as separate role-assigned messages so that tool-role
+	// messages can carry proper wire semantics.
+	for _, h := range payload.History {
+		if h.Role == RoleTool {
+			body.Messages = append(body.Messages, openaiCompatMessage{
+				Role:    "tool",
+				Content: h.Content,
+				Name:    h.Name,
+			})
+		} else {
+			body.Messages = append(body.Messages, openaiCompatMessage{
+				Role:    string(h.Role),
+				Content: h.Content,
+			})
+		}
+	}
+
+	// RFC is the final user message.
+	if payload.RFC != "" {
+		body.Messages = append(body.Messages, openaiCompatMessage{
+			Role:    "user",
+			Content: payload.RFC,
+		})
 	}
 	if payload.Temperature != nil {
 		body.Temperature = payload.Temperature

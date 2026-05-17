@@ -50,9 +50,15 @@ func (d *Dispatcher) processRFC(ctx context.Context, ag *agent.Agent, rfc room.R
 
 	log.Printf("dispatcher: starting inference for RFC %s with model %q for agent %q in room %q", rfc.ID, modelID, ag.Name(), r.ID)
 
-	content, usage, err := d.streamResponse(ctx, rfc, provider, modelID, assembled)
+	executor := d.buildExecutor(ag)
+	content, usage, err := d.runToolLoop(ctx, ag, rfc, provider, modelID, assembled, executor)
 	if err != nil {
 		return err
+	}
+
+	if content == "" {
+		log.Printf("dispatcher: tool loop returned empty prose for RFC %s, skipping response delivery", rfc.ID)
+		return nil
 	}
 
 	responseMsg := d.buildResponseMessage(ag, rfc, content, usage)
@@ -110,15 +116,12 @@ func (d *Dispatcher) assembleContext(ctx context.Context, ag *agent.Agent, rfc r
 	return assembled, cursor, nil
 }
 
-// streamResponse broadcasts a typing indicator, calls inference, streams chunks
-// to connected clients, and returns the complete response content.
+// streamPayload calls inference with the given payload, streams chunks to
+// connected clients, and returns the complete response content.
 // On inference failure, handleInferenceError is called before returning.
-func (d *Dispatcher) streamResponse(ctx context.Context, rfc room.RFC, provider inference.Provider, modelID string, assembled *memory.AssembledContext) (string, inference.Usage, error) {
-	if d.hub != nil {
-		d.hub.Broadcast(rfc.RoomID, StreamEvent{Type: "typing", RoomID: rfc.RoomID})
-	}
-
-	ch, err := provider.Infer(ctx, assembled.ToContextPayload(modelID))
+// The typing indicator is NOT broadcast here; callers are responsible for it.
+func (d *Dispatcher) streamPayload(ctx context.Context, rfc room.RFC, provider inference.Provider, payload inference.ContextPayload) (string, inference.Usage, error) {
+	ch, err := provider.Infer(ctx, payload)
 	if err != nil {
 		d.handleInferenceError(ctx, rfc, err, "")
 		return "", inference.Usage{}, fmt.Errorf("inference: %w", err)

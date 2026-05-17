@@ -32,6 +32,24 @@ type ServerConfig struct {
 	Models     map[string]Model `yaml:"models"`
 	Embeddings EmbeddingsConfig `yaml:"embeddings"`
 	Context    ContextConfig    `yaml:"context"`
+	Tools      ToolsConfig      `yaml:"tools"`
+}
+
+// ToolsConfig configures the agentic tool-call pipeline.
+type ToolsConfig struct {
+	// MaxToolIterations is the hard cap on agentic loop iterations per RFC.
+	// Default: 10. Must be >= 1 if explicitly set.
+	MaxToolIterations int `yaml:"max_tool_iterations"`
+
+	// Servers is the list of MCP server definitions.
+	Servers []MCPServerConfig `yaml:"servers"`
+}
+
+// MCPServerConfig defines a remote MCP server endpoint.
+type MCPServerConfig struct {
+	Name    string `yaml:"name"`
+	URL     string `yaml:"url"`     // HTTP/SSE endpoint
+	Timeout string `yaml:"timeout"` // e.g. "30s"
 }
 
 // EmbeddingsConfig configures the embedding provider for the search index.
@@ -81,6 +99,11 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 	}
 	if cfg.Context.MinimumGuaranteed == 0 {
 		cfg.Context.MinimumGuaranteed = defaults.MinimumGuaranteed
+	}
+
+	// Apply tools defaults.
+	if cfg.Tools.MaxToolIterations == 0 {
+		cfg.Tools.MaxToolIterations = 10
 	}
 
 	if errs := ValidateServerConfig(&cfg); len(errs) > 0 {

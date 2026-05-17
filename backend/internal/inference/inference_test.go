@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -536,5 +537,137 @@ func TestAnthropicAdapterMissingKey(t *testing.T) {
 	_, err := NewAnthropicAdapter("https://api.anthropic.com", "")
 	if err == nil {
 		t.Fatal("expected error for missing API key")
+	}
+}
+
+// --- AC-20: Provider adapters — RoleTool history message serialised correctly ---
+
+func TestOpenAICompatibleAdapter_RoleToolHistory(t *testing.T) {
+	var capturedBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		capturedBody = string(b)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, "data: %s\n\n", `{"id":"1","object":"chat.completion.chunk","choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		w.(http.Flusher).Flush()
+	}))
+	defer server.Close()
+
+	adapter, err := NewOpenAICompatibleAdapter(server.URL, "")
+	if err != nil {
+		t.Fatalf("NewOpenAICompatibleAdapter: %v", err)
+	}
+
+	payload := ContextPayload{
+		Model:        "gemma",
+		SystemPrompt: "You are a test agent.",
+		History: []HistoryMessage{
+			{Role: RoleAssistant, Content: "<tool_call><tool_id>some_tool</tool_id></tool_call>"},
+			{Role: RoleTool, Name: "some_tool", Content: "result"},
+		},
+		RFC: "hi",
+	}
+
+	ch, err := adapter.Infer(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("Infer: %v", err)
+	}
+	for range ch {
+	}
+
+	var req openaiCompatRequest
+	if err := json.Unmarshal([]byte(capturedBody), &req); err != nil {
+		t.Fatalf("unmarshal request: %v", err)
+	}
+
+	// Expect: system, preamble, assistant (history), tool (history), RFC.
+	if len(req.Messages) != 5 {
+		t.Fatalf("expected 5 messages, got %d", len(req.Messages))
+	}
+
+	toolMsg := req.Messages[3]
+	if toolMsg.Role != "tool" {
+		t.Errorf("expected role 'tool', got %q", toolMsg.Role)
+	}
+	if toolMsg.Content != "result" {
+		t.Errorf("expected content 'result', got %q", toolMsg.Content)
+	}
+	if toolMsg.Name != "some_tool" {
+		t.Errorf("expected name 'some_tool', got %q", toolMsg.Name)
+	}
+}
+
+func TestAnthropicAdapter_RoleToolHistory(t *testing.T) {
+	var capturedBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		capturedBody = string(b)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		events := []string{
+			"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\n",
+			"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}\n\n",
+			"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+		}
+		for _, e := range events {
+			fmt.Fprint(w, e)
+		}
+		w.(http.Flusher).Flush()
+	}))
+	defer server.Close()
+
+	adapter, err := NewAnthropicAdapter(server.URL, "test-key")
+	if err != nil {
+		t.Fatalf("NewAnthropicAdapter: %v", err)
+	}
+
+	payload := ContextPayload{
+		Model:        "claude-sonnet",
+		SystemPrompt: "You are a test agent.",
+		History: []HistoryMessage{
+			{Role: RoleAssistant, Content: "<tool_call><tool_id>some_tool</tool_id></tool_call>"},
+			{Role: RoleTool, Name: "some_tool", Content: "result"},
+		},
+		RFC: "hi",
+	}
+
+	ch, err := adapter.Infer(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("Infer: %v", err)
+	}
+	for range ch {
+	}
+
+	var body anthropicRequestBody
+	if err := json.Unmarshal([]byte(capturedBody), &body); err != nil {
+		t.Fatalf("unmarshal body: %v", err)
+	}
+
+	// Expect messages: assistant (tool-call history), user (tool result + RFC merged).
+	// The tool result is mapped to "user" role and gets merged with the following RFC
+	// user message by anthropicAppendMerge.
+	if len(body.Messages) < 2 {
+		t.Fatalf("expected at least 2 messages, got %d", len(body.Messages))
+	}
+
+	// Find the user message that contains the tool result.
+	foundToolResult := false
+	for _, msg := range body.Messages {
+		if msg.Role == "user" && strings.Contains(msg.Content, "result") {
+			foundToolResult = true
+			break
+		}
+	}
+	if !foundToolResult {
+		t.Error("expected tool result content in a user-role message in Anthropic request")
+	}
+
+	// No message should have role "tool".
+	for _, msg := range body.Messages {
+		if msg.Role == "tool" {
+			t.Errorf("Anthropic adapter should not emit role 'tool', got message: %+v", msg)
+		}
 	}
 }

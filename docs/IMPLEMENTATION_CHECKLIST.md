@@ -101,7 +101,7 @@ F9. Ephemeral Agents (Spawn/Teardown)
 - [ ] Snapshot ephemeral agent definition to audit at spawn
 - [ ] Terminate ephemeral agent on completion/timeout/teardown; record audit entry
 
-F10. Agent Compaction
+F10. Agent Compaction (can be done with F7)
 - [ ] Implement `agent:compact[<target>]` permission check and API
 - [ ] Trigger dreaming pass for compaction and audit the event
 
@@ -111,10 +111,10 @@ F11. User Authentication
 - [ ] Auth middleware for all API routes (user = implicit root)
 
 F12. API Layer + Server Infrastructure
-- [ ] Wire HTTP router + middleware (logging, auth, error handling)
-- [ ] Implement REST endpoints for rooms, messages, agents, proposals, audit, search, memory
+- [X] Wire HTTP router + middleware (logging, auth, error handling)
+- [X] Implement REST endpoints for rooms, messages, agents, proposals, audit, search, memory
 - [ ] Implement graceful shutdown (drain RFCs, close DB, flush files)
-- [ ] Build single Go binary; plan to embed frontend assets later
+- [X] Build single Go binary; plan to embed frontend assets later
 
 F13. Additional Protocols (v1 nice-to-have)
 - [ ] RoundRobin: sequential RFC issuance, turn_order, max_rounds, include_user

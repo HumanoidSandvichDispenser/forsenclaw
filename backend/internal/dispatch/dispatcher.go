@@ -9,6 +9,7 @@ import (
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/agent"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/config"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/mcp"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/memory"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/paths"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
@@ -54,6 +55,18 @@ type Dispatcher struct {
 
 	// hub broadcasts real-time events to WebSocket clients. May be nil.
 	hub Broadcaster
+
+	// mcpRegistry resolves tool IDs to MCP server clients. May be nil (tools disabled).
+	mcpRegistry mcp.Registry
+
+	// auditLogger records tool invocations. May be nil.
+	auditLogger mcp.AuditLogger
+
+	// confirmations is the channel for tool confirmation requests. May be nil (auto-deny).
+	confirmations chan<- mcp.ConfirmationRequest
+
+	// maxToolIterations is the hard cap on tool loop iterations per RFC. Default 10.
+	maxToolIterations int
 }
 
 // agentEntry represents a registered agent's goroutine and queue.
@@ -128,4 +141,33 @@ func (d *Dispatcher) SetBroadcaster(hub Broadcaster) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.hub = hub
+}
+
+// SetMCPRegistry sets the MCP tool registry used by the agentic loop.
+func (d *Dispatcher) SetMCPRegistry(r mcp.Registry) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.mcpRegistry = r
+}
+
+// SetAuditLogger sets the audit logger for tool invocations.
+func (d *Dispatcher) SetAuditLogger(l mcp.AuditLogger) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.auditLogger = l
+}
+
+// SetConfirmations sets the channel used to surface tool confirmation requests
+// to the frontend. If nil, require_confirmation tools are auto-denied.
+func (d *Dispatcher) SetConfirmations(ch chan<- mcp.ConfirmationRequest) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.confirmations = ch
+}
+
+// SetMaxToolIterations sets the hard cap on agentic loop iterations per RFC.
+func (d *Dispatcher) SetMaxToolIterations(n int) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.maxToolIterations = n
 }
