@@ -3,6 +3,7 @@ package inference
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 // Role represents the role of a message in a conversation.
@@ -101,7 +102,7 @@ func InferSync(ctx context.Context, p Provider, payload ContextPayload) (string,
 		return "", Usage{}, err
 	}
 
-	var content string
+	var contentBuilder strings.Builder
 	var usage Usage
 
 	for chunk := range ch {
@@ -111,13 +112,13 @@ func InferSync(ctx context.Context, p Provider, payload ContextPayload) (string,
 		default:
 		}
 
-		content += chunk.Content
+		contentBuilder.WriteString(chunk.Content)
 		if chunk.FinishReason != "" {
 			usage = chunk.Usage
 		}
 	}
 
-	return content, usage, nil
+	return contentBuilder.String(), usage, nil
 }
 
 // ValidateRequest checks that an InferRequest is well-formed before sending
