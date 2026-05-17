@@ -17,7 +17,7 @@ import (
 // structured AssembledContext ready for model inference.
 type Assembler struct {
 	paths     *paths.Paths
-	memBudget int // token budget for MEMORY.md injection
+	memBudget int // default token budget for MEMORY.md injection
 }
 
 // NewAssembler creates a context assembler. If memBudget is 0, a default of
@@ -114,6 +114,13 @@ func (a *AssembledContext) ToContextPayload(model string) inference.ContextPaylo
 	}
 }
 
+func (a *Assembler) memoryBudgetForAgent(ag *agent.Agent) int {
+	if ag != nil && ag.Definition != nil && ag.Definition.MemoryBudget > 0 {
+		return ag.Definition.MemoryBudget
+	}
+	return a.memBudget
+}
+
 // Assemble builds the context window for an agent invocation.
 func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req AssembleRequest) (*AssembledContext, error) {
 	if ag == nil {
@@ -134,7 +141,7 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req AssembleR
 	}
 	if memContent != "" {
 		memContent = Truncate(memContent, TruncateOptions{
-			Budget:    a.memBudget,
+			Budget:    a.memoryBudgetForAgent(ag),
 			Counter:   DefaultCounter,
 			FromStart: false,
 		})

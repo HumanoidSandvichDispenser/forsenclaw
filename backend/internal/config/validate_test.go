@@ -118,6 +118,7 @@ func TestValidateAgentDefinition_valid(t *testing.T) {
 		RoleDescription: "Personal agent",
 		Models:          AgentModels{Primary: "gemma-4-local", Routine: "gemma-4-local", Sensitive: "gemma-4-local"},
 		Clearance:       5,
+		MemoryBudget:    4096,
 		RawPermissions:  []string{"room:create", "tool:invoke[*]"},
 	}
 
@@ -152,6 +153,7 @@ func TestValidateAgentDefinition_unknownModel(t *testing.T) {
 		RoleDescription: "test",
 		Models:          AgentModels{Primary: "nonexistent", Routine: "gemma-4-local", Sensitive: "gemma-4-local"},
 		Clearance:       1,
+		MemoryBudget:    4096,
 		RawPermissions:  []string{},
 	}
 
@@ -173,6 +175,7 @@ func TestValidateAgentDefinition_badName(t *testing.T) {
 		RoleDescription: "test",
 		Models:          AgentModels{Primary: "m", Routine: "m", Sensitive: "m"},
 		Clearance:       1,
+		MemoryBudget:    4096,
 	}
 
 	errs := ValidateAgentDefinition(agent, nil)
@@ -193,11 +196,33 @@ func TestValidateAgentDefinition_badPermission(t *testing.T) {
 		RoleDescription: "test",
 		Models:          AgentModels{Primary: "m", Routine: "m", Sensitive: "m"},
 		Clearance:       1,
+		MemoryBudget:    4096,
 		RawPermissions:  []string{""},
 	}
 
 	errs := ValidateAgentDefinition(agent, nil)
 	if len(errs) == 0 {
 		t.Error("expected error for empty permission string")
+	}
+}
+
+func TestValidateAgentDefinition_badMemoryBudget(t *testing.T) {
+	agent := &AgentDefinition{
+		Name:            "test",
+		RoleDescription: "test",
+		Models:          AgentModels{Primary: "m", Routine: "m", Sensitive: "m"},
+		Clearance:       1,
+		MemoryBudget:    -1,
+	}
+
+	errs := ValidateAgentDefinition(agent, nil)
+	found := false
+	for _, e := range errs {
+		if e.Field == "memory_budget" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected memory_budget validation error")
 	}
 }

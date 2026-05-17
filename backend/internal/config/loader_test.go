@@ -23,6 +23,7 @@ func TestLoadAgents_valid(t *testing.T) {
 	agentYAML := []byte(`
 name: housewife
 role_description: "Personal agent"
+memory_budget: 8192
 models:
   primary: gemma-4-local
   routine: gemma-4-local
@@ -57,6 +58,9 @@ permissions:
 	}
 	if agents["housewife"].Models.Primary != "gemma-4-local" {
 		t.Errorf("Primary = %q, want gemma-4-local", agents["housewife"].Models.Primary)
+	}
+	if agents["housewife"].MemoryBudget != 8192 {
+		t.Errorf("MemoryBudget = %d, want 8192", agents["housewife"].MemoryBudget)
 	}
 }
 

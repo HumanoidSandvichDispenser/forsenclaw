@@ -3,6 +3,7 @@ role_description: >
   Personal agent. Manages household, calendar, meal planning, coordinates
   other agents for projects.
 
+
 models:
   primary: gemma-4-local
   routine: gemma-4-local

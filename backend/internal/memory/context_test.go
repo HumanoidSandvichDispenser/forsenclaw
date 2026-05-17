@@ -35,6 +35,7 @@ func TestAssembler_Assemble(t *testing.T) {
 		Models:          config.AgentModels{Primary: "test-model"},
 		FeatureFlags:    config.FeatureFlags{DailyNotes: false, IdentityContinuity: true},
 		Clearance:       5,
+		MemoryBudget:    4096,
 	}
 	ag, err := agent.NewAgent(def)
 	if err != nil {
@@ -90,6 +91,7 @@ func TestAssembler_Assemble_WithDailyNotes(t *testing.T) {
 		Models:          config.AgentModels{Primary: "test-model"},
 		FeatureFlags:    config.FeatureFlags{DailyNotes: true, IdentityContinuity: true},
 		Clearance:       5,
+		MemoryBudget:    4096,
 	}
 	ag, err := agent.NewAgent(def)
 	if err != nil {
@@ -146,6 +148,7 @@ func TestAssembler_Assemble_Truncation(t *testing.T) {
 		Models:          config.AgentModels{Primary: "test-model"},
 		FeatureFlags:    config.FeatureFlags{IdentityContinuity: true},
 		Clearance:       5,
+		MemoryBudget:    10,
 	}
 	ag, err := agent.NewAgent(def)
 	if err != nil {
@@ -184,6 +187,7 @@ func TestAssembler_RoomHistoryRoles(t *testing.T) {
 		Models:          config.AgentModels{Primary: "test-model"},
 		FeatureFlags:    config.FeatureFlags{IdentityContinuity: true},
 		Clearance:       5,
+		MemoryBudget:    4096,
 	}
 	ag, err := agent.NewAgent(def)
 	if err != nil {
@@ -224,5 +228,42 @@ func TestAssembler_RoomHistoryRoles(t *testing.T) {
 	// RFC should contain the last message content
 	if !strings.Contains(payload.RFC, "How are you?") {
 		t.Errorf("RFC missing last message content: %q", payload.RFC)
+	}
+}
+
+func TestAssembler_Assemble_AgentMemoryBudgetOverride(t *testing.T) {
+	dir := t.TempDir()
+	p := paths.NewPathsFromRoots(dir, dir, dir)
+
+	agentDir := p.AgentDataDir("housewife")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	longMemory := strings.Repeat("word ", 10000)
+	if err := os.WriteFile(filepath.Join(agentDir, MemoryFileName), []byte(longMemory), 0o644); err != nil {
+		t.Fatalf("write memory: %v", err)
+	}
+
+	def := &config.AgentDefinition{
+		Name:            "housewife",
+		RoleDescription: "Assistant.",
+		Models:          config.AgentModels{Primary: "test-model"},
+		FeatureFlags:    config.FeatureFlags{IdentityContinuity: true},
+		Clearance:       5,
+		MemoryBudget:    10,
+	}
+	ag, err := agent.NewAgent(def)
+	if err != nil {
+		t.Fatalf("NewAgent: %v", err)
+	}
+
+	assembler := NewAssembler(p, 4096)
+	result, err := assembler.Assemble(context.Background(), ag, AssembleRequest{})
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	if len(result.Memory) > 100 {
+		t.Fatalf("expected agent override to truncate memory, got %d chars", len(result.Memory))
 	}
 }

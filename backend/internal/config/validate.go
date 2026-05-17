@@ -118,6 +118,9 @@ func ValidateAgentDefinition(agent *AgentDefinition, serverCfg *ServerConfig) []
 	if agent.Clearance <= 0 {
 		errs = append(errs, ConfigError{Field: "clearance", Message: "must be a positive integer"})
 	}
+	if agent.MemoryBudget < 0 {
+		errs = append(errs, ConfigError{Field: "memory_budget", Message: "must be non-negative (0 = use default)"})
+	}
 
 	modelRefs := []struct {
 		field string

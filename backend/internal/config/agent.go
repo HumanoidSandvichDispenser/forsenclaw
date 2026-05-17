@@ -11,6 +11,7 @@ type AgentDefinition struct {
 	Models          AgentModels  `yaml:"models"`
 	FeatureFlags    FeatureFlags `yaml:"feature_flags"`
 	Clearance       int          `yaml:"clearance"`
+	MemoryBudget    int          `yaml:"memory_budget,omitempty"`
 	Permissions     []Permission `yaml:"-"`
 	RawPermissions  []string     `yaml:"permissions"`
 	Timeout         string       `yaml:"timeout,omitempty"`
