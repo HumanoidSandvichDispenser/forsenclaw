@@ -111,6 +111,47 @@ func TestValidateServerConfig_invalidProtocol(t *testing.T) {
 	}
 }
 
+func TestValidateServerConfig_braveSearchAPIKey(t *testing.T) {
+	t.Setenv("BRAVE_API_KEY", "test-key")
+	cfg := &ServerConfig{
+		Listen:  ":8080",
+		Context: DefaultContextConfig(),
+		Tools: ToolsConfig{
+			BraveSearch: BraveSearchConfig{APIKey: EnvString("${BRAVE_API_KEY}")},
+		},
+	}
+
+	errs := ValidateServerConfig(cfg)
+	if len(errs) > 0 {
+		t.Fatalf("expected valid brave search config, got: %v", errs)
+	}
+}
+
+func TestValidateServerConfig_braveSearchMissingAPIKey(t *testing.T) {
+	cfg := &ServerConfig{
+		Listen:  ":8080",
+		Context: DefaultContextConfig(),
+		Tools: ToolsConfig{
+			BraveSearch: BraveSearchConfig{APIKey: EnvString("${BRAVE_API_KEY}")},
+		},
+	}
+
+	errs := ValidateServerConfig(cfg)
+	if len(errs) == 0 {
+		t.Fatal("expected error for missing brave search api key, got none")
+	}
+	found := false
+	for _, e := range errs {
+		if e.Field == "tools.brave_search.api_key" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected tools.brave_search.api_key validation error, got %v", errs)
+	}
+}
+
 func TestValidateAgentDefinition_valid(t *testing.T) {
 	serverCfg := &ServerConfig{
 		Models: map[string]Model{

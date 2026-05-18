@@ -90,6 +90,9 @@ func ValidateServerConfig(cfg *ServerConfig) []ConfigError {
 	if cfg.Tools.MaxToolIterations < 0 {
 		errs = append(errs, ConfigError{Field: "tools.max_tool_iterations", Message: "must be non-negative (0 = use default of 10)"})
 	}
+	if raw := string(cfg.Tools.BraveSearch.APIKey); raw != "" && cfg.Tools.BraveSearch.APIKey.Resolve() == "" {
+		errs = append(errs, ConfigError{Field: "tools.brave_search.api_key", Message: "must resolve to a non-empty value"})
+	}
 	for i, srv := range cfg.Tools.Servers {
 		if srv.Name == "" {
 			errs = append(errs, ConfigError{Field: fmt.Sprintf("tools.servers[%d].name", i), Message: "must not be empty"})

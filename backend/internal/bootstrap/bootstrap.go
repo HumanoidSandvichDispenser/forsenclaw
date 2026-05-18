@@ -27,6 +27,10 @@ models: {}
 #  gemma-4-local:
 #    provider: ollama
 #    provider_model: gemma3:12b
+
+tools:
+#  brave_search:
+#    api_key: ${BRAVE_API_KEY}
 `
 
 func Bootstrap(p *paths.Paths) error {

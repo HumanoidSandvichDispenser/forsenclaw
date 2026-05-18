@@ -82,8 +82,16 @@ type ToolsConfig struct {
 	// Default: 10. Must be >= 1 if explicitly set.
 	MaxToolIterations int `yaml:"max_tool_iterations"`
 
+	// BraveSearch configures the built-in Brave web search MCP tool.
+	BraveSearch BraveSearchConfig `yaml:"brave_search,omitempty"`
+
 	// Servers is the list of MCP server definitions.
 	Servers []MCPServerConfig `yaml:"servers"`
+}
+
+// BraveSearchConfig configures the built-in Brave web search MCP tool.
+type BraveSearchConfig struct {
+	APIKey EnvString `yaml:"api_key,omitempty"`
 }
 
 // MCPServerConfig defines a remote MCP server endpoint.

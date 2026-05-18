@@ -20,6 +20,8 @@ import (
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/config"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/dispatch"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/mcp"
+	mcpTools "github.com/humanoidsandvichdispenser/hearth/backend/internal/mcp/tools"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/memory"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/paths"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
@@ -174,6 +176,12 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 		log.Fatalf("failed to create inference registry: %v", err)
 	}
 
+	// 3b. Create built-in MCP registry.
+	mcpRegistry, err := buildMCPRegistry(cfg)
+	if err != nil {
+		log.Fatalf("failed to create MCP registry: %v", err)
+	}
+
 	// 4. Create context assembler
 	assembler := memory.NewAssembler(p, 4096)
 
@@ -186,6 +194,7 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 
 	// 7. Wire broadcaster
 	dispatcher.SetBroadcaster(hub)
+	dispatcher.SetMCPRegistry(mcpRegistry)
 
 	// 8. Register all loaded agents
 	for _, ag := range agentMgr.All() {
@@ -233,4 +242,22 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 	}
 
 	log.Println("server stopped")
+}
+
+func buildMCPRegistry(cfg *config.ServerConfig) (mcp.Registry, error) {
+	var clients []mcp.MCPClient
+
+	if apiKey := cfg.Tools.BraveSearch.APIKey.Resolve(); apiKey != "" {
+		client, err := mcpTools.NewBraveSearch(apiKey)
+		if err != nil {
+			return nil, err
+		}
+		clients = append(clients, client)
+	}
+
+	if len(clients) == 0 {
+		return nil, nil
+	}
+
+	return mcp.NewRegistry(clients), nil
 }
