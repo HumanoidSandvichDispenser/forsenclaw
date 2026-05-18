@@ -4,7 +4,6 @@ import (
 	"encoding/xml"
 	"fmt"
 	"log"
-	"regexp"
 	"strings"
 
 	"github.com/google/uuid"
@@ -44,32 +43,124 @@ type xmlParam struct {
 	Value   string `xml:",chardata"`
 }
 
-var toolCallPattern = regexp.MustCompile(`(?s)<tool_call>.*?</tool_call>`)
+type scannedTag struct {
+	name      string
+	raw       string
+	closing   bool
+	selfClose bool
+	end       int
+}
+
+var thoughtTagNames = map[string]bool{
+	"think":    true,
+	"thought":  true,
+	"thinking": true,
+}
 
 // ParseToolCalls scans response text for <tool_call>...</tool_call> blocks
 // and returns the parsed calls plus the response text with those blocks
 // stripped (the remaining text is the visible prose to deliver to the user
 // as an interim message, or discard if empty).
 func ParseToolCalls(response string) (calls []ToolCall, prose string, err error) {
-	matches := toolCallPattern.FindAllStringIndex(response, -1)
-	if len(matches) == 0 {
-		return nil, response, nil
-	}
+	var out strings.Builder
+	segmentStart := 0
+	thoughtDepth := 0
 
-	for _, loc := range matches {
-		raw := response[loc[0]:loc[1]]
-		call, parseErr := parseToolCallBlock(raw)
-		if parseErr != nil {
-			log.Printf("mcp: skipping malformed tool_call block: %v", parseErr)
+	for i := 0; i < len(response); {
+		if response[i] != '<' {
+			i++
 			continue
 		}
-		calls = append(calls, call)
+
+		tag, ok := scanTag(response, i)
+		if !ok {
+			i++
+			continue
+		}
+
+		isThought := thoughtTagNames[tag.name]
+		isToolCall := tag.name == "tool_call"
+
+		if isThought {
+			out.WriteString(response[segmentStart:i])
+			out.WriteString(tag.raw)
+			if tag.closing {
+				if thoughtDepth > 0 {
+					thoughtDepth--
+				}
+			} else if !tag.selfClose {
+				thoughtDepth++
+			}
+			segmentStart = tag.end
+			i = tag.end
+			continue
+		}
+
+		if isToolCall && !tag.closing && thoughtDepth == 0 {
+			closeTag := "</tool_call>"
+			closeIdx := strings.Index(response[tag.end:], closeTag)
+			if closeIdx == -1 {
+				out.WriteString(response[segmentStart:tag.end])
+				segmentStart = tag.end
+				i = tag.end
+				continue
+			}
+
+			blockEnd := tag.end + closeIdx + len(closeTag)
+			raw := response[i:blockEnd]
+			call, parseErr := parseToolCallBlock(raw)
+			if parseErr != nil {
+				log.Printf("mcp: skipping malformed tool_call block: %v", parseErr)
+			} else {
+				calls = append(calls, call)
+			}
+			out.WriteString(response[segmentStart:i])
+			segmentStart = blockEnd
+			i = blockEnd
+			continue
+		}
+
+		i = tag.end
 	}
 
-	prose = toolCallPattern.ReplaceAllString(response, "")
-	prose = strings.TrimSpace(prose)
+	out.WriteString(response[segmentStart:])
+	prose = strings.TrimSpace(out.String())
 
 	return calls, prose, nil
+}
+
+func scanTag(input string, start int) (scannedTag, bool) {
+	if start < 0 || start >= len(input) || input[start] != '<' {
+		return scannedTag{}, false
+	}
+
+	end := strings.IndexByte(input[start:], '>')
+	if end < 0 {
+		return scannedTag{}, false
+	}
+	end += start + 1
+
+	rawInside := strings.TrimSpace(input[start+1 : end-1])
+	if rawInside == "" || strings.HasPrefix(rawInside, "!") || strings.HasPrefix(rawInside, "?") {
+		return scannedTag{}, false
+	}
+
+	tag := scannedTag{raw: input[start:end], end: end}
+	if strings.HasPrefix(rawInside, "/") {
+		tag.closing = true
+		rawInside = strings.TrimSpace(strings.TrimPrefix(rawInside, "/"))
+	}
+	if strings.HasSuffix(rawInside, "/") {
+		tag.selfClose = true
+		rawInside = strings.TrimSpace(strings.TrimSuffix(rawInside, "/"))
+	}
+
+	fields := strings.Fields(rawInside)
+	if len(fields) == 0 {
+		return scannedTag{}, false
+	}
+	tag.name = strings.ToLower(fields[0])
+	return tag, true
 }
 
 func parseToolCallBlock(raw string) (ToolCall, error) {

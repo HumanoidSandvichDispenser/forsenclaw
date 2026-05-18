@@ -25,7 +25,7 @@ func (m *mockMCPClient) Call(_ context.Context, _ string, _ map[string]string) (
 }
 
 func (m *mockMCPClient) ToolIDs() []string { return m.toolIDs }
-func (m *mockMCPClient) Healthy() bool      { return true }
+func (m *mockMCPClient) Healthy() bool     { return true }
 
 type mockAuditLogger struct {
 	entries []ToolAuditEntry
@@ -112,6 +112,60 @@ func TestParseToolCalls_MultipleCalls(t *testing.T) {
 	}
 	if prose != "" {
 		t.Errorf("expected empty prose, got %q", prose)
+	}
+}
+
+func TestParseToolCalls_IgnoreToolCallsInsideThoughtBlocks(t *testing.T) {
+	response := `<think>
+  considering options...
+  <tool_call>
+    <tool_id>web_search</tool_id>
+    <parameters><query>hidden</query></parameters>
+  </tool_call>
+</think>
+<tool_call>
+  <tool_id>web_search</tool_id>
+  <parameters><query>visible</query></parameters>
+</tool_call>`
+
+	calls, prose, err := ParseToolCalls(response)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 parsed call, got %d", len(calls))
+	}
+	if calls[0].Parameters["query"] != "visible" {
+		t.Fatalf("expected visible query, got %q", calls[0].Parameters["query"])
+	}
+	if !strings.Contains(prose, "hidden") {
+		t.Fatalf("expected thought text to remain in prose, got %q", prose)
+	}
+	if !strings.Contains(prose, "<tool_call>") {
+		t.Fatalf("expected tool call inside thought to remain in prose, got %q", prose)
+	}
+}
+
+func TestParseToolCalls_ThoughtAliases(t *testing.T) {
+	response := `<thinking>
+  <tool_call>
+    <tool_id>ignored</tool_id>
+    <parameters><query>inside</query></parameters>
+  </tool_call>
+</thinking>
+<thought>
+  still thinking
+</thought>`
+
+	calls, prose, err := ParseToolCalls(response)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(calls) != 0 {
+		t.Fatalf("expected no parsed calls, got %d", len(calls))
+	}
+	if !strings.Contains(prose, "still thinking") {
+		t.Fatalf("expected thought text in prose, got %q", prose)
 	}
 }
 
