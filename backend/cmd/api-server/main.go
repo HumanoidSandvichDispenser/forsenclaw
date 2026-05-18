@@ -245,7 +245,7 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 }
 
 func buildMCPRegistry(cfg *config.ServerConfig) (mcp.Registry, error) {
-	var clients []mcp.MCPClient
+	clients := []mcp.MCPClient{mcpTools.NewWebFetch()}
 
 	if apiKey := cfg.Tools.BraveSearch.APIKey.Resolve(); apiKey != "" {
 		client, err := mcpTools.NewBraveSearch(apiKey)
@@ -253,10 +253,6 @@ func buildMCPRegistry(cfg *config.ServerConfig) (mcp.Registry, error) {
 			return nil, err
 		}
 		clients = append(clients, client)
-	}
-
-	if len(clients) == 0 {
-		return nil, nil
 	}
 
 	return mcp.NewRegistry(clients), nil
