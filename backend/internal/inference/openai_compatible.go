@@ -78,8 +78,8 @@ func (o *OpenAICompatibleAdapter) Infer(ctx context.Context, payload ContextPayl
 		Model:  payload.Model,
 		Stream: true,
 		Messages: []openaiCompatMessage{
-			{Role: "system", Content: payload.SystemPrompt},
-			{Role: "user", Content: xml.String()},
+			{Role: "system", Content: &payload.SystemPrompt},
+			{Role: "user", Content: stringPtr(xml.String())},
 		},
 	}
 
@@ -91,25 +91,35 @@ func (o *OpenAICompatibleAdapter) Infer(ctx context.Context, payload ContextPayl
 	// History is appended as separate role-assigned messages so that tool-role
 	// messages can carry proper wire semantics.
 	for _, h := range payload.History {
-		if h.Role == RoleTool {
-			body.Messages = append(body.Messages, openaiCompatMessage{
-				Role:    "tool",
-				Content: h.Content,
-				Name:    h.Name,
-			})
+		msg := openaiCompatMessage{Role: string(h.Role)}
+		if h.Role == RoleAssistant && len(h.ToolCalls) > 0 {
+			msg.ToolCalls = make([]openaiToolCall, 0, len(h.ToolCalls))
+			for _, tc := range h.ToolCalls {
+				msg.ToolCalls = append(msg.ToolCalls, openaiToolCall{
+					ID:   tc.ID,
+					Type: "function",
+					Function: openaiToolFunction{
+						Name:      tc.Function.Name,
+						Arguments: tc.Function.Arguments,
+					},
+				})
+			}
 		} else {
-			body.Messages = append(body.Messages, openaiCompatMessage{
-				Role:    string(h.Role),
-				Content: h.Content,
-			})
+			msg.Content = &h.Content
 		}
+		if h.Role == RoleTool {
+			msg.Role = "tool"
+			msg.ToolCallID = h.ToolCallID
+			msg.Content = &h.Content
+		}
+		body.Messages = append(body.Messages, msg)
 	}
 
 	// RFC is the final user message.
 	if payload.RFC != "" {
 		body.Messages = append(body.Messages, openaiCompatMessage{
 			Role:    "user",
-			Content: payload.RFC,
+			Content: &payload.RFC,
 		})
 	}
 	if payload.Temperature != nil {
@@ -151,6 +161,8 @@ func (o *OpenAICompatibleAdapter) Infer(ctx context.Context, payload ContextPayl
 	go o.readStream(resp.Body, ch)
 	return ch, nil
 }
+
+func stringPtr(s string) *string { return &s }
 
 func (o *OpenAICompatibleAdapter) readStream(body io.ReadCloser, ch chan<- StreamingChunk) {
 	defer body.Close()
@@ -231,9 +243,22 @@ type openaiCompatRequest struct {
 }
 
 type openaiCompatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-	Name    string `json:"name,omitempty"`
+	Role       string           `json:"role"`
+	Content    *string          `json:"content"`
+	Name       string           `json:"name,omitempty"`
+	ToolCalls  []openaiToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string           `json:"tool_call_id,omitempty"`
+}
+
+type openaiToolCall struct {
+	ID       string             `json:"id"`
+	Type     string             `json:"type"`
+	Function openaiToolFunction `json:"function"`
+}
+
+type openaiToolFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
 }
 
 type openaiCompatStreamChunk struct {

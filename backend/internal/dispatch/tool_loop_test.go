@@ -79,7 +79,7 @@ func (m *mockLoopMCPClient) Call(_ context.Context, _ string, _ map[string]strin
 	return m.response, nil
 }
 func (m *mockLoopMCPClient) ToolIDs() []string { return m.toolIDs }
-func (m *mockLoopMCPClient) Healthy() bool      { return true }
+func (m *mockLoopMCPClient) Healthy() bool     { return true }
 
 // --- helpers ---
 
@@ -244,19 +244,25 @@ func TestRunToolLoop_ToolResultInjectedInHistory(t *testing.T) {
 	if assistantTurn.Role != inference.RoleAssistant {
 		t.Errorf("expected assistant role, got %q", assistantTurn.Role)
 	}
-	if !strings.Contains(assistantTurn.Content, "<tool_call>") {
-		t.Errorf("expected assistant turn to contain tool_call XML, got %q", assistantTurn.Content)
+	if len(assistantTurn.ToolCalls) != 1 {
+		t.Fatalf("expected 1 structured tool call, got %d", len(assistantTurn.ToolCalls))
+	}
+	if assistantTurn.ToolCalls[0].Function.Name != "web_search" {
+		t.Errorf("expected tool call name web_search, got %q", assistantTurn.ToolCalls[0].Function.Name)
+	}
+	if assistantTurn.ToolCalls[0].ID == "" {
+		t.Fatal("expected tool call ID to be populated")
 	}
 
 	toolTurn := secondHistory[len(secondHistory)-1]
 	if toolTurn.Role != inference.RoleTool {
 		t.Errorf("expected tool role, got %q", toolTurn.Role)
 	}
-	if toolTurn.Name != "web_search" {
-		t.Errorf("expected tool name 'web_search', got %q", toolTurn.Name)
+	if toolTurn.ToolCallID != assistantTurn.ToolCalls[0].ID {
+		t.Errorf("expected tool_call_id to match assistant tool call ID, got %q vs %q", toolTurn.ToolCallID, assistantTurn.ToolCalls[0].ID)
 	}
-	if !strings.Contains(toolTurn.Content, "<tool_result") {
-		t.Errorf("expected tool turn to contain tool_result XML, got %q", toolTurn.Content)
+	if toolTurn.Content != "search results" {
+		t.Errorf("expected tool turn content to be plain text, got %q", toolTurn.Content)
 	}
 }
 

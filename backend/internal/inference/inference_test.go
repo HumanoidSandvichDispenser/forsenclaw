@@ -569,8 +569,18 @@ func TestOpenAICompatibleAdapter_RoleToolHistory(t *testing.T) {
 		Model:        "gemma",
 		SystemPrompt: "You are a test agent.",
 		History: []HistoryMessage{
-			{Role: RoleAssistant, Content: "<tool_call><tool_id>some_tool</tool_id></tool_call>"},
-			{Role: RoleTool, Name: "some_tool", Content: "result"},
+			{
+				Role: RoleAssistant,
+				ToolCalls: []ToolCallWire{{
+					ID:   "call_1",
+					Type: "function",
+					Function: ToolFunctionWire{
+						Name:      "some_tool",
+						Arguments: `{"query":"test"}`,
+					},
+				}},
+			},
+			{Role: RoleTool, Name: "some_tool", ToolCallID: "call_1", Content: "result"},
 		},
 		RFC: "hi",
 	}
@@ -596,11 +606,14 @@ func TestOpenAICompatibleAdapter_RoleToolHistory(t *testing.T) {
 	if toolMsg.Role != "tool" {
 		t.Errorf("expected role 'tool', got %q", toolMsg.Role)
 	}
-	if toolMsg.Content != "result" {
-		t.Errorf("expected content 'result', got %q", toolMsg.Content)
+	if toolMsg.Content == nil || *toolMsg.Content != "result" {
+		t.Errorf("expected content 'result', got %v", toolMsg.Content)
 	}
-	if toolMsg.Name != "some_tool" {
-		t.Errorf("expected name 'some_tool', got %q", toolMsg.Name)
+	if toolMsg.ToolCallID != "call_1" {
+		t.Errorf("expected tool_call_id 'call_1', got %q", toolMsg.ToolCallID)
+	}
+	if toolMsg.Name != "" {
+		t.Errorf("expected tool name to be omitted, got %q", toolMsg.Name)
 	}
 }
 
@@ -632,8 +645,18 @@ func TestAnthropicAdapter_RoleToolHistory(t *testing.T) {
 		Model:        "claude-sonnet",
 		SystemPrompt: "You are a test agent.",
 		History: []HistoryMessage{
-			{Role: RoleAssistant, Content: "<tool_call><tool_id>some_tool</tool_id></tool_call>"},
-			{Role: RoleTool, Name: "some_tool", Content: "result"},
+			{
+				Role: RoleAssistant,
+				ToolCalls: []ToolCallWire{{
+					ID:   "call_1",
+					Type: "function",
+					Function: ToolFunctionWire{
+						Name:      "some_tool",
+						Arguments: `{"query":"test"}`,
+					},
+				}},
+			},
+			{Role: RoleTool, Name: "some_tool", ToolCallID: "call_1", Content: "result"},
 		},
 		RFC: "hi",
 	}

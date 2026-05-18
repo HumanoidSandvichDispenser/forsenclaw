@@ -60,12 +60,15 @@ func TestOpenAICompatibleAdapter_XMLEscaping(t *testing.T) {
 	if req.Messages[0].Role != "system" {
 		t.Errorf("expected first message role to be system, got %q", req.Messages[0].Role)
 	}
-	if req.Messages[0].Content != "You are an assistant. Use <thinking> tags." {
-		t.Errorf("system message content mismatch: got %q", req.Messages[0].Content)
+	if req.Messages[0].Content == nil || *req.Messages[0].Content != "You are an assistant. Use <thinking> tags." {
+		t.Errorf("system message content mismatch: got %v", req.Messages[0].Content)
 	}
 
 	// messages[1] is the XML context preamble (memory, notes, tools, cross-room).
-	preambleContent := req.Messages[1].Content
+	if req.Messages[1].Content == nil {
+		t.Fatal("expected preamble content to be present")
+	}
+	preambleContent := *req.Messages[1].Content
 
 	// Verify XML metacharacters are escaped in the preamble.
 	if !strings.Contains(preambleContent, "<memory>") {
@@ -102,8 +105,8 @@ func TestOpenAICompatibleAdapter_XMLEscaping(t *testing.T) {
 	if req.Messages[2].Role != "user" {
 		t.Errorf("expected RFC message role to be user, got %q", req.Messages[2].Role)
 	}
-	if req.Messages[2].Content != "What about <script>alert(1)</script>?" {
-		t.Errorf("RFC message content mismatch: got %q", req.Messages[2].Content)
+	if req.Messages[2].Content == nil || *req.Messages[2].Content != "What about <script>alert(1)</script>?" {
+		t.Errorf("RFC message content mismatch: got %v", req.Messages[2].Content)
 	}
 }
 

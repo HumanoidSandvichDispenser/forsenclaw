@@ -2,6 +2,7 @@ package dispatch
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 
@@ -64,22 +65,34 @@ func (d *Dispatcher) runToolLoop(
 		}
 
 		// Execute all calls in this iteration (serial for v1).
+		assistantCall := inference.HistoryMessage{Role: inference.RoleAssistant}
+		assistantCall.ToolCalls = make([]inference.ToolCallWire, 0, len(calls))
+		toolResults := make([]inference.HistoryMessage, 0, len(calls))
 		for _, call := range calls {
-			// Append assistant's tool-call turn.
-			history = append(history, inference.HistoryMessage{
-				Role:    inference.RoleAssistant,
-				Content: call.RawXML,
+			args, err := json.Marshal(call.Parameters)
+			if err != nil {
+				args = []byte("{}")
+			}
+			assistantCall.ToolCalls = append(assistantCall.ToolCalls, inference.ToolCallWire{
+				ID:   call.ID,
+				Type: "function",
+				Function: inference.ToolFunctionWire{
+					Name:      call.ToolID,
+					Arguments: string(args),
+				},
 			})
 
 			result := executor.Execute(ctx, ag.Name(), call)
 
-			// Append tool result turn.
-			history = append(history, inference.HistoryMessage{
-				Role:    inference.RoleTool,
-				Name:    call.ToolID,
-				Content: formatToolResult(result),
+			toolResults = append(toolResults, inference.HistoryMessage{
+				Role:       inference.RoleTool,
+				Name:       call.ToolID,
+				ToolCallID: call.ID,
+				Content:    toolResultContent(result),
 			})
 		}
+		history = append(history, assistantCall)
+		history = append(history, toolResults...)
 	}
 
 	// Hard iteration cap hit.
@@ -108,13 +121,10 @@ func mergeUsage(acc, iter inference.Usage) inference.Usage {
 	}
 }
 
-// formatToolResult serialises a ToolResult into the XML wire format injected
-// into the conversation history.
-func formatToolResult(r mcp.ToolResult) string {
+// toolResultContent returns the text content stored for a tool-role history message.
+func toolResultContent(r mcp.ToolResult) string {
 	if r.IsError {
-		return fmt.Sprintf(`<tool_result id=%q error="true"><error><![CDATA[%s]]></error></tool_result>`,
-			r.CallID, r.Error)
+		return fmt.Sprintf("error: %s", r.Error)
 	}
-	return fmt.Sprintf(`<tool_result id=%q><content><![CDATA[%s]]></content></tool_result>`,
-		r.CallID, r.Content)
+	return r.Content
 }

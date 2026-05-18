@@ -2,7 +2,10 @@ package inference
 
 import (
 	"context"
+	"encoding/json"
+	"encoding/xml"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -63,9 +66,59 @@ type StreamingChunk struct {
 
 // HistoryMessage is a pre-role-assigned message in the conversation history.
 type HistoryMessage struct {
-	Role    Role
-	Content string
-	Name    string
+	Role       Role
+	Content    string
+	Name       string
+	ToolCallID string
+	ToolCalls  []ToolCallWire
+}
+
+// ToolCallWire is the structured tool-call wire format used by OpenAI-compatible APIs.
+type ToolCallWire struct {
+	ID       string           `json:"id"`
+	Type     string           `json:"type"`
+	Function ToolFunctionWire `json:"function"`
+}
+
+// ToolFunctionWire is the function payload inside a tool call.
+type ToolFunctionWire struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+// RenderToolCallsXML serialises tool calls into the XML form used by text-based providers.
+func RenderToolCallsXML(toolCalls []ToolCallWire) string {
+	if len(toolCalls) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	for _, tc := range toolCalls {
+		b.WriteString("<tool_call><tool_id>")
+		b.WriteString(tc.Function.Name)
+		b.WriteString("</tool_id><parameters>")
+
+		var params map[string]string
+		if err := json.Unmarshal([]byte(tc.Function.Arguments), &params); err == nil {
+			keys := make([]string, 0, len(params))
+			for k := range params {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				b.WriteString("<")
+				b.WriteString(k)
+				b.WriteString(">")
+				_ = xml.EscapeText(&b, []byte(params[k]))
+				b.WriteString("</")
+				b.WriteString(k)
+				b.WriteString(">")
+			}
+		}
+
+		b.WriteString("</parameters></tool_call>")
+	}
+	return b.String()
 }
 
 // ContextPayload is the structured context for a model invocation.

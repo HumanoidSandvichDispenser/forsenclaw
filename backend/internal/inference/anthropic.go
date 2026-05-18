@@ -106,7 +106,11 @@ func (a *AnthropicAdapter) Infer(ctx context.Context, payload ContextPayload) (<
 		if h.Role == RoleTool {
 			role = "user"
 		}
-		anthropicAppendMerge(&body.Messages, role, h.Content)
+		content := h.Content
+		if h.Role == RoleAssistant && len(h.ToolCalls) > 0 {
+			content = RenderToolCallsXML(h.ToolCalls)
+		}
+		anthropicAppendMerge(&body.Messages, role, content)
 	}
 
 	// RFC as final user message.
