@@ -25,6 +25,13 @@ func TestLoadServerConfig_valid(t *testing.T) {
 	if cfg.Providers[0].Protocol != "anthropic" {
 		t.Errorf("Provider[0].Protocol = %q, want anthropic", cfg.Providers[0].Protocol)
 	}
+	if string(cfg.Providers[0].APIKey) != "${ANTHROPIC_API_KEY}" {
+		t.Errorf("Provider[0].APIKey = %q, want ${ANTHROPIC_API_KEY}", cfg.Providers[0].APIKey)
+	}
+	t.Setenv("ANTHROPIC_API_KEY", "resolved-key")
+	if got := cfg.Providers[0].APIKey.Resolve(); got != "resolved-key" {
+		t.Errorf("Provider[0].APIKey.Resolve() = %q, want resolved-key", got)
+	}
 	if cfg.Providers[1].Name != "ollama" {
 		t.Errorf("Provider[1].Name = %q, want ollama", cfg.Providers[1].Name)
 	}
@@ -44,6 +51,29 @@ func TestLoadServerConfig_valid(t *testing.T) {
 		t.Error("missing model gemma-4-local")
 	} else if m.Provider != "ollama" {
 		t.Errorf("gemma-4-local provider = %q, want ollama", m.Provider)
+	}
+}
+
+func TestEnvStringResolve(t *testing.T) {
+	t.Setenv("API_KEY_FROM_ENV", "secret")
+
+	tests := []struct {
+		name string
+		key  EnvString
+		want string
+	}{
+		{name: "literal", key: EnvString("abc123"), want: "abc123"},
+		{name: "env", key: EnvString("${API_KEY_FROM_ENV}"), want: "secret"},
+		{name: "fallback", key: EnvString("${MISSING_KEY:-fallback}"), want: "fallback"},
+		{name: "missing", key: EnvString("${MISSING_KEY}"), want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.key.Resolve(); got != tt.want {
+				t.Fatalf("Resolve() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 

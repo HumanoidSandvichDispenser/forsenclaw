@@ -8,7 +8,12 @@ func TestValidateServerConfig_valid(t *testing.T) {
 	cfg := &ServerConfig{
 		Listen: ":8080",
 		Providers: []Provider{
-			{Name: "anthropic", Protocol: "anthropic", BaseURL: "https://api.anthropic.com", APIKeyEnv: "ANTHROPIC_API_KEY"},
+			{
+				Name:     "anthropic",
+				Protocol: "anthropic",
+				BaseURL:  "https://api.anthropic.com",
+				APIKey:   EnvString("${ANTHROPIC_API_KEY}"),
+			},
 			{Name: "ollama", Protocol: "openai_compatible", BaseURL: "http://localhost:11434"},
 		},
 		Models: map[string]Model{

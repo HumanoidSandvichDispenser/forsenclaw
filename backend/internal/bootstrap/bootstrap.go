@@ -14,7 +14,8 @@ providers: []
 #  - name: anthropic
 #    protocol: anthropic
 #    base_url: https://api.anthropic.com
-#    api_key_env: ANTHROPIC_API_KEY
+#    api_key: "${ANTHROPIC_API_KEY}"
+#    # api_key: "${ANTHROPIC_API_KEY:-fallback}"
 #  - name: ollama
 #    protocol: openai_compatible
 #    base_url: http://localhost:11434

@@ -2,7 +2,6 @@ package inference
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/config"
 )
@@ -22,8 +21,8 @@ type registryEntry struct {
 }
 
 // NewRegistry builds a Registry from a ServerConfig.
-// It constructs provider adapters, resolves API keys from environment variables,
-// and maps each model key to its adapter + provider-specific model ID.
+// It constructs provider adapters, resolves API keys, and maps each model key
+// to its adapter + provider-specific model ID.
 func NewRegistry(cfg *config.ServerConfig) (*Registry, error) {
 	r := &Registry{
 		entries:   make(map[string]registryEntry),
@@ -38,11 +37,9 @@ func NewRegistry(cfg *config.ServerConfig) (*Registry, error) {
 
 		switch prov.Protocol {
 		case "anthropic":
-			apiKey := resolveAPIKey(prov)
-			adapter, err = NewAnthropicAdapter(prov.BaseURL, apiKey)
+			adapter, err = NewAnthropicAdapter(prov.BaseURL, prov.APIKey.Resolve())
 		case "openai_compatible":
-			apiKey := resolveAPIKey(prov)
-			adapter, err = NewOpenAICompatibleAdapter(prov.BaseURL, apiKey)
+			adapter, err = NewOpenAICompatibleAdapter(prov.BaseURL, prov.APIKey.Resolve())
 		default:
 			return nil, fmt.Errorf("unknown provider protocol %q for provider %q", prov.Protocol, prov.Name)
 		}
@@ -107,19 +104,4 @@ func (r *Registry) EmbeddingProvider(cfg config.EmbeddingsConfig) (Provider, err
 		return nil, fmt.Errorf("embedding provider %q not found", cfg.Provider)
 	}
 	return prov, nil
-}
-
-// Checks the provider configuration for an API key, first looking at the
-// configured APIKey field, then looking up the environment variable specified
-// in APIKeyEnv. Returns an empty string if no API key is found.
-func resolveAPIKey(prov *config.Provider) string {
-	if prov.APIKey != "" {
-		return prov.APIKey
-	}
-
-	if prov.APIKeyEnv != "" {
-		return os.Getenv(prov.APIKeyEnv)
-	}
-
-	return ""
 }

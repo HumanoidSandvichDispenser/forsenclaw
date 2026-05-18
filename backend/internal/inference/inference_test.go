@@ -200,7 +200,12 @@ func TestRegistryResolve(t *testing.T) {
 	cfg := &config.ServerConfig{
 		Providers: []config.Provider{
 			{Name: "ollama", Protocol: "openai_compatible", BaseURL: "http://localhost:11434"},
-			{Name: "anthropic", Protocol: "anthropic", BaseURL: "https://api.anthropic.com", APIKeyEnv: "ANTHROPIC_API_KEY"},
+			{
+				Name:     "anthropic",
+				Protocol: "anthropic",
+				BaseURL:  "https://api.anthropic.com",
+				APIKey:   config.EnvString("${ANTHROPIC_API_KEY}"),
+			},
 		},
 		Models: map[string]config.Model{
 			"gemma-local":   {Provider: "ollama", ProviderModel: "gemma3:12b"},

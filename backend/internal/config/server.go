@@ -3,16 +3,17 @@ package config
 import (
 	"fmt"
 	"os"
+	"regexp"
 
 	"gopkg.in/yaml.v3"
 )
 
 type ContextConfig struct {
-	CurrentRoomWindow   int `yaml:"current_room_window"`
-	OtherRoomWindow     int `yaml:"other_room_window"`
-	CompactionTrigger   int `yaml:"compaction_trigger"`
-	CompactionTarget    int `yaml:"compaction_target"`
-	MinimumGuaranteed   int `yaml:"minimum_guaranteed"`
+	CurrentRoomWindow int `yaml:"current_room_window"`
+	OtherRoomWindow   int `yaml:"other_room_window"`
+	CompactionTrigger int `yaml:"compaction_trigger"`
+	CompactionTarget  int `yaml:"compaction_target"`
+	MinimumGuaranteed int `yaml:"minimum_guaranteed"`
 }
 
 // DefaultContextConfig returns the default context configuration.
@@ -20,8 +21,8 @@ func DefaultContextConfig() ContextConfig {
 	return ContextConfig{
 		CurrentRoomWindow: 50,
 		OtherRoomWindow:   10,
-		CompactionTrigger: 524288,  // 512kb
-		CompactionTarget:  262144,  // 256kb
+		CompactionTrigger: 524288, // 512kb
+		CompactionTarget:  262144, // 256kb
 		MinimumGuaranteed: 20,
 	}
 }
@@ -33,6 +34,46 @@ type ServerConfig struct {
 	Embeddings EmbeddingsConfig `yaml:"embeddings"`
 	Context    ContextConfig    `yaml:"context"`
 	Tools      ToolsConfig      `yaml:"tools"`
+}
+
+// EnvString is a scalar config value that can be literal or interpolated as
+// ${ENV_VAR} or ${ENV_VAR:-fallback}.
+type EnvString string
+
+var envVarRegex = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-(.*?))?\}`)
+
+// UnmarshalYAML accepts scalar env-string values.
+func (e *EnvString) UnmarshalYAML(value *yaml.Node) error {
+	if value == nil || value.Kind == 0 {
+		*e = ""
+		return nil
+	}
+	if value.Kind != yaml.ScalarNode {
+		return fmt.Errorf("value must be a scalar string")
+	}
+	*e = EnvString(value.Value)
+	return nil
+}
+
+// Resolve expands any env var interpolation and returns the resolved value.
+func (e EnvString) Resolve() string {
+	raw := string(e)
+	if raw == "" {
+		return ""
+	}
+	return envVarRegex.ReplaceAllStringFunc(raw, func(match string) string {
+		parts := envVarRegex.FindStringSubmatch(match)
+		if len(parts) < 2 {
+			return ""
+		}
+		if val := os.Getenv(parts[1]); val != "" {
+			return val
+		}
+		if len(parts) >= 3 && parts[2] != "" {
+			return parts[2]
+		}
+		return ""
+	})
 }
 
 // ToolsConfig configures the agentic tool-call pipeline.
@@ -60,11 +101,10 @@ type EmbeddingsConfig struct {
 }
 
 type Provider struct {
-	Name      string `yaml:"name"`
-	Protocol  string `yaml:"protocol"`
-	BaseURL   string `yaml:"base_url"`
-	APIKeyEnv string `yaml:"api_key_env"`
-	APIKey    string `yaml:"api_key,omitempty"`
+	Name     string    `yaml:"name"`
+	Protocol string    `yaml:"protocol"`
+	BaseURL  string    `yaml:"base_url"`
+	APIKey   EnvString `yaml:"api_key,omitempty"`
 }
 
 type Model struct {
