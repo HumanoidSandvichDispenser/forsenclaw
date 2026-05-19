@@ -227,8 +227,7 @@ h4,
 }
 
 body,
-.body,
-p {
+.body {
   font-family: var(--body-family);
   font-size: var(--body-size);
   line-height: var(--body-line);

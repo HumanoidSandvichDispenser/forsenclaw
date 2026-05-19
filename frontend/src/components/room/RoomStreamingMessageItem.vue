@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
+import { marked } from 'marked';
 
 import type { ActorResponse } from '@/client';
 
@@ -82,6 +83,10 @@ function parseContent(content: string) {
 }
 
 const parsedParts = computed(() => parseContent(displayedContent.value));
+
+function renderMarkdown(text: string) {
+  return marked.parse(text, { async: false });
+}
 </script>
 
 <template>
@@ -96,7 +101,7 @@ const parsedParts = computed(() => parseContent(displayedContent.value));
           <summary>{{ part.title }}</summary>
           <p>{{ part.content }}</p>
         </details>
-        <p v-else class="content">{{ part.content }}</p>
+        <div v-else class="content" v-html="renderMarkdown(part.content)" />
       </template>
       <span class="cursor" />
       <div class="speaker">
@@ -155,13 +160,90 @@ const parsedParts = computed(() => parseContent(displayedContent.value));
   to { transform: rotate(360deg); }
 }
 
-.msg.other p.content {
+.msg.other .content {
   font-family: var(--font-body-serif);
 }
 
-p.content {
+.msg.other .content p {
+  font-family: var(--font-body-serif);
+}
+
+.content {
   margin: 0;
-  white-space: pre-wrap;
+}
+
+.content p {
+  margin: 0 0 0.5rem;
+}
+
+.content p:last-child {
+  margin-bottom: 0;
+}
+
+.content code {
+  padding: 0.15em 0.4em;
+  border-radius: var(--border-radius);
+  border: 1px solid var(--border-subtle);
+  font-family: var(--code-family);
+  font-size: 0.9em;
+}
+
+.content pre {
+  padding: 1rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  margin: 0.5rem 0;
+}
+
+.content pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+}
+
+.content ul,
+.content ol {
+  margin: 0.5rem 0;
+  padding-left: 1.5rem;
+}
+
+.content li {
+  margin: 0.25rem 0;
+}
+
+.content a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.content a:hover {
+  text-decoration: underline;
+}
+
+.content h1,
+.content h2,
+.content h3,
+.content h4,
+.content h5,
+.content h6 {
+  margin: 1rem 0 0.5rem;
+  font-weight: 600;
+}
+
+.content h1:first-child,
+.content h2:first-child,
+.content h3:first-child,
+.content h4:first-child,
+.content h5:first-child,
+.content h6:first-child {
+  margin-top: 0;
+}
+
+.content blockquote {
+  border-left: 3px solid var(--border-subtle);
+  padding-left: 1rem;
+  margin: 0.5rem 0;
+  color: var(--fg-muted);
 }
 
 .cursor {
