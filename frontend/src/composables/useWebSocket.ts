@@ -45,7 +45,7 @@ export function useWebSocket() {
     }
 
     const url = buildURL();
-    const socket = new WebSocket(url, ['hearth']);
+    const socket = new WebSocket(url);
 
     socket.onopen = () => {
       connected.value = true;

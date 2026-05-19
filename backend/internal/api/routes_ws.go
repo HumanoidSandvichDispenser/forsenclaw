@@ -10,7 +10,7 @@ import (
 // the client's subscription lifecycle.
 func (svc *Service) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		Subprotocols: []string{"hearth"},
+		InsecureSkipVerify: true,
 	})
 	if err != nil {
 		return
