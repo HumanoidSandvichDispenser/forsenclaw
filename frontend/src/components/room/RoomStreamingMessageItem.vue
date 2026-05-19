@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 
 import type { ActorResponse } from '@/client';
 
@@ -8,6 +8,50 @@ const props = defineProps<{
   sender: ActorResponse;
   toolCall: string | null;
 }>();
+
+const displayedContent = ref('');
+let animFrame: number | null = null;
+let lastTimestamp = 0;
+const CHARS_PER_FRAME = 3;
+
+function animate(timestamp: number) {
+  const target = props.content;
+  const currentLen = displayedContent.value.length;
+  const targetLen = target.length;
+
+  if (currentLen >= targetLen) {
+    animFrame = null;
+    lastTimestamp = 0;
+    return;
+  }
+
+  if (lastTimestamp === 0) {
+    lastTimestamp = timestamp;
+  }
+
+  const elapsed = timestamp - lastTimestamp;
+  const charsToReveal = Math.max(1, Math.floor((elapsed / 16) * CHARS_PER_FRAME));
+  const newLen = Math.min(currentLen + charsToReveal, targetLen);
+
+  displayedContent.value = target.slice(0, newLen);
+  lastTimestamp = timestamp;
+
+  animFrame = requestAnimationFrame(animate);
+}
+
+function startAnimation() {
+  if (animFrame) return;
+  lastTimestamp = 0;
+  animFrame = requestAnimationFrame(animate);
+}
+
+watch(() => props.content, () => {
+  startAnimation();
+});
+
+onUnmounted(() => {
+  if (animFrame) cancelAnimationFrame(animFrame);
+});
 
 function parseContent(content: string) {
   const parts: Array<{ type: string; content: string; title?: string }> = [];
@@ -26,7 +70,6 @@ function parseContent(content: string) {
   const remainder = content.slice(lastIndex);
   const openThoughtIdx = remainder.lastIndexOf('<thought>');
   if (openThoughtIdx !== -1) {
-    // Unclosed thought tag — treat everything after <thought> as in-progress thought
     if (openThoughtIdx > 0) {
       parts.push({ type: 'text', content: remainder.slice(0, openThoughtIdx) });
     }
@@ -38,11 +81,11 @@ function parseContent(content: string) {
   return parts;
 }
 
-const parsedParts = computed(() => parseContent(props.content));
+const parsedParts = computed(() => parseContent(displayedContent.value));
 </script>
 
 <template>
-  <article class="msg streaming">
+  <article class="msg other">
     <div class="bubble">
       <div v-if="props.toolCall" class="tool-indicator">
         <span class="tool-spinner" />
@@ -72,12 +115,18 @@ const parsedParts = computed(() => parseContent(props.content));
   font-size: var(--body-sm-size);
 }
 
-.streaming .bubble {
+.msg.other:hover .bubble {
+  background: var(--bg-secondary);
+}
+
+.bubble {
   width: 100%;
   border-radius: 0.9rem;
   padding: 0.75rem 0.9rem;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-subtle);
+}
+
+.bubble p {
+  font-size: var(--body-size);
 }
 
 .tool-indicator {
@@ -106,11 +155,13 @@ const parsedParts = computed(() => parseContent(props.content));
   to { transform: rotate(360deg); }
 }
 
+.msg.other p.content {
+  font-family: var(--font-body-serif);
+}
+
 p.content {
   margin: 0;
   white-space: pre-wrap;
-  font-size: var(--body-size);
-  font-family: var(--font-body-serif);
 }
 
 .cursor {
@@ -145,6 +196,12 @@ p.content {
   display: flex;
   gap: 0.5rem;
   align-items: center;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.msg:hover .side {
+  opacity: 1;
 }
 
 .typing-label {
