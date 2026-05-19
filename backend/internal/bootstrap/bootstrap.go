@@ -19,6 +19,7 @@ providers: []
 #  - name: ollama
 #    protocol: openai_compatible
 #    base_url: http://localhost:11434
+#    # tool_mode: xml    # uncomment for local models with no native tool support
 
 models: {}
 #  claude-sonnet-4.6:

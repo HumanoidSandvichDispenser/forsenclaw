@@ -3,7 +3,6 @@ package inference
 import (
 	"context"
 	"encoding/json"
-	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,7 +11,7 @@ import (
 	"testing"
 )
 
-func TestOpenAICompatibleAdapter_XMLEscaping(t *testing.T) {
+func TestOpenAICompatibleAdapter_SystemPromptWithContext(t *testing.T) {
 	var capturedBody string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		bodyBytes, _ := io.ReadAll(r.Body)
@@ -26,7 +25,7 @@ func TestOpenAICompatibleAdapter_XMLEscaping(t *testing.T) {
 	}))
 	defer server.Close()
 
-	adapter, err := NewOpenAICompatibleAdapter(server.URL, "")
+	adapter, err := NewOpenAICompatibleAdapter(server.URL, "", "xml")
 	if err != nil {
 		t.Fatalf("NewOpenAICompatibleAdapter failed: %v", err)
 	}
@@ -50,63 +49,36 @@ func TestOpenAICompatibleAdapter_XMLEscaping(t *testing.T) {
 	if err := json.Unmarshal([]byte(capturedBody), &req); err != nil {
 		t.Fatalf("failed to unmarshal request body: %v", err)
 	}
-	// Expect 3 messages: system, user XML preamble, user RFC.
+	// Expect 2 messages: system (with context), user RFC.
 	// History is empty in this test, so no history messages are added.
-	if len(req.Messages) != 3 {
-		t.Fatalf("expected 3 messages, got %d", len(req.Messages))
+	if len(req.Messages) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(req.Messages))
 	}
 
 	// Verify system prompt is sent as the dedicated system message.
 	if req.Messages[0].Role != "system" {
 		t.Errorf("expected first message role to be system, got %q", req.Messages[0].Role)
 	}
-	if req.Messages[0].Content == nil || *req.Messages[0].Content != "You are an assistant. Use <thinking> tags." {
-		t.Errorf("system message content mismatch: got %v", req.Messages[0].Content)
+	if req.Messages[0].Content == nil {
+		t.Fatal("expected system message content")
+	}
+	sysContent := *req.Messages[0].Content
+	if !strings.Contains(sysContent, "You are an assistant. Use <thinking> tags.") {
+		t.Errorf("system prompt missing base text")
+	}
+	if !strings.Contains(sysContent, "## Memory") {
+		t.Errorf("memory section missing in system prompt")
+	}
+	if !strings.Contains(sysContent, "User said: 5 < 10 && 10 > 5") {
+		t.Errorf("memory content missing in system prompt")
 	}
 
-	// messages[1] is the XML context preamble (memory, notes, tools, cross-room).
-	if req.Messages[1].Content == nil {
-		t.Fatal("expected preamble content to be present")
+	// messages[1] is the RFC as a plain user message.
+	if req.Messages[1].Role != "user" {
+		t.Errorf("expected RFC message role to be user, got %q", req.Messages[1].Role)
 	}
-	preambleContent := *req.Messages[1].Content
-
-	// Verify XML metacharacters are escaped in the preamble.
-	if !strings.Contains(preambleContent, "<memory>") {
-		t.Errorf("memory tag missing in preamble message")
-	}
-	if !strings.Contains(preambleContent, "5 &lt; 10 &amp;&amp; 10 &gt; 5") {
-		t.Errorf("memory content not properly escaped in preamble message")
-	}
-
-	// Verify the preamble is valid XML by wrapping it in a root element.
-	wrapped := "<root>" + preambleContent + "</root>"
-	type System struct {
-		Memory     string `xml:"memory"`
-		DailyNotes string `xml:"daily_notes"`
-		RAGResults string `xml:"rag_results"`
-		Tools      string `xml:"tools"`
-	}
-	type Root struct {
-		System            System `xml:"system"`
-		CrossRoomActivity string `xml:"cross_room_activity"`
-	}
-
-	var root Root
-	if err := xml.Unmarshal([]byte(wrapped), &root); err != nil {
-		t.Errorf("preamble content is not valid XML: %v", err)
-	}
-
-	// Verify that the parsed memory content matches the original (unescaped) value.
-	if root.System.Memory != "User said: 5 < 10 && 10 > 5" {
-		t.Errorf("parsed memory mismatch: got %q", root.System.Memory)
-	}
-
-	// messages[2] is the RFC as a plain user message.
-	if req.Messages[2].Role != "user" {
-		t.Errorf("expected RFC message role to be user, got %q", req.Messages[2].Role)
-	}
-	if req.Messages[2].Content == nil || *req.Messages[2].Content != "What about <script>alert(1)</script>?" {
-		t.Errorf("RFC message content mismatch: got %v", req.Messages[2].Content)
+	if req.Messages[1].Content == nil || *req.Messages[1].Content != "What about <script>alert(1)</script>?" {
+		t.Errorf("RFC message content mismatch: got %v", req.Messages[1].Content)
 	}
 }
 
@@ -124,7 +96,7 @@ func TestOpenAICompatibleAdapter_SystemPromptNotDuplicated(t *testing.T) {
 	}))
 	defer server.Close()
 
-	adapter, err := NewOpenAICompatibleAdapter(server.URL, "")
+	adapter, err := NewOpenAICompatibleAdapter(server.URL, "", "xml")
 	if err != nil {
 		t.Fatalf("NewOpenAICompatibleAdapter failed: %v", err)
 	}
@@ -146,6 +118,78 @@ func TestOpenAICompatibleAdapter_SystemPromptNotDuplicated(t *testing.T) {
 	count := strings.Count(capturedBody, "You are a helpful assistant.")
 	if count != 1 {
 		t.Errorf("system prompt appears %d times in request, expected exactly 1", count)
+	}
+}
+
+func TestOpenAICompatibleAdapter_XMLToolModeHistory(t *testing.T) {
+	var capturedBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		capturedBody = string(b)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, "data: %s\n\n", `{"id":"1","object":"chat.completion.chunk","choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		w.(http.Flusher).Flush()
+	}))
+	defer server.Close()
+
+	adapter, err := NewOpenAICompatibleAdapter(server.URL, "", "xml")
+	if err != nil {
+		t.Fatalf("NewOpenAICompatibleAdapter: %v", err)
+	}
+
+	payload := ContextPayload{
+		Model:        "gemma",
+		SystemPrompt: "You are a test agent.",
+		History: []HistoryMessage{
+			{
+				Role: RoleAssistant,
+				ToolCalls: []ToolCallWire{{
+					ID:   "call_1",
+					Type: "function",
+					Function: ToolFunctionWire{
+						Name:      "some_tool",
+						Arguments: `{"query":"test"}`,
+					},
+				}},
+			},
+			{Role: RoleTool, Name: "some_tool", ToolCallID: "call_1", Content: "result"},
+		},
+		RFC: "hi",
+	}
+
+	ch, err := adapter.Infer(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("Infer: %v", err)
+	}
+	for range ch {
+	}
+
+	var req openaiCompatRequest
+	if err := json.Unmarshal([]byte(capturedBody), &req); err != nil {
+		t.Fatalf("unmarshal request: %v", err)
+	}
+
+	// Expect: system, assistant (with XML tool calls), user (tool response), RFC user.
+	if len(req.Messages) != 4 {
+		t.Fatalf("expected 4 messages, got %d", len(req.Messages))
+	}
+
+	assistantMsg := req.Messages[1]
+	if assistantMsg.Role != "assistant" {
+		t.Errorf("expected assistant role, got %q", assistantMsg.Role)
+	}
+	if assistantMsg.Content == nil || !strings.Contains(*assistantMsg.Content, "<tool_call>") {
+		t.Errorf("expected assistant content to contain XML tool_call, got %v", assistantMsg.Content)
+	}
+
+	toolMsg := req.Messages[2]
+	if toolMsg.Role != "user" {
+		t.Errorf("expected role 'user' for XML tool result, got %q", toolMsg.Role)
+	}
+	if toolMsg.Content == nil || !strings.Contains(*toolMsg.Content, "<tool_response") {
+		t.Errorf("expected XML tool_response in content, got %v", toolMsg.Content)
 	}
 }
 
@@ -179,9 +223,6 @@ func TestOpenAICompatibleAdapter_Validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// We can't actually call Infer without a server, but we can test validation
-			// by adding a validate method or testing indirectly.
-			// For now, test that the adapter's Infer returns an error for invalid payloads.
 			err := ValidateContextPayload(tt.payload)
 			if tt.wantErr == "" {
 				if err != nil {

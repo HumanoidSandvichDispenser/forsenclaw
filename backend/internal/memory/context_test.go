@@ -213,16 +213,16 @@ func TestAssembler_RoomHistoryRoles(t *testing.T) {
 	payload := result.ToContextPayload("test-model")
 
 	// History should have 2 entries (msg_1, msg_2); msg_3 becomes the RFC
-	if len(payload.History) != 2 {
-		t.Fatalf("expected 2 history messages, got %d", len(payload.History))
+	if len(result.History) != 2 {
+		t.Fatalf("expected 2 history messages, got %d", len(result.History))
 	}
 
 	// msg_1 → user, msg_2 → assistant (same agent)
-	if payload.History[0].Role != inference.RoleUser {
-		t.Errorf("history[0] role: got %q, want user", payload.History[0].Role)
+	if result.History[0].Role != inference.RoleUser {
+		t.Errorf("history[0] role: got %q, want user", result.History[0].Role)
 	}
-	if payload.History[1].Role != inference.RoleAssistant {
-		t.Errorf("history[1] role: got %q, want assistant", payload.History[1].Role)
+	if result.History[1].Role != inference.RoleAssistant {
+		t.Errorf("history[1] role: got %q, want assistant", result.History[1].Role)
 	}
 
 	// RFC should contain the last message content

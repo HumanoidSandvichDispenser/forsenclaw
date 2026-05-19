@@ -59,9 +59,10 @@ type Usage struct {
 // Callers should check if the last chunk had a non-empty FinishReason to determine
 // whether the stream completed normally.
 type StreamingChunk struct {
-	Content      string `json:"content"`
-	FinishReason string `json:"finish_reason,omitempty"`
-	Usage        Usage  `json:"usage,omitempty"`
+	Content      string         `json:"content"`
+	FinishReason string         `json:"finish_reason,omitempty"`
+	Usage        Usage          `json:"usage,omitempty"`
+	ToolCalls    []ToolCallWire `json:"tool_calls,omitempty"` // populated by adapters using native tool calling
 }
 
 // HistoryMessage is a pre-role-assigned message in the conversation history.
@@ -121,21 +122,38 @@ func RenderToolCallsXML(toolCalls []ToolCallWire) string {
 	return b.String()
 }
 
+// ToolDefinition is a structured tool definition for native tool calling adapters.
+type ToolDefinition struct {
+	Name        string
+	Description string
+	Parameters  map[string]interface{} // JSON Schema object
+}
+
+// ContextMessage is a message in the conversation sequence built from a ContextPayload.
+type ContextMessage struct {
+	Role       string // "user", "assistant", "tool", "system"
+	Content    string
+	ToolCalls  []ToolCallWire
+	ToolCallID string
+	Name       string
+}
+
 // ContextPayload is the structured context for a model invocation.
 // Providers receive this and render it natively for their API.
 type ContextPayload struct {
-	Model         string
-	SystemPrompt  string
-	Memory        string
-	DailyNotes    []string
-	RAGResults    []string
-	ToolSchemas   []string
-	CrossRoomFeed []string // pre-formatted strings, one per message
-	History       []HistoryMessage
-	RFC           string
-	Temperature   *float64
-	MaxTokens     *int
-	Stop          []string
+	Model           string
+	SystemPrompt    string
+	Memory          string
+	DailyNotes      []string
+	RAGResults      []string
+	ToolSchemas     []string         // for XML tool-mode fallback
+	ToolDefinitions []ToolDefinition // for native tool calling adapters
+	CrossRoomFeed   []string         // pre-formatted strings, one per message
+	History         []HistoryMessage
+	RFC             string
+	Temperature     *float64
+	MaxTokens       *int
+	Stop            []string
 }
 
 // Provider is the interface for all model provider adapters.

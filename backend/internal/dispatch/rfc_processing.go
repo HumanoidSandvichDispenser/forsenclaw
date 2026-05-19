@@ -116,24 +116,26 @@ func (d *Dispatcher) assembleContext(ctx context.Context, ag *agent.Agent, rfc r
 	return assembled, cursor, nil
 }
 
-// streamPayload calls inference with the given payload, streams chunks to
-// connected clients, and returns the complete response content.
-// On inference failure, handleInferenceError is called before returning.
-// The typing indicator is NOT broadcast here; callers are responsible for it.
-func (d *Dispatcher) streamPayload(ctx context.Context, rfc room.RFC, provider inference.Provider, payload inference.ContextPayload) (string, inference.Usage, error) {
+// broadcastAndCollect calls inference with the given payload, streams chunks to
+// connected clients via the WebSocket hub, and returns the complete response
+// content along with the final StreamingChunk (which carries usage and native
+// tool calls). On inference failure, handleInferenceError is called before
+// returning. The typing indicator is NOT broadcast here; callers are responsible
+// for it.
+func (d *Dispatcher) broadcastAndCollect(ctx context.Context, rfc room.RFC, provider inference.Provider, payload inference.ContextPayload) (string, inference.StreamingChunk, error) {
 	ch, err := provider.Infer(ctx, payload)
 	if err != nil {
 		d.handleInferenceError(ctx, rfc, err, "")
-		return "", inference.Usage{}, fmt.Errorf("inference: %w", err)
+		return "", inference.StreamingChunk{}, fmt.Errorf("inference: %w", err)
 	}
 
 	var content strings.Builder
-	var usage inference.Usage
+	var finalChunk inference.StreamingChunk
 	streamComplete := false
 	for chunk := range ch {
 		if chunk.FinishReason != "" {
 			streamComplete = true
-			usage = chunk.Usage
+			finalChunk = chunk
 		}
 		content.WriteString(chunk.Content)
 		if d.hub != nil {
@@ -148,10 +150,10 @@ func (d *Dispatcher) streamPayload(ctx context.Context, rfc room.RFC, provider i
 	if !streamComplete {
 		partial := content.String()
 		d.handleInferenceError(ctx, rfc, fmt.Errorf("inference stream ended unexpectedly"), partial)
-		return "", inference.Usage{}, fmt.Errorf("inference stream ended unexpectedly")
+		return "", inference.StreamingChunk{}, fmt.Errorf("inference stream ended unexpectedly")
 	}
 
-	return content.String(), usage, nil
+	return content.String(), finalChunk, nil
 }
 
 // buildResponseMessage constructs the agent's response as a room.Message.

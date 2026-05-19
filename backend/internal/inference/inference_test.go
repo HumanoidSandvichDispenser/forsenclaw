@@ -416,7 +416,7 @@ func TestOpenAICompatibleAdapterInfer(t *testing.T) {
 	}))
 	defer server.Close()
 
-	adapter, err := NewOpenAICompatibleAdapter(server.URL, "")
+	adapter, err := NewOpenAICompatibleAdapter(server.URL, "", "native")
 	if err != nil {
 		t.Fatalf("NewOpenAICompatibleAdapter failed: %v", err)
 	}
@@ -456,7 +456,7 @@ func TestOpenAICompatibleAdapterError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	adapter, err := NewOpenAICompatibleAdapter(server.URL, "bad-key")
+	adapter, err := NewOpenAICompatibleAdapter(server.URL, "bad-key", "native")
 	if err != nil {
 		t.Fatalf("NewOpenAICompatibleAdapter failed: %v", err)
 	}
@@ -560,7 +560,7 @@ func TestOpenAICompatibleAdapter_RoleToolHistory(t *testing.T) {
 	}))
 	defer server.Close()
 
-	adapter, err := NewOpenAICompatibleAdapter(server.URL, "")
+	adapter, err := NewOpenAICompatibleAdapter(server.URL, "", "native")
 	if err != nil {
 		t.Fatalf("NewOpenAICompatibleAdapter: %v", err)
 	}
@@ -597,12 +597,23 @@ func TestOpenAICompatibleAdapter_RoleToolHistory(t *testing.T) {
 		t.Fatalf("unmarshal request: %v", err)
 	}
 
-	// Expect: system, preamble, assistant (history), tool (history), RFC.
-	if len(req.Messages) != 5 {
-		t.Fatalf("expected 5 messages, got %d", len(req.Messages))
+	// Expect: system, assistant (history with tool_calls), tool (history), RFC user.
+	if len(req.Messages) != 4 {
+		t.Fatalf("expected 4 messages, got %d", len(req.Messages))
 	}
 
-	toolMsg := req.Messages[3]
+	assistantMsg := req.Messages[1]
+	if assistantMsg.Role != "assistant" {
+		t.Errorf("expected assistant role, got %q", assistantMsg.Role)
+	}
+	if len(assistantMsg.ToolCalls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d", len(assistantMsg.ToolCalls))
+	}
+	if assistantMsg.ToolCalls[0].Function.Name != "some_tool" {
+		t.Errorf("expected tool call name 'some_tool', got %q", assistantMsg.ToolCalls[0].Function.Name)
+	}
+
+	toolMsg := req.Messages[2]
 	if toolMsg.Role != "tool" {
 		t.Errorf("expected role 'tool', got %q", toolMsg.Role)
 	}
@@ -673,23 +684,50 @@ func TestAnthropicAdapter_RoleToolHistory(t *testing.T) {
 		t.Fatalf("unmarshal body: %v", err)
 	}
 
-	// Expect messages: assistant (tool-call history), user (tool result + RFC merged).
-	// The tool result is mapped to "user" role and gets merged with the following RFC
-	// user message by anthropicAppendMerge.
+	// Native Anthropic protocol:
+	// - assistant message with tool_use content block
+	// - user message with tool_result content block (merged with RFC user message)
 	if len(body.Messages) < 2 {
 		t.Fatalf("expected at least 2 messages, got %d", len(body.Messages))
 	}
 
-	// Find the user message that contains the tool result.
+	// First message should be assistant with tool_use block.
+	if body.Messages[0].Role != "assistant" {
+		t.Errorf("expected first message role 'assistant', got %q", body.Messages[0].Role)
+	}
+	blocks0, ok := body.Messages[0].Content.([]interface{})
+	if !ok || len(blocks0) == 0 {
+		t.Fatalf("expected assistant message to have content blocks, got %+v", body.Messages[0].Content)
+	}
+	firstBlock := blocks0[0].(map[string]interface{})
+	if firstBlock["type"] != "tool_use" {
+		t.Errorf("expected first block type 'tool_use', got %v", firstBlock["type"])
+	}
+	if firstBlock["id"] != "call_1" {
+		t.Errorf("expected tool_use id 'call_1', got %v", firstBlock["id"])
+	}
+	if firstBlock["name"] != "some_tool" {
+		t.Errorf("expected tool_use name 'some_tool', got %v", firstBlock["name"])
+	}
+
+	// Find the user message that contains the tool_result block.
 	foundToolResult := false
 	for _, msg := range body.Messages {
-		if msg.Role == "user" && strings.Contains(msg.Content, "result") {
-			foundToolResult = true
-			break
+		if msg.Role == "user" {
+			blocks, ok := msg.Content.([]interface{})
+			if ok {
+				for _, b := range blocks {
+					block := b.(map[string]interface{})
+					if block["type"] == "tool_result" && block["content"] == "result" {
+						foundToolResult = true
+						break
+					}
+				}
+			}
 		}
 	}
 	if !foundToolResult {
-		t.Error("expected tool result content in a user-role message in Anthropic request")
+		t.Error("expected tool_result content block in a user-role message in Anthropic request")
 	}
 
 	// No message should have role "tool".

@@ -1151,11 +1151,12 @@ providers:
   - name: anthropic
     protocol: anthropic
     base_url: https://api.anthropic.com
-    api_key_env: ANTHROPIC_API_KEY    # resolved from environment
+    api_key: "${ANTHROPIC_API_KEY}"    # resolved from environment
 
   - name: ollama
     protocol: openai_compatible
     base_url: http://ollama-docker-container-name:11434
+    # tool_mode: xml  # use "xml" for local models with no native tool support
 
 models:
   claude-sonnet-4.6:

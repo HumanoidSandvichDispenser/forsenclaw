@@ -12,6 +12,7 @@ import (
 )
 
 // AnthropicAdapter implements Provider for Anthropic's Messages API.
+// It always uses Anthropic's native tool_use / tool_result protocol.
 type AnthropicAdapter struct {
 	baseURL string
 	apiKey  string
@@ -39,38 +40,9 @@ func (a *AnthropicAdapter) Infer(ctx context.Context, payload ContextPayload) (<
 		return nil, err
 	}
 
-	// Build full system content from structured payload fields.
-	var systemContent strings.Builder
-	systemContent.WriteString(payload.SystemPrompt)
-	if payload.Memory != "" {
-		systemContent.WriteString("\n\n## Memory\n\n")
-		systemContent.WriteString(payload.Memory)
-	}
-	if len(payload.DailyNotes) > 0 {
-		systemContent.WriteString("\n\n## Daily Notes\n\n")
-		for _, note := range payload.DailyNotes {
-			systemContent.WriteString(note)
-			systemContent.WriteString("\n\n")
-		}
-	}
-	if len(payload.RAGResults) > 0 {
-		systemContent.WriteString("\n\n## Relevant Context\n\n")
-		for _, r := range payload.RAGResults {
-			systemContent.WriteString(r)
-			systemContent.WriteString("\n\n")
-		}
-	}
-	if len(payload.ToolSchemas) > 0 {
-		systemContent.WriteString("\n\n## Available Tools\n\n")
-		for _, tool := range payload.ToolSchemas {
-			systemContent.WriteString(tool)
-			systemContent.WriteString("\n\n")
-		}
-	}
-
 	body := anthropicRequestBody{
 		Model:     payload.Model,
-		System:    systemContent.String(),
+		System:    BuildSystemPrompt(payload, "native"),
 		Messages:  make([]anthropicMessage, 0),
 		Stream:    true,
 		MaxTokens: 4096,
@@ -86,36 +58,23 @@ func (a *AnthropicAdapter) Infer(ctx context.Context, payload ContextPayload) (<
 		body.StopSequences = payload.Stop
 	}
 
-	// Cross-room feed as first user message.
-	if len(payload.CrossRoomFeed) > 0 {
-		var sb strings.Builder
-		sb.WriteString("## Cross-room activity\n\n")
-		for _, line := range payload.CrossRoomFeed {
-			sb.WriteString(line)
-			sb.WriteString("\n\n")
+	// Add native tool definitions if available.
+	if len(payload.ToolDefinitions) > 0 {
+		body.Tools = make([]anthropicTool, 0, len(payload.ToolDefinitions))
+		for _, def := range payload.ToolDefinitions {
+			body.Tools = append(body.Tools, anthropicTool{
+				Name:        def.Name,
+				Description: def.Description,
+				InputSchema: def.Parameters,
+			})
 		}
-		anthropicAppendMerge(&body.Messages, "user", sb.String())
 	}
 
-	// History: add pre-role-assigned messages, merging consecutive same-role
-	// pairs to satisfy Anthropic's strict alternating constraint.
-	// Tool-role messages are rendered as user-role since this adapter uses the
-	// text-based protocol (not Anthropic's native tool_result blocks).
-	for _, h := range payload.History {
-		role := string(h.Role)
-		if h.Role == RoleTool {
-			role = "user"
-		}
-		content := h.Content
-		if h.Role == RoleAssistant && len(h.ToolCalls) > 0 {
-			content = RenderToolCallsXML(h.ToolCalls)
-		}
-		anthropicAppendMerge(&body.Messages, role, content)
-	}
-
-	// RFC as final user message.
-	if payload.RFC != "" {
-		anthropicAppendMerge(&body.Messages, "user", payload.RFC)
+	// Build message sequence from payload history and RFC.
+	msgSeq := BuildMessageSequence(payload)
+	for _, msg := range msgSeq {
+		anthMsg := a.serializeContextMessage(msg)
+		anthropicAppendMerge(&body.Messages, anthMsg)
 	}
 
 	jsonBody, err := json.Marshal(body)
@@ -147,15 +106,55 @@ func (a *AnthropicAdapter) Infer(ctx context.Context, payload ContextPayload) (<
 	return ch, nil
 }
 
-// anthropicAppendMerge appends a message to msgs. If the last message has the
-// same role, the content is merged with "\n\n" to satisfy Anthropic's strict
-// alternating user/assistant constraint.
-func anthropicAppendMerge(msgs *[]anthropicMessage, role, content string) {
-	if len(*msgs) > 0 && (*msgs)[len(*msgs)-1].Role == role {
-		(*msgs)[len(*msgs)-1].Content += "\n\n" + content
-	} else {
-		*msgs = append(*msgs, anthropicMessage{Role: role, Content: content})
+// serializeContextMessage converts a ContextMessage to Anthropic's wire format.
+func (a *AnthropicAdapter) serializeContextMessage(msg ContextMessage) anthropicMessage {
+	switch msg.Role {
+	case string(RoleAssistant):
+		if len(msg.ToolCalls) > 0 {
+			blocks := make([]anthropicContentBlock, 0, len(msg.ToolCalls))
+			for _, tc := range msg.ToolCalls {
+				var input map[string]interface{}
+				_ = json.Unmarshal([]byte(tc.Function.Arguments), &input)
+				blocks = append(blocks, anthropicContentBlock{
+					Type:  "tool_use",
+					ID:    tc.ID,
+					Name:  tc.Function.Name,
+					Input: input,
+				})
+			}
+			return anthropicMessage{Role: "assistant", Content: blocks}
+		}
+		return anthropicMessage{Role: "assistant", Content: msg.Content}
+
+	case string(RoleTool):
+		blocks := []anthropicContentBlock{
+			{
+				Type:        "tool_result",
+				ToolUseID:   msg.ToolCallID,
+				ToolContent: msg.Content,
+			},
+		}
+		return anthropicMessage{Role: "user", Content: blocks}
+
+	default:
+		return anthropicMessage{Role: msg.Role, Content: msg.Content}
 	}
+}
+
+// anthropicAppendMerge appends a message to msgs. If the last message has the
+// same role, and both are plain strings, the content is merged with "\n\n" to
+// satisfy Anthropic's strict alternating user/assistant constraint.
+func anthropicAppendMerge(msgs *[]anthropicMessage, msg anthropicMessage) {
+	if len(*msgs) > 0 && (*msgs)[len(*msgs)-1].Role == msg.Role {
+		last := &(*msgs)[len(*msgs)-1]
+		lastStr, lastIsStr := last.Content.(string)
+		msgStr, msgIsStr := msg.Content.(string)
+		if lastIsStr && msgIsStr {
+			last.Content = lastStr + "\n\n" + msgStr
+			return
+		}
+	}
+	*msgs = append(*msgs, msg)
 }
 
 func (a *AnthropicAdapter) readStream(body io.ReadCloser, ch chan<- StreamingChunk) {
@@ -163,9 +162,16 @@ func (a *AnthropicAdapter) readStream(body io.ReadCloser, ch chan<- StreamingChu
 	defer close(ch)
 
 	scanner := bufio.NewScanner(body)
-	var content string
+	var content strings.Builder
 	var usage Usage
 	var finishReason string
+
+	// Tool-use streaming accumulation.
+	var toolUseAccumulating bool
+	var toolCallID string
+	var toolName string
+	var toolArgs strings.Builder
+	var toolCalls []ToolCallWire
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -179,7 +185,6 @@ func (a *AnthropicAdapter) readStream(body io.ReadCloser, ch chan<- StreamingChu
 		}
 
 		if strings.HasPrefix(line, "event: ") {
-			// Next line should be data. We handle both in the loop.
 			continue
 		}
 
@@ -194,10 +199,39 @@ func (a *AnthropicAdapter) readStream(body io.ReadCloser, ch chan<- StreamingChu
 		}
 
 		switch event.Type {
+		case "content_block_start":
+			if event.ContentBlock != nil && event.ContentBlock.Type == "tool_use" {
+				toolUseAccumulating = true
+				toolCallID = event.ContentBlock.ID
+				toolName = event.ContentBlock.Name
+				toolArgs.Reset()
+				if event.ContentBlock.Input != nil {
+					raw, _ := json.Marshal(event.ContentBlock.Input)
+					toolArgs.Write(raw)
+				}
+			}
+
 		case "content_block_delta":
-			if event.Delta != nil && event.Delta.Type == "text_delta" {
-				content += event.Delta.Text
-				ch <- StreamingChunk{Content: event.Delta.Text}
+			if event.Delta != nil {
+				if event.Delta.Type == "text_delta" {
+					content.WriteString(event.Delta.Text)
+					ch <- StreamingChunk{Content: event.Delta.Text}
+				} else if event.Delta.Type == "input_json_delta" {
+					toolArgs.WriteString(event.Delta.PartialJSON)
+				}
+			}
+
+		case "content_block_stop":
+			if toolUseAccumulating {
+				toolCalls = append(toolCalls, ToolCallWire{
+					ID:   toolCallID,
+					Type: "function",
+					Function: ToolFunctionWire{
+						Name:      toolName,
+						Arguments: toolArgs.String(),
+					},
+				})
+				toolUseAccumulating = false
 			}
 
 		case "message_delta":
@@ -213,27 +247,35 @@ func (a *AnthropicAdapter) readStream(body io.ReadCloser, ch chan<- StreamingChu
 			}
 
 		case "message_stop":
-			// Stream complete — send final chunk with finish reason and usage
+			// Stream complete — send final chunk with finish reason, usage, and any tool calls.
 			ch <- StreamingChunk{
 				Content:      "",
 				FinishReason: finishReason,
 				Usage:        usage,
+				ToolCalls:    toolCalls,
 			}
 			return
 		}
 	}
 
-	// If scanner ended without message_stop, still try to emit what we have
-	if content != "" || finishReason != "" {
+	// If scanner ended without message_stop, still try to emit what we have.
+	if content.Len() > 0 || finishReason != "" {
 		ch <- StreamingChunk{
 			Content:      "",
 			FinishReason: finishReason,
 			Usage:        usage,
+			ToolCalls:    toolCalls,
 		}
 	}
 }
 
 // --- request/response types ---
+
+type anthropicTool struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	InputSchema map[string]interface{} `json:"input_schema"`
+}
 
 type anthropicRequestBody struct {
 	Model         string             `json:"model"`
@@ -243,23 +285,37 @@ type anthropicRequestBody struct {
 	Temperature   *float64           `json:"temperature,omitempty"`
 	StopSequences []string           `json:"stop_sequences,omitempty"`
 	Stream        bool               `json:"stream"`
+	Tools         []anthropicTool    `json:"tools,omitempty"`
 }
 
 type anthropicMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string      `json:"role"`
+	Content interface{} `json:"content"` // string or []anthropicContentBlock
+}
+
+type anthropicContentBlock struct {
+	Type        string                 `json:"type"`
+	Text        string                 `json:"text,omitempty"`
+	ID          string                 `json:"id,omitempty"`
+	Name        string                 `json:"name,omitempty"`
+	Input       map[string]interface{} `json:"input,omitempty"`
+	ToolUseID   string                 `json:"tool_use_id,omitempty"`
+	ToolContent string                 `json:"content,omitempty"`
 }
 
 type anthropicEvent struct {
-	Type  string          `json:"type"`
-	Delta *anthropicDelta `json:"delta,omitempty"`
-	Usage *anthropicUsage `json:"usage,omitempty"`
+	Type         string                 `json:"type"`
+	Index        int                    `json:"index,omitempty"`
+	ContentBlock *anthropicContentBlock `json:"content_block,omitempty"`
+	Delta        *anthropicDelta        `json:"delta,omitempty"`
+	Usage        *anthropicUsage        `json:"usage,omitempty"`
 }
 
 type anthropicDelta struct {
-	Type       string `json:"type,omitempty"`
-	Text       string `json:"text,omitempty"`
-	StopReason string `json:"stop_reason,omitempty"`
+	Type        string `json:"type,omitempty"`
+	Text        string `json:"text,omitempty"`
+	PartialJSON string `json:"partial_json,omitempty"`
+	StopReason  string `json:"stop_reason,omitempty"`
 }
 
 type anthropicUsage struct {

@@ -66,6 +66,59 @@ func (m *multiResponseProvider) Infer(_ context.Context, payload inference.Conte
 	return ch, nil
 }
 
+// nativeToolResponseProvider returns responses with native ToolCalls in the final chunk.
+type nativeToolResponseProvider struct {
+	mu               sync.Mutex
+	responses        [][]inference.ToolCallWire
+	callCount        int
+	receivedPayloads []inference.ContextPayload
+	usage            inference.Usage
+}
+
+func newNativeToolResponseProvider(calls ...[]inference.ToolCallWire) *nativeToolResponseProvider {
+	return &nativeToolResponseProvider{
+		responses: calls,
+		usage: inference.Usage{
+			PromptTokens:     10,
+			CompletionTokens: 5,
+			TotalTokens:      15,
+		},
+	}
+}
+
+func (m *nativeToolResponseProvider) Infer(_ context.Context, payload inference.ContextPayload) (<-chan inference.StreamingChunk, error) {
+	m.mu.Lock()
+	m.callCount++
+	m.receivedPayloads = append(m.receivedPayloads, payload)
+	idx := m.callCount - 1
+	m.mu.Unlock()
+
+	var toolCalls []inference.ToolCallWire
+	if idx < len(m.responses) {
+		toolCalls = m.responses[idx]
+	}
+
+	ch := make(chan inference.StreamingChunk, 1)
+	go func() {
+		defer close(ch)
+		ch <- inference.StreamingChunk{
+			Content:      "",
+			FinishReason: "tool_calls",
+			Usage:        m.usage,
+			ToolCalls:    toolCalls,
+		}
+	}()
+	return ch, nil
+}
+
+type nativeThenTextProvider struct {
+	inferFn func(ctx context.Context, payload inference.ContextPayload) (<-chan inference.StreamingChunk, error)
+}
+
+func (m *nativeThenTextProvider) Infer(ctx context.Context, payload inference.ContextPayload) (<-chan inference.StreamingChunk, error) {
+	return m.inferFn(ctx, payload)
+}
+
 // --- mock MCP types for tool loop tests ---
 
 type mockLoopMCPClient struct {
@@ -149,6 +202,87 @@ func TestRunToolLoop_SingleToolCall(t *testing.T) {
 	}
 	if client.callCount != 1 {
 		t.Errorf("expected MCP client called 1 time, got %d", client.callCount)
+	}
+}
+
+// --- AC-12b: Loop — single native tool call resolved, final answer returned ---
+
+func TestRunToolLoop_SingleNativeToolCall(t *testing.T) {
+	d := newToolLoopDispatcher(t)
+	ag := newTestAgent(t, []string{"tool:invoke[web_search]:allow"})
+	assembled := newTestAssembled()
+
+	exec, client := newAllowExecutor("web_search", "sunny day", 10)
+
+	// Custom provider that returns native tool calls on first call, prose on second.
+	callCount := 0
+	var receivedPayloads []inference.ContextPayload
+	customProvider := &nativeThenTextProvider{
+		inferFn: func(_ context.Context, payload inference.ContextPayload) (<-chan inference.StreamingChunk, error) {
+			callCount++
+			receivedPayloads = append(receivedPayloads, payload)
+			ch := make(chan inference.StreamingChunk, 1)
+			go func() {
+				defer close(ch)
+				if callCount == 1 {
+					ch <- inference.StreamingChunk{
+						Content:      "",
+						FinishReason: "tool_calls",
+						Usage:        inference.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
+						ToolCalls: []inference.ToolCallWire{
+							{ID: "call_1", Type: "function", Function: inference.ToolFunctionWire{Name: "web_search", Arguments: `{"q":"weather"}`}},
+						},
+					}
+				} else {
+					ch <- inference.StreamingChunk{
+						Content:      "The weather is sunny.",
+						FinishReason: "stop",
+						Usage:        inference.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
+					}
+				}
+			}()
+			return ch, nil
+		},
+	}
+
+	prose, _, err := d.runToolLoop(context.Background(), ag, room.RFC{ID: "rfc1", RoomID: "room1"}, customProvider, "test-model", assembled, exec)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if prose != "The weather is sunny." {
+		t.Errorf("expected final prose, got %q", prose)
+	}
+	if callCount != 2 {
+		t.Errorf("expected provider called 2 times, got %d", callCount)
+	}
+	if client.callCount != 1 {
+		t.Errorf("expected MCP client called 1 time, got %d", client.callCount)
+	}
+
+	// Verify native tool call turn was injected into history for the second call.
+	if len(receivedPayloads) < 2 {
+		t.Fatalf("expected at least 2 payloads, got %d", len(receivedPayloads))
+	}
+	secondHistory := receivedPayloads[1].History
+	if len(secondHistory) < 2 {
+		t.Fatalf("expected at least 2 history messages in second call, got %d", len(secondHistory))
+	}
+	assistantTurn := secondHistory[len(secondHistory)-2]
+	if assistantTurn.Role != inference.RoleAssistant {
+		t.Errorf("expected assistant role, got %q", assistantTurn.Role)
+	}
+	if len(assistantTurn.ToolCalls) != 1 || assistantTurn.ToolCalls[0].Function.Name != "web_search" {
+		t.Errorf("expected native tool call in assistant turn")
+	}
+	toolTurn := secondHistory[len(secondHistory)-1]
+	if toolTurn.Role != inference.RoleTool {
+		t.Errorf("expected tool role, got %q", toolTurn.Role)
+	}
+	if toolTurn.ToolCallID != "call_1" {
+		t.Errorf("expected tool_call_id 'call_1', got %q", toolTurn.ToolCallID)
+	}
+	if toolTurn.Content != "sunny day" {
+		t.Errorf("expected tool turn content 'sunny day', got %q", toolTurn.Content)
 	}
 }
 
@@ -244,25 +378,21 @@ func TestRunToolLoop_ToolResultInjectedInHistory(t *testing.T) {
 	if assistantTurn.Role != inference.RoleAssistant {
 		t.Errorf("expected assistant role, got %q", assistantTurn.Role)
 	}
-	if len(assistantTurn.ToolCalls) != 1 {
-		t.Fatalf("expected 1 structured tool call, got %d", len(assistantTurn.ToolCalls))
-	}
-	if assistantTurn.ToolCalls[0].Function.Name != "web_search" {
-		t.Errorf("expected tool call name web_search, got %q", assistantTurn.ToolCalls[0].Function.Name)
-	}
-	if assistantTurn.ToolCalls[0].ID == "" {
-		t.Fatal("expected tool call ID to be populated")
+	// XML branch: assistant turn contains the raw response with tool_call XML.
+	if !strings.Contains(assistantTurn.Content, "<tool_call>") {
+		t.Errorf("expected assistant content to contain XML tool_call, got %q", assistantTurn.Content)
 	}
 
 	toolTurn := secondHistory[len(secondHistory)-1]
-	if toolTurn.Role != inference.RoleTool {
-		t.Errorf("expected tool role, got %q", toolTurn.Role)
+	// XML branch: tool results are injected as user-role messages.
+	if toolTurn.Role != inference.RoleUser {
+		t.Errorf("expected user role for XML tool result, got %q", toolTurn.Role)
 	}
-	if toolTurn.ToolCallID != assistantTurn.ToolCalls[0].ID {
-		t.Errorf("expected tool_call_id to match assistant tool call ID, got %q vs %q", toolTurn.ToolCallID, assistantTurn.ToolCalls[0].ID)
+	if !strings.Contains(toolTurn.Content, "<tool_response") {
+		t.Errorf("expected XML tool_response in content, got %q", toolTurn.Content)
 	}
-	if toolTurn.Content != "search results" {
-		t.Errorf("expected tool turn content to be plain text, got %q", toolTurn.Content)
+	if !strings.Contains(toolTurn.Content, "search results") {
+		t.Errorf("expected tool result in content, got %q", toolTurn.Content)
 	}
 }
 
@@ -295,7 +425,8 @@ func TestRunToolLoop_DenyResultContinues(t *testing.T) {
 		secondHistory := provider.receivedPayloads[1].History
 		found := false
 		for _, h := range secondHistory {
-			if h.Role == inference.RoleTool && strings.Contains(h.Content, "permission denied") {
+			// XML branch: deny errors are injected as user-role messages.
+			if h.Role == inference.RoleUser && strings.Contains(h.Content, "permission denied") {
 				found = true
 				break
 			}
@@ -531,7 +662,7 @@ func TestRunToolLoop_NoDuplicateProseBroadcast(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// streamPayload already broadcast the raw response as a chunk.
+	// broadcastAndCollect already broadcast the raw response as a chunk.
 	// runToolLoop must NOT broadcast the parsed prose a second time.
 	chunks := rec.chunkEvents()
 	var proseChunkCount int
@@ -541,6 +672,6 @@ func TestRunToolLoop_NoDuplicateProseBroadcast(t *testing.T) {
 		}
 	}
 	if proseChunkCount != 0 {
-		t.Errorf("expected prose chunk broadcast 0 times (streamPayload already sent it), got %d", proseChunkCount)
+		t.Errorf("expected prose chunk broadcast 0 times (broadcastAndCollect already sent it), got %d", proseChunkCount)
 	}
 }

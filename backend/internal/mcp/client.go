@@ -3,6 +3,8 @@ package mcp
 import (
 	"context"
 	"fmt"
+
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
 )
 
 // MCPClient represents a connected MCP server.
@@ -27,6 +29,10 @@ type Registry interface {
 	// AllSchemas returns all tool schemas for tools the registry knows about,
 	// as pre-formatted strings suitable for injection into ContextPayload.ToolSchemas.
 	AllSchemas() []string
+
+	// AllDefinitions returns all tool definitions as structured schemas suitable
+	// for native tool calling adapters.
+	AllDefinitions() []inference.ToolDefinition
 }
 
 // inMemoryRegistry is a simple in-memory Registry backed by a map.
@@ -55,4 +61,8 @@ func (r *inMemoryRegistry) Resolve(toolID string) (MCPClient, error) {
 
 func (r *inMemoryRegistry) AllSchemas() []string {
 	return nil // v1: schemas are pre-populated by the agent definition
+}
+
+func (r *inMemoryRegistry) AllDefinitions() []inference.ToolDefinition {
+	return nil // v1: definitions are pre-populated by the agent definition
 }

@@ -31,9 +31,10 @@ func (d *Dispatcher) runToolLoop(
 ) (finalProse string, usage inference.Usage, err error) {
 	iterationCap := executor.Cfg.MaxIterations
 
-	// Copy history so we don't mutate assembled.History.
-	history := make([]inference.HistoryMessage, len(assembled.History))
-	copy(history, assembled.History)
+	// turnHistory starts from the assembled room transcript and grows with each
+	// tool round-trip during this RFC.
+	turnHistory := make([]inference.HistoryMessage, len(assembled.History))
+	copy(turnHistory, assembled.History)
 
 	// Broadcast typing indicator once at the start.
 	if d.hub != nil {
@@ -44,15 +45,24 @@ func (d *Dispatcher) runToolLoop(
 
 	for iteration := 0; iteration < iterationCap; iteration++ {
 		payload := assembled.ToContextPayload(modelID)
-		payload.History = history
+		payload.History = turnHistory
 
-		rawResponse, iterUsage, streamErr := d.streamPayload(ctx, rfc, provider, payload)
+		rawResponse, finalChunk, streamErr := d.broadcastAndCollect(ctx, rfc, provider, payload)
 		if streamErr != nil {
 			return "", inference.Usage{}, streamErr
 		}
 
-		usage = mergeUsage(usage, iterUsage)
+		usage = mergeUsage(usage, finalChunk.Usage)
 
+		if len(finalChunk.ToolCalls) > 0 {
+			// Native branch: the adapter already surfaced structured tool calls.
+			assistantMsg, resultMsgs := buildNativeToolTurn(ctx, rawResponse, finalChunk.ToolCalls, executor, ag.Name())
+			turnHistory = append(turnHistory, assistantMsg)
+			turnHistory = append(turnHistory, resultMsgs...)
+			continue
+		}
+
+		// XML branch: parse tool calls from the response text.
 		calls, iterProse, parseErr := mcp.ParseToolCalls(rawResponse)
 		if parseErr != nil {
 			log.Printf("dispatcher: warning: failed to parse tool calls in iteration %d for RFC %s: %v", iteration, rfc.ID, parseErr)
@@ -64,40 +74,78 @@ func (d *Dispatcher) runToolLoop(
 			return prose, usage, nil
 		}
 
-		// Execute all calls in this iteration (serial for v1).
-		assistantCall := inference.HistoryMessage{Role: inference.RoleAssistant}
-		assistantCall.ToolCalls = make([]inference.ToolCallWire, 0, len(calls))
-		toolResults := make([]inference.HistoryMessage, 0, len(calls))
-		for _, call := range calls {
-			args, err := json.Marshal(call.Parameters)
-			if err != nil {
-				args = []byte("{}")
-			}
-			assistantCall.ToolCalls = append(assistantCall.ToolCalls, inference.ToolCallWire{
-				ID:   call.ID,
-				Type: "function",
-				Function: inference.ToolFunctionWire{
-					Name:      call.ToolID,
-					Arguments: string(args),
-				},
-			})
-
-			result := executor.Execute(ctx, ag.Name(), call)
-
-			toolResults = append(toolResults, inference.HistoryMessage{
-				Role:       inference.RoleTool,
-				Name:       call.ToolID,
-				ToolCallID: call.ID,
-				Content:    toolResultContent(result),
-			})
-		}
-		history = append(history, assistantCall)
-		history = append(history, toolResults...)
+		assistantMsg, resultMsgs := buildXMLToolTurn(ctx, rawResponse, calls, executor, ag.Name())
+		turnHistory = append(turnHistory, assistantMsg)
+		turnHistory = append(turnHistory, resultMsgs...)
 	}
 
 	// Hard iteration cap hit.
 	log.Printf("dispatcher: tool loop hit iteration cap (%d) for RFC %s", iterationCap, rfc.ID)
 	return prose, usage, nil
+}
+
+// buildNativeToolTurn executes a set of native tool calls and returns the
+// assistant message and result messages to append to turnHistory.
+func buildNativeToolTurn(
+	ctx context.Context,
+	prose string,
+	toolCalls []inference.ToolCallWire,
+	executor *mcp.Executor,
+	agentName string,
+) (assistantMsg inference.HistoryMessage, resultMsgs []inference.HistoryMessage) {
+	assistantMsg = inference.HistoryMessage{
+		Role:      inference.RoleAssistant,
+		Content:   prose,
+		ToolCalls: toolCalls,
+	}
+
+	for _, call := range toolCalls {
+		mcpCall := mcp.ToolCall{
+			ID:         call.ID,
+			ToolID:     call.Function.Name,
+			Parameters: make(map[string]string),
+		}
+		_ = json.Unmarshal([]byte(call.Function.Arguments), &mcpCall.Parameters)
+
+		result := executor.Execute(ctx, agentName, mcpCall)
+
+		resultMsgs = append(resultMsgs, inference.HistoryMessage{
+			Role:       inference.RoleTool,
+			ToolCallID: call.ID,
+			Name:       call.Function.Name,
+			Content:    toolResultContent(result),
+		})
+	}
+
+	return assistantMsg, resultMsgs
+}
+
+// buildXMLToolTurn executes a set of XML-parsed tool calls and returns the
+// assistant message (containing the raw response so the model sees its own
+// call) and result messages to append to turnHistory.
+func buildXMLToolTurn(
+	ctx context.Context,
+	rawResponse string,
+	calls []mcp.ToolCall,
+	executor *mcp.Executor,
+	agentName string,
+) (assistantMsg inference.HistoryMessage, resultMsgs []inference.HistoryMessage) {
+	assistantMsg = inference.HistoryMessage{
+		Role:    inference.RoleAssistant,
+		Content: rawResponse,
+	}
+
+	for _, call := range calls {
+		result := executor.Execute(ctx, agentName, call)
+
+		resultMsgs = append(resultMsgs, inference.HistoryMessage{
+			Role:    inference.RoleUser,
+			Name:    call.ToolID,
+			Content: fmt.Sprintf("<tool_response tool_id=\"%s\">%s</tool_response>", call.ToolID, toolResultContent(result)),
+		})
+	}
+
+	return assistantMsg, resultMsgs
 }
 
 // buildExecutor constructs a permission-gated MCP executor for the given agent.

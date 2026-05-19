@@ -9,6 +9,7 @@ providers:
   - name: ollama
     protocol: openai_compatible
     base_url: http://ollama-docker-container-name:11434
+    tool_mode: xml
 
 models:
   claude-sonnet-4.6:

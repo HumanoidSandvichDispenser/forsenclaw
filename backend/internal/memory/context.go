@@ -86,8 +86,10 @@ type AssembledContext struct {
 	// TurnBudget is the budget notice.
 	TurnBudget string
 
-	// History is the pre-role-assigned conversation history (all but the last
-	// message, which becomes the RFC).
+	// History is the pre-role-assigned room transcript (all but the last
+	// message, which becomes the RFC). It is consumed by the tool loop as the
+	// starting turnHistory and is NOT included in ContextPayload by
+	// ToContextPayload — the caller sets payload.History explicitly.
 	History []inference.HistoryMessage
 
 	// RFC is the final user request payload (interjections + last message).
@@ -109,7 +111,6 @@ func (a *AssembledContext) ToContextPayload(model string) inference.ContextPaylo
 		RAGResults:    a.RAGResults,
 		ToolSchemas:   a.ToolSchemas,
 		CrossRoomFeed: a.CrossRoomFeed,
-		History:       a.History,
 		RFC:           a.RFC,
 	}
 }

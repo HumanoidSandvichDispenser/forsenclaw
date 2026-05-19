@@ -39,7 +39,11 @@ func NewRegistry(cfg *config.ServerConfig) (*Registry, error) {
 		case "anthropic":
 			adapter, err = NewAnthropicAdapter(prov.BaseURL, prov.APIKey.Resolve())
 		case "openai_compatible":
-			adapter, err = NewOpenAICompatibleAdapter(prov.BaseURL, prov.APIKey.Resolve())
+			toolMode := prov.ToolMode
+			if toolMode == "" {
+				toolMode = "native"
+			}
+			adapter, err = NewOpenAICompatibleAdapter(prov.BaseURL, prov.APIKey.Resolve(), toolMode)
 		default:
 			return nil, fmt.Errorf("unknown provider protocol %q for provider %q", prov.Protocol, prov.Name)
 		}

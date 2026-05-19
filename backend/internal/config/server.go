@@ -113,6 +113,7 @@ type Provider struct {
 	Protocol string    `yaml:"protocol"`
 	BaseURL  string    `yaml:"base_url"`
 	APIKey   EnvString `yaml:"api_key,omitempty"`
+	ToolMode string    `yaml:"tool_mode,omitempty"`
 }
 
 type Model struct {
