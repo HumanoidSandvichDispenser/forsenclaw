@@ -6,6 +6,8 @@ import RoomComposer from '@/components/room/RoomComposer.vue';
 import RoomHeader from '@/components/room/RoomHeader.vue';
 import RoomMembersPanel from '@/components/room/RoomMembersPanel.vue';
 import RoomMessageItem from '@/components/room/RoomMessageItem.vue';
+import RoomStreamingMessageItem from '@/components/room/RoomStreamingMessageItem.vue';
+import { useWebSocket } from '@/composables/useWebSocket';
 import { useMessagesStore } from '@/stores/messages';
 import { useRoomsStore } from '@/stores/rooms';
 import { useUserStore } from '@/stores/user';
@@ -14,10 +16,12 @@ const route = useRoute();
 const roomsStore = useRoomsStore();
 const messagesStore = useMessagesStore();
 const userStore = useUserStore();
+const ws = useWebSocket();
 
 const roomId = computed(() => String(route.params.roomId ?? ''));
 const room = computed(() => roomsStore.byId.get(roomId.value) ?? null);
 const messages = computed(() => messagesStore.byRoomId[roomId.value] ?? []);
+const streaming = computed(() => messagesStore.streamingByRoomId[roomId.value] ?? null);
 
 const messageText = ref('');
 const sending = ref(false);
@@ -35,8 +39,14 @@ const meActorId = computed(() => {
 
 const members = computed(() => room.value?.participants ?? []);
 
+const agentSender = computed(() => {
+  const participants = room.value?.participants ?? [];
+  const agent = participants.find((p) => p.id.startsWith('agent:'));
+  if (agent) return agent;
+  return { id: 'agent:unknown', name: 'Agent', type: 'agent', clearance: 0 };
+});
+
 const isLoading = computed(() => {
-  // display loading if we are making the request AND not showing any messages yet
   return messagesStore.loadingByRoomId[roomId.value] &&
     messages.value.length === 0;
 });
@@ -62,21 +72,76 @@ async function ensureLoaded() {
   await scrollToBottom();
 }
 
-let poll: number | null = null;
+let unsubEvent: (() => void) | null = null;
 
 onMounted(() => {
   ensureLoaded();
-  poll = window.setInterval(() => {
-    if (!roomId.value) return;
-    messagesStore.fetchMessages(roomId.value);
-  }, 2000);
+  ws.connect();
+  if (roomId.value) {
+    ws.subscribe(roomId.value);
+  }
+  unsubEvent = ws.onEvent((event) => {
+    if (event.room_id !== roomId.value) return;
+    switch (event.type) {
+      case 'typing':
+        messagesStore.startTyping(roomId.value, agentSender.value);
+        break;
+      case 'chunk':
+        if (event.content) {
+          messagesStore.appendChunk(roomId.value, event.content);
+        }
+        break;
+      case 'message':
+        if (event.message) {
+          const msg = {
+            id: event.message.id,
+            timestamp: event.message.timestamp,
+            room_id: event.message.room_id,
+            sender: {
+              id: event.message.sender_id,
+              name: event.message.sender_name,
+              type: event.message.sender_type,
+              clearance: event.message.clearance_tag,
+            },
+            clearance_tag: event.message.clearance_tag,
+            type: event.message.type,
+            content: event.message.content,
+          };
+          messagesStore.finalizeMessage(roomId.value, msg);
+        }
+        break;
+      case 'agent_error':
+        messagesStore.clearStreaming(roomId.value);
+        break;
+      case 'tool_call':
+        if (event.content) {
+          messagesStore.setToolCall(roomId.value, event.content);
+        }
+        break;
+      case 'tool_result':
+        messagesStore.clearToolCall(roomId.value);
+        break;
+    }
+  });
 });
 
 onBeforeUnmount(() => {
-  if (poll) window.clearInterval(poll);
+  if (roomId.value) {
+    ws.unsubscribe(roomId.value);
+  }
+  if (unsubEvent) unsubEvent();
 });
 
-watch(roomId, () => ensureLoaded());
+watch(roomId, (newId, oldId) => {
+  if (oldId) {
+    ws.unsubscribe(oldId);
+    messagesStore.clearStreaming(oldId);
+  }
+  if (newId) {
+    ws.subscribe(newId);
+    ensureLoaded();
+  }
+});
 
 watch(
   () => messages.value.length,
@@ -84,7 +149,16 @@ watch(
     const el = scrollerEl.value;
     if (!el) return;
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    // Only autoscroll if user is already near bottom.
+    if (distanceFromBottom < 120) await scrollToBottom();
+  },
+);
+
+watch(
+  () => streaming.value?.content,
+  async () => {
+    const el = scrollerEl.value;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     if (distanceFromBottom < 120) await scrollToBottom();
   },
 );
@@ -131,6 +205,12 @@ async function send() {
               :message="m"
               :mine="m.sender.id === meActorId"
               :timestamp-label="formatTime(m.timestamp)"
+            />
+            <RoomStreamingMessageItem
+              v-if="streaming"
+              :content="streaming.content"
+              :sender="streaming.sender"
+              :tool-call="streaming.toolCall"
             />
           </div>
         </div>

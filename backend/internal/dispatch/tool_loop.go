@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/agent"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
@@ -56,7 +57,24 @@ func (d *Dispatcher) runToolLoop(
 
 		if len(finalChunk.ToolCalls) > 0 {
 			// Native branch: the adapter already surfaced structured tool calls.
+			if d.hub != nil {
+				names := make([]string, 0, len(finalChunk.ToolCalls))
+				for _, tc := range finalChunk.ToolCalls {
+					names = append(names, tc.Function.Name)
+				}
+				d.hub.Broadcast(rfc.RoomID, StreamEvent{
+					Type:    "tool_call",
+					RoomID:  rfc.RoomID,
+					Content: strings.Join(names, ", "),
+				})
+			}
 			assistantMsg, resultMsgs := buildNativeToolTurn(ctx, rawResponse, finalChunk.ToolCalls, executor, ag.Name())
+			if d.hub != nil {
+				d.hub.Broadcast(rfc.RoomID, StreamEvent{
+					Type:   "tool_result",
+					RoomID: rfc.RoomID,
+				})
+			}
 			turnHistory = append(turnHistory, assistantMsg)
 			turnHistory = append(turnHistory, resultMsgs...)
 			continue
@@ -74,7 +92,24 @@ func (d *Dispatcher) runToolLoop(
 			return prose, usage, nil
 		}
 
+		if d.hub != nil {
+			names := make([]string, 0, len(calls))
+			for _, tc := range calls {
+				names = append(names, tc.ToolID)
+			}
+			d.hub.Broadcast(rfc.RoomID, StreamEvent{
+				Type:    "tool_call",
+				RoomID:  rfc.RoomID,
+				Content: strings.Join(names, ", "),
+			})
+		}
 		assistantMsg, resultMsgs := buildXMLToolTurn(ctx, rawResponse, calls, executor, ag.Name())
+		if d.hub != nil {
+			d.hub.Broadcast(rfc.RoomID, StreamEvent{
+				Type:   "tool_result",
+				RoomID: rfc.RoomID,
+			})
+		}
 		turnHistory = append(turnHistory, assistantMsg)
 		turnHistory = append(turnHistory, resultMsgs...)
 	}

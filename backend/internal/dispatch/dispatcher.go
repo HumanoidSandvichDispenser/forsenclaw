@@ -89,7 +89,7 @@ type Broadcaster interface {
 
 // StreamEvent represents a real-time event broadcast to room subscribers.
 type StreamEvent struct {
-	Type    string `json:"type"` // "typing" | "chunk" | "message" | "agent_error" | "interjection_queued"
+	Type    string `json:"type"` // "typing" | "chunk" | "message" | "agent_error" | "interjection_queued" | "tool_call" | "tool_result"
 	RoomID  string `json:"room_id"`
 	Content string `json:"content,omitempty"`
 	// Message contains the full message for "message" events.

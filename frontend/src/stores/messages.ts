@@ -1,8 +1,16 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 
-import { listMessages, sendMessage, type MessageResponse } from '@/client';
+import { listMessages, sendMessage, type ActorResponse, type MessageResponse } from '@/client';
 import { useClientStore } from '@/stores/client';
+
+interface StreamingState {
+  id: string;
+  content: string;
+  sender: ActorResponse;
+  isStreaming: boolean;
+  toolCall: string | null;
+}
 
 export const useMessagesStore = defineStore('messages', () => {
   const clientStore = useClientStore();
@@ -10,6 +18,7 @@ export const useMessagesStore = defineStore('messages', () => {
   const byRoomId = ref<Record<string, MessageResponse[]>>({});
   const loadingByRoomId = ref<Record<string, boolean>>({});
   const errorByRoomId = ref<Record<string, string | null>>({});
+  const streamingByRoomId = ref<Record<string, StreamingState | null>>({});
 
   const getMessages = (roomId: string) =>
     computed(() => byRoomId.value[roomId] ?? []);
@@ -58,12 +67,83 @@ export const useMessagesStore = defineStore('messages', () => {
     return m;
   }
 
+  function startTyping(roomId: string, sender: ActorResponse) {
+    streamingByRoomId.value = {
+      ...streamingByRoomId.value,
+      [roomId]: {
+        id: `streaming-${roomId}-${Date.now()}`,
+        content: '',
+        sender,
+        isStreaming: true,
+        toolCall: null,
+      },
+    };
+  }
+
+  function appendChunk(roomId: string, content: string) {
+    const current = streamingByRoomId.value[roomId];
+    if (!current) return;
+    streamingByRoomId.value = {
+      ...streamingByRoomId.value,
+      [roomId]: {
+        ...current,
+        content: current.content + content,
+      },
+    };
+  }
+
+  function setToolCall(roomId: string, toolName: string) {
+    const current = streamingByRoomId.value[roomId];
+    if (!current) return;
+    streamingByRoomId.value = {
+      ...streamingByRoomId.value,
+      [roomId]: {
+        ...current,
+        toolCall: toolName,
+      },
+    };
+  }
+
+  function clearToolCall(roomId: string) {
+    const current = streamingByRoomId.value[roomId];
+    if (!current) return;
+    streamingByRoomId.value = {
+      ...streamingByRoomId.value,
+      [roomId]: {
+        ...current,
+        toolCall: null,
+      },
+    };
+  }
+
+  function finalizeMessage(roomId: string, msg: MessageResponse) {
+    streamingByRoomId.value = { ...streamingByRoomId.value, [roomId]: null };
+    const current = byRoomId.value[roomId] ?? [];
+    byRoomId.value = { ...byRoomId.value, [roomId]: [...current, msg] };
+  }
+
+  function clearStreaming(roomId: string) {
+    streamingByRoomId.value = { ...streamingByRoomId.value, [roomId]: null };
+  }
+
+  function getStreaming(roomId: string) {
+    return computed(() => streamingByRoomId.value[roomId] ?? null);
+  }
+
   return {
     byRoomId,
     loadingByRoomId,
     errorByRoomId,
+    streamingByRoomId,
     getMessages,
+    getStreaming,
     fetchMessages,
     postMessage,
+    startTyping,
+    appendChunk,
+    setToolCall,
+    clearToolCall,
+    finalizeMessage,
+    clearStreaming,
   };
 });
