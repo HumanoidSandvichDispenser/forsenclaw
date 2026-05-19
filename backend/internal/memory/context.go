@@ -192,15 +192,16 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req AssembleR
 	// 6. Build RFC: interjections + last message from room history.
 	var rfcContent strings.Builder
 	if len(req.Interjections) > 0 {
-		rfcContent.WriteString("## Interjections\n\n")
+		rfcContent.WriteString("# Interjections (requests during non turns)\n\n")
 		for _, m := range req.Interjections {
 			rfcContent.WriteString(fmt.Sprintf("%s: %s\n\n", m.Sender.Name, m.Content))
 		}
 	}
-	rfcContent.WriteString("## Request for Comment\n\n")
+
 	if len(req.CurrentRoomHistory) > 0 {
 		m := req.CurrentRoomHistory[len(req.CurrentRoomHistory)-1]
-		rfcContent.WriteString(fmt.Sprintf("%s: %s", m.Sender.Name, m.Content))
+		rfcContent.WriteString(fmt.Sprintf("# Request/Message Sent by %s:\n\n", m.Sender.Name))
+		rfcContent.WriteString(m.Content)
 	}
 	result.RFC = rfcContent.String()
 
