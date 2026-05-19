@@ -33,6 +33,7 @@ export function useWebSocket() {
   const reconnectAttempts = ref(0);
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   const callbacks: Callback[] = [];
+  const pendingSubscribes = new Set<string>();
 
   function buildURL(): string {
     const base = clientStore.baseUrl.replace(/^http/, 'ws');
@@ -50,6 +51,9 @@ export function useWebSocket() {
     socket.onopen = () => {
       connected.value = true;
       reconnectAttempts.value = 0;
+      for (const roomId of pendingSubscribes) {
+        socket.send(JSON.stringify({ action: 'subscribe', room_id: roomId }));
+      }
     };
 
     socket.onclose = () => {
@@ -87,11 +91,13 @@ export function useWebSocket() {
   }
 
   function subscribe(roomId: string) {
+    pendingSubscribes.add(roomId);
     if (!ws.value || ws.value.readyState !== WebSocket.OPEN) return;
     ws.value.send(JSON.stringify({ action: 'subscribe', room_id: roomId }));
   }
 
   function unsubscribe(roomId: string) {
+    pendingSubscribes.delete(roomId);
     if (!ws.value || ws.value.readyState !== WebSocket.OPEN) return;
     ws.value.send(JSON.stringify({ action: 'unsubscribe', room_id: roomId }));
   }
