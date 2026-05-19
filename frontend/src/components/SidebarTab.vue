@@ -19,6 +19,9 @@ defineProps<{
   border-radius: 0.5rem;
   color: var(--fg-secondary);
   text-decoration: none;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
 }
 
 .sidebar-tab:hover,
