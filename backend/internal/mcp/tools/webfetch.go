@@ -12,6 +12,7 @@ import (
 
 	readability "codeberg.org/readeck/go-readability/v2"
 
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/mcp"
 )
 
@@ -61,7 +62,6 @@ func (c *WebFetchClient) Call(ctx context.Context, toolID string, params map[str
 		return "", fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Accept", "text/html,application/xhtml+xml")
-	req.Header.Set("Accept-Encoding", "gzip")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -148,4 +148,45 @@ func formatWebFetchResult(title, sourceURL, content string) string {
 	return strings.TrimSpace(b.String())
 }
 
+func (c *WebFetchClient) XMLSchemas() []string {
+	return []string{`### webfetch
+Fetch a web page and extract its main readable content.
+
+Parameters:
+- url (string, required): The URL to fetch.
+- structure (boolean, optional): Return HTML structure instead of plain text. Defaults to false.
+
+Usage:
+<tool_call>
+  <tool_id>webfetch</tool_id>
+  <parameters>
+    <url>https://example.com</url>
+  </parameters>
+</tool_call>`}
+}
+
+func (c *WebFetchClient) NativeDefinitions() []inference.ToolDefinition {
+	return []inference.ToolDefinition{
+		{
+			Name:        "webfetch",
+			Description: "Fetch a web page and extract its main readable content.",
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"url": map[string]interface{}{
+						"type":        "string",
+						"description": "The URL to fetch.",
+					},
+					"structure": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Return HTML structure instead of plain text. Defaults to false.",
+					},
+				},
+				"required": []string{"url"},
+			},
+		},
+	}
+}
+
 var _ mcp.MCPClient = (*WebFetchClient)(nil)
+var _ mcp.ToolDescriber = (*WebFetchClient)(nil)

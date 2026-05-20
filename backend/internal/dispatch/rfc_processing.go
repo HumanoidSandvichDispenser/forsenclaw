@@ -102,12 +102,18 @@ func (d *Dispatcher) assembleContext(ctx context.Context, ag *agent.Agent, rfc r
 		return nil, nil, fmt.Errorf("load cross-room feed: %w", err)
 	}
 
-	assembled, err := d.assembler.Assemble(ctx, ag, memory.AssembleRequest{
+	req := memory.AssembleRequest{
 		RoomID:             rfc.RoomID,
 		CrossRoomFeed:      crossRoomFeed,
 		CurrentRoomHistory: currentHistory,
 		Interjections:      interjections,
-	})
+	}
+	if d.mcpRegistry != nil {
+		req.AvailableTools = d.mcpRegistry.AllSchemas()
+		req.ToolDefinitions = d.mcpRegistry.AllDefinitions()
+	}
+
+	assembled, err := d.assembler.Assemble(ctx, ag, req)
 	if err != nil {
 		return nil, nil, fmt.Errorf("assemble context: %w", err)
 	}

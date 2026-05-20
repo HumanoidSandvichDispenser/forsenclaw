@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -80,6 +81,7 @@ func (e *Executor) Execute(ctx context.Context, agentID string, call ToolCall) T
 
 	switch effect {
 	case "deny":
+		log.Printf("mcp: tool %q (call %s) denied by permission policy", call.ToolID, call.ID)
 		result.IsError = true
 		result.Error = fmt.Sprintf("permission denied: tool:invoke[%s]", call.ToolID)
 
@@ -178,8 +180,10 @@ func (e *Executor) callMCP(ctx context.Context, call ToolCall) ToolResult {
 		}
 	}
 
+	log.Printf("mcp: invoking tool %q (call %s) with params %v", call.ToolID, call.ID, call.Parameters)
 	content, err := client.Call(ctx, call.ToolID, call.Parameters)
 	if err != nil {
+		log.Printf("mcp: tool %q (call %s) failed: %v", call.ToolID, call.ID, err)
 		return ToolResult{
 			CallID:  call.ID,
 			ToolID:  call.ToolID,
@@ -188,6 +192,7 @@ func (e *Executor) callMCP(ctx context.Context, call ToolCall) ToolResult {
 		}
 	}
 
+	log.Printf("mcp: tool %q (call %s) succeeded (%d bytes)", call.ToolID, call.ID, len(content))
 	return ToolResult{
 		CallID:  call.ID,
 		ToolID:  call.ToolID,

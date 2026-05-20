@@ -20,6 +20,20 @@ type MCPClient interface {
 	Healthy() bool
 }
 
+// ToolDescriber is an optional interface that MCPClient implementations may
+// satisfy to expose their tool schemas for prompt injection and native tool
+// calling. Clients that do not implement this interface are silently skipped
+// when building schema lists.
+type ToolDescriber interface {
+	// XMLSchemas returns one pre-formatted XML schema string per tool,
+	// suitable for injection into the system prompt in XML tool mode.
+	XMLSchemas() []string
+
+	// NativeDefinitions returns one ToolDefinition per tool for use with
+	// native tool calling APIs (Anthropic, OpenAI).
+	NativeDefinitions() []inference.ToolDefinition
+}
+
 // Registry maps tool IDs to their hosting MCPClient.
 type Registry interface {
 	// Resolve returns the MCPClient responsible for the given tool ID.
@@ -38,14 +52,20 @@ type Registry interface {
 // inMemoryRegistry is a simple in-memory Registry backed by a map.
 type inMemoryRegistry struct {
 	tools map[string]MCPClient
+	order []MCPClient // unique clients in insertion order
 }
 
 // NewRegistry creates a new in-memory Registry populated from the given servers.
 func NewRegistry(servers []MCPClient) Registry {
 	r := &inMemoryRegistry{tools: make(map[string]MCPClient)}
+	seen := make(map[MCPClient]bool)
 	for _, srv := range servers {
 		for _, id := range srv.ToolIDs() {
 			r.tools[id] = srv
+		}
+		if !seen[srv] {
+			seen[srv] = true
+			r.order = append(r.order, srv)
 		}
 	}
 	return r
@@ -60,9 +80,21 @@ func (r *inMemoryRegistry) Resolve(toolID string) (MCPClient, error) {
 }
 
 func (r *inMemoryRegistry) AllSchemas() []string {
-	return nil // v1: schemas are pre-populated by the agent definition
+	var schemas []string
+	for _, client := range r.order {
+		if d, ok := client.(ToolDescriber); ok {
+			schemas = append(schemas, d.XMLSchemas()...)
+		}
+	}
+	return schemas
 }
 
 func (r *inMemoryRegistry) AllDefinitions() []inference.ToolDefinition {
-	return nil // v1: definitions are pre-populated by the agent definition
+	var defs []inference.ToolDefinition
+	for _, client := range r.order {
+		if d, ok := client.(ToolDescriber); ok {
+			defs = append(defs, d.NativeDefinitions()...)
+		}
+	}
+	return defs
 }

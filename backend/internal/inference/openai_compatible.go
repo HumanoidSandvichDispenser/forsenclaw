@@ -240,8 +240,11 @@ func (o *OpenAICompatibleAdapter) readStream(body io.ReadCloser, ch chan<- Strea
 			out.FinishReason = *choice.FinishReason
 			out.Usage = usage
 
-			// If finish_reason is "tool_calls", populate ToolCalls from accumulator.
-			if out.FinishReason == "tool_calls" && len(accumulator) > 0 {
+			// Populate ToolCalls from the accumulator whenever there are
+			// accumulated entries, regardless of finish_reason. Some providers
+			// (e.g. Gemini via OpenAI-compat) return finish_reason="stop"
+			// instead of "tool_calls" even when making tool calls.
+			if len(accumulator) > 0 {
 				indices := make([]int, 0, len(accumulator))
 				for idx := range accumulator {
 					indices = append(indices, idx)

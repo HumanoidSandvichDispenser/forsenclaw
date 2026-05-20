@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/mcp"
 )
 
@@ -140,4 +141,40 @@ func formatBraveResults(query string, results []braveSearchResult) string {
 	return strings.TrimSpace(b.String())
 }
 
+func (c *BraveSearchClient) XMLSchemas() []string {
+	return []string{`### web_search
+Search the web using Brave Search.
+
+Parameters:
+- query (string, required): The search query.
+
+Usage:
+<tool_call>
+  <tool_id>web_search</tool_id>
+  <parameters>
+    <query>search query here</query>
+  </parameters>
+</tool_call>`}
+}
+
+func (c *BraveSearchClient) NativeDefinitions() []inference.ToolDefinition {
+	return []inference.ToolDefinition{
+		{
+			Name:        "web_search",
+			Description: "Search the web using Brave Search.",
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"query": map[string]interface{}{
+						"type":        "string",
+						"description": "The search query.",
+					},
+				},
+				"required": []string{"query"},
+			},
+		},
+	}
+}
+
 var _ mcp.MCPClient = (*BraveSearchClient)(nil)
+var _ mcp.ToolDescriber = (*BraveSearchClient)(nil)

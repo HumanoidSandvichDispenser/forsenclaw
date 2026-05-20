@@ -48,20 +48,25 @@ func (d *Dispatcher) runToolLoop(
 		payload := assembled.ToContextPayload(modelID)
 		payload.History = turnHistory
 
+		log.Printf("dispatcher: tool loop iteration %d for RFC %s", iteration, rfc.ID)
+
 		rawResponse, finalChunk, streamErr := d.broadcastAndCollect(ctx, rfc, provider, payload)
 		if streamErr != nil {
 			return "", inference.Usage{}, streamErr
 		}
 
 		usage = mergeUsage(usage, finalChunk.Usage)
+		log.Printf("dispatcher: model response: finish_reason=%q content_len=%d native_tool_calls=%d",
+			finalChunk.FinishReason, len(rawResponse), len(finalChunk.ToolCalls))
 
 		if len(finalChunk.ToolCalls) > 0 {
 			// Native branch: the adapter already surfaced structured tool calls.
+			names := make([]string, 0, len(finalChunk.ToolCalls))
+			for _, tc := range finalChunk.ToolCalls {
+				names = append(names, tc.Function.Name)
+			}
+			log.Printf("dispatcher: native tool calls in iteration %d for RFC %s: %s", iteration, rfc.ID, strings.Join(names, ", "))
 			if d.hub != nil {
-				names := make([]string, 0, len(finalChunk.ToolCalls))
-				for _, tc := range finalChunk.ToolCalls {
-					names = append(names, tc.Function.Name)
-				}
 				d.hub.Broadcast(rfc.RoomID, StreamEvent{
 					Type:    "tool_call",
 					RoomID:  rfc.RoomID,
@@ -89,14 +94,16 @@ func (d *Dispatcher) runToolLoop(
 
 		if len(calls) == 0 {
 			// No tool calls — this is the final response.
+			log.Printf("dispatcher: no tool calls in iteration %d for RFC %s, returning prose (%d bytes)", iteration, rfc.ID, len(prose))
 			return prose, usage, nil
 		}
 
+		names := make([]string, 0, len(calls))
+		for _, tc := range calls {
+			names = append(names, tc.ToolID)
+		}
+		log.Printf("dispatcher: XML tool calls in iteration %d for RFC %s: %s", iteration, rfc.ID, strings.Join(names, ", "))
 		if d.hub != nil {
-			names := make([]string, 0, len(calls))
-			for _, tc := range calls {
-				names = append(names, tc.ToolID)
-			}
 			d.hub.Broadcast(rfc.RoomID, StreamEvent{
 				Type:    "tool_call",
 				RoomID:  rfc.RoomID,

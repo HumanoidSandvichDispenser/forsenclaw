@@ -46,9 +46,12 @@ type AssembleRequest struct {
 	// CurrentRoomHistory is the windowed tail of the target room's transcript.
 	CurrentRoomHistory []room.Message
 
-	// AvailableTools are the MCP tool schemas this agent may use.
-	// Populated by the MCP integration layer (F6).
+	// AvailableTools are the MCP tool schemas this agent may use,
+	// as pre-formatted strings for XML tool mode.
 	AvailableTools []string
+
+	// ToolDefinitions are the structured tool definitions for native tool calling.
+	ToolDefinitions []inference.ToolDefinition
 
 	// TurnBudget is the remaining turn budget notice.
 	TurnBudget string
@@ -74,8 +77,11 @@ type AssembledContext struct {
 	// RAGResults are retrieved chunks from the search index.
 	RAGResults []string
 
-	// ToolSchemas are the permitted MCP tool schemas.
+	// ToolSchemas are the permitted MCP tool schemas as pre-formatted strings (XML mode).
 	ToolSchemas []string
+
+	// ToolDefinitions are the structured tool definitions for native tool calling.
+	ToolDefinitions []inference.ToolDefinition
 
 	// CrossRoomFeed is the formatted recent transcript from other rooms.
 	CrossRoomFeed []string
@@ -104,14 +110,15 @@ func (a *AssembledContext) ToContextPayload(model string) inference.ContextPaylo
 		systemPrompt += "\n\n" + a.TurnBudget
 	}
 	return inference.ContextPayload{
-		Model:         model,
-		SystemPrompt:  systemPrompt,
-		Memory:        a.Memory,
-		DailyNotes:    a.DailyNotes,
-		RAGResults:    a.RAGResults,
-		ToolSchemas:   a.ToolSchemas,
-		CrossRoomFeed: a.CrossRoomFeed,
-		RFC:           a.RFC,
+		Model:           model,
+		SystemPrompt:    systemPrompt,
+		Memory:          a.Memory,
+		DailyNotes:      a.DailyNotes,
+		RAGResults:      a.RAGResults,
+		ToolSchemas:     a.ToolSchemas,
+		ToolDefinitions: a.ToolDefinitions,
+		CrossRoomFeed:   a.CrossRoomFeed,
+		RFC:             a.RFC,
 	}
 }
 
@@ -129,10 +136,11 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req AssembleR
 	}
 
 	result := &AssembledContext{
-		SystemPrompt: ag.Definition.RoleDescription,
-		ToolSchemas:  req.AvailableTools,
-		TurnBudget:   req.TurnBudget,
-		RAGResults:   []string{},
+		SystemPrompt:    ag.Definition.RoleDescription,
+		ToolSchemas:     req.AvailableTools,
+		ToolDefinitions: req.ToolDefinitions,
+		TurnBudget:      req.TurnBudget,
+		RAGResults:      []string{},
 	}
 
 	// 1. MEMORY.md
