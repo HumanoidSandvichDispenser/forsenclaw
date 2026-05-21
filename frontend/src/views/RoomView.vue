@@ -7,10 +7,17 @@ import RoomHeader from '@/components/room/RoomHeader.vue';
 import RoomMembersPanel from '@/components/room/RoomMembersPanel.vue';
 import RoomMessageItem from '@/components/room/RoomMessageItem.vue';
 import RoomStreamingMessageItem from '@/components/room/RoomStreamingMessageItem.vue';
+import type { MessageResponse } from '@/client';
 import { useWebSocket } from '@/composables/useWebSocket';
 import { useMessagesStore } from '@/stores/messages';
 import { useRoomsStore } from '@/stores/rooms';
 import { useUserStore } from '@/stores/user';
+
+interface MessageGroup {
+  key: string;
+  message: MessageResponse;
+  toolMessages: MessageResponse[];
+}
 
 const route = useRoute();
 const roomsStore = useRoomsStore();
@@ -20,7 +27,22 @@ const ws = useWebSocket();
 
 const roomId = computed(() => String(route.params.roomId ?? ''));
 const room = computed(() => roomsStore.byId.get(roomId.value) ?? null);
-const messages = computed(() => messagesStore.byRoomId[roomId.value] ?? []);
+const messageGroups = computed((): MessageGroup[] => {
+  const msgs = messagesStore.byRoomId[roomId.value] ?? [];
+  const groups: MessageGroup[] = [];
+  let toolBuffer: MessageResponse[] = [];
+
+  for (const m of msgs) {
+    if (m.type === 'tool_call' || m.type === 'tool_result') {
+      toolBuffer.push(m);
+    } else {
+      groups.push({ key: m.id, message: m, toolMessages: toolBuffer });
+      toolBuffer = [];
+    }
+  }
+
+  return groups;
+});
 const streaming = computed(() => messagesStore.streamingByRoomId[roomId.value] ?? null);
 
 const messageText = ref('');
@@ -48,7 +70,7 @@ const agentSender = computed(() => {
 
 const isLoading = computed(() => {
   return messagesStore.loadingByRoomId[roomId.value] &&
-    messages.value.length === 0;
+    messageGroups.value.length === 0;
 });
 
 function formatTime(iso: string) {
@@ -144,7 +166,7 @@ watch(roomId, (newId, oldId) => {
 });
 
 watch(
-  () => messages.value.length,
+  () => messageGroups.value.length,
   async () => {
     const el = scrollerEl.value;
     if (!el) return;
@@ -200,11 +222,12 @@ async function send() {
             </p>
 
             <RoomMessageItem
-              v-for="m in messages"
-              :key="m.id"
-              :message="m"
-              :mine="m.sender.id === meActorId"
-              :timestamp-label="formatTime(m.timestamp)"
+              v-for="g in messageGroups"
+              :key="g.key"
+              :message="g.message"
+              :tool-messages="g.toolMessages"
+              :mine="g.message.sender.id === meActorId"
+              :timestamp-label="formatTime(g.message.timestamp)"
             />
             <RoomStreamingMessageItem
               v-if="streaming"

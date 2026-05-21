@@ -215,6 +215,18 @@ export type MessageResponse = {
      * Message type
      */
     type: string;
+    /**
+     * Structured tool calls for tool_call messages (native mode)
+     */
+    tool_calls?: Array<{ id: string; tool_name: string; arguments: string }>;
+    /**
+     * Correlating tool call ID for tool_result messages (native mode)
+     */
+    tool_call_id?: string;
+    /**
+     * Tool identifier for tool_result messages
+     */
+    tool_name?: string;
 };
 
 export type RoomResponse = {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { marked } from 'marked';
 
 import type { MessageResponse } from '@/client';
@@ -9,6 +9,7 @@ const props = defineProps<{
   message: MessageResponse;
   mine: boolean;
   timestampLabel: string;
+  toolMessages?: MessageResponse[];
 }>();
 
 const sourceOpen = ref(false);
@@ -68,12 +69,81 @@ function openSource() {
 function closeSource() {
   sourceOpen.value = false;
 }
+
+interface ToolDisplay {
+  name: string;
+  args: Record<string, unknown> | null;
+  result: string | null;
+}
+
+function stripToolResponseXML(s: string): string {
+  return s.replace(/<tool_response[^>]*>([\s\S]*?)<\/tool_response>/g, '$1').trim();
+}
+
+// Build per-call display entries from tool_call/tool_result transcript messages.
+// Native mode: tool_call message carries a tool_calls[] array; pair each entry with
+// its matching tool_result by tool_call_id.
+// XML mode: tool_call messages have no structured array; use tool_result messages
+// directly (tool_name + stripped content).
+const toolDisplays = computed((): ToolDisplay[] => {
+  const msgs = props.toolMessages ?? [];
+  if (msgs.length === 0) return [];
+
+  const callMsgs = msgs.filter((m) => m.type === 'tool_call');
+  const resultMsgs = msgs.filter((m) => m.type === 'tool_result');
+
+  const displays: ToolDisplay[] = [];
+
+  // Native mode: structured tool_calls present
+  const nativeCalls = callMsgs.flatMap((m) => m.tool_calls ?? []);
+  if (nativeCalls.length > 0) {
+    for (const tc of nativeCalls) {
+      let args: Record<string, unknown> | null = null;
+      try { args = JSON.parse(tc.arguments); } catch { /* ignore */ }
+      const resultMsg = resultMsgs.find((r) => r.tool_call_id === tc.id);
+      displays.push({
+        name: tc.tool_name,
+        args,
+        result: resultMsg ? stripToolResponseXML(resultMsg.content) : null,
+      });
+    }
+    return displays;
+  }
+
+  // XML mode: use result messages (tool_name + content)
+  for (const r of resultMsgs) {
+    displays.push({
+      name: r.tool_name ?? 'tool',
+      args: null,
+      result: stripToolResponseXML(r.content),
+    });
+  }
+  return displays;
+});
+
+// Strip embedded <tool_use> blocks from content when we have actual tool messages
+// so they don't duplicate the toolDisplays rendered above.
+const displayContent = computed(() => {
+  if ((props.toolMessages?.length ?? 0) === 0) return props.message.content;
+  return props.message.content.replace(/<tool_use>[\s\S]*?<\/tool_use>\n?/g, '').trimStart();
+});
 </script>
 
 <template>
   <article class="msg" :class="{ mine: props.mine, other: !props.mine, system: props.message.sender.type === 'system' }">
     <div class="bubble">
-      <template v-for="part in parseContent(props.message.content)">
+      <details
+        v-for="(td, i) in toolDisplays"
+        :key="i"
+        class="tool-use"
+      >
+        <summary>Used {{ td.name }}</summary>
+        <div v-if="td.args" class="tool-body">
+          <pre class="tool-args">{{ JSON.stringify(td.args, null, 2) }}</pre>
+        </div>
+        <div v-if="td.result" class="tool-body tool-result">{{ td.result }}</div>
+      </details>
+      <template v-for="part in parseContent(displayContent)">
         <details v-if="part.type === 'thought'" class="thought">
           <summary>{{ part.title }}</summary>
           <p>{{ part.content }}</p>
