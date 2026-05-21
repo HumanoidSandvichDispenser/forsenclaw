@@ -227,5 +227,8 @@ func toMessageResponse(m room.Message) MessageResponse {
 		Type:         string(m.Type),
 		Content:      m.Content,
 		Usage:        m.Usage,
+		ToolCalls:    m.ToolCalls,
+		ToolCallID:   m.ToolCallID,
+		ToolName:     m.ToolName,
 	}
 }

@@ -7,6 +7,8 @@ import { useClientStore } from '@/stores/client';
 export interface ToolCallEntry {
   name: string;
   done: boolean;
+  args?: Record<string, unknown> | null;
+  result?: string | null;
 }
 
 interface StreamingState {

@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/agent"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
@@ -13,6 +16,13 @@ import (
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/memory"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
 )
+
+// toolCallLogEntry records a single executed tool call for context and display.
+type toolCallLogEntry struct {
+	name   string
+	args   map[string]interface{} // decoded parameter map for JSON embedding
+	result string                 // truncated result for display
+}
 
 // runToolLoop drives the agentic inference loop for a single RFC.
 // It calls the model, parses tool calls, executes them via the executor,
@@ -43,7 +53,14 @@ func (d *Dispatcher) runToolLoop(
 	}
 
 	var prose string
-	var toolCallLog []string // names of all tool calls executed this loop
+	var toolCallLog []toolCallLogEntry // per-call records for context and display
+
+	agentActor := room.Actor{
+		ID:       "agent:" + ag.Name(),
+		Type:     room.ActorAgent,
+		Name:     ag.Definition.Name,
+		Clearance: ag.Definition.Clearance,
+	}
 
 	for iteration := 0; iteration < iterationCap; iteration++ {
 		payload := assembled.ToContextPayload(modelID)
@@ -67,7 +84,6 @@ func (d *Dispatcher) runToolLoop(
 				names = append(names, tc.Function.Name)
 			}
 			log.Printf("dispatcher: native tool calls in iteration %d for RFC %s: %s", iteration, rfc.ID, strings.Join(names, ", "))
-			toolCallLog = append(toolCallLog, names...)
 			if d.hub != nil {
 				d.hub.Broadcast(rfc.RoomID, StreamEvent{
 					Type:    "tool_call",
@@ -75,7 +91,58 @@ func (d *Dispatcher) runToolLoop(
 					Content: strings.Join(names, ", "),
 				})
 			}
-			assistantMsg, resultMsgs := buildNativeToolTurn(ctx, rawResponse, finalChunk.ToolCalls, executor, ag.Name())
+			assistantMsg, resultMsgs, results := buildNativeToolTurn(ctx, rawResponse, finalChunk.ToolCalls, executor, ag.Name())
+
+			// Persist tool call turn to transcript.
+			toolCallRecords := make([]room.ToolCallRecord, len(finalChunk.ToolCalls))
+			for i, tc := range finalChunk.ToolCalls {
+				toolCallRecords[i] = room.ToolCallRecord{
+					ID:        tc.ID,
+					ToolName:  tc.Function.Name,
+					Arguments: tc.Function.Arguments,
+				}
+			}
+			toolCallTranscriptMsg := room.Message{
+				ID:           uuid.New().String(),
+				Timestamp:    time.Now().UTC(),
+				RoomID:       rfc.RoomID,
+				Sender:       agentActor,
+				ClearanceTag: ag.Definition.Clearance,
+				Type:         room.MessageToolCall,
+				Content:      rawResponse,
+				ToolCalls:    toolCallRecords,
+			}
+			if err := d.appendToTranscript(ctx, rfc.RoomID, toolCallTranscriptMsg); err != nil {
+				log.Printf("dispatcher: warning: failed to persist tool call message: %v", err)
+			}
+
+			for i, tc := range finalChunk.ToolCalls {
+				result := results[i]
+				resultContent := toolResultContent(result)
+				resultTranscriptMsg := room.Message{
+					ID:           uuid.New().String(),
+					Timestamp:    time.Now().UTC(),
+					RoomID:       rfc.RoomID,
+					Sender:       agentActor,
+					ClearanceTag: ag.Definition.Clearance,
+					Type:         room.MessageToolResult,
+					Content:      resultContent,
+					ToolCallID:   tc.ID,
+					ToolName:     tc.Function.Name,
+				}
+				if err := d.appendToTranscript(ctx, rfc.RoomID, resultTranscriptMsg); err != nil {
+					log.Printf("dispatcher: warning: failed to persist tool result message: %v", err)
+				}
+
+				var args map[string]interface{}
+				_ = json.Unmarshal([]byte(tc.Function.Arguments), &args)
+				toolCallLog = append(toolCallLog, toolCallLogEntry{
+					name:   tc.Function.Name,
+					args:   args,
+					result: truncateResult(resultContent),
+				})
+			}
+
 			if d.hub != nil {
 				d.hub.Broadcast(rfc.RoomID, StreamEvent{
 					Type:   "tool_result",
@@ -105,7 +172,6 @@ func (d *Dispatcher) runToolLoop(
 			names = append(names, tc.ToolID)
 		}
 		log.Printf("dispatcher: XML tool calls in iteration %d for RFC %s: %s", iteration, rfc.ID, strings.Join(names, ", "))
-		toolCallLog = append(toolCallLog, names...)
 		if d.hub != nil {
 			d.hub.Broadcast(rfc.RoomID, StreamEvent{
 				Type:    "tool_call",
@@ -113,7 +179,51 @@ func (d *Dispatcher) runToolLoop(
 				Content: strings.Join(names, ", "),
 			})
 		}
-		assistantMsg, resultMsgs := buildXMLToolTurn(ctx, rawResponse, calls, executor, ag.Name())
+		assistantMsg, resultMsgs, results := buildXMLToolTurn(ctx, rawResponse, calls, executor, ag.Name())
+
+		// Persist tool call turn to transcript.
+		toolCallTranscriptMsg := room.Message{
+			ID:           uuid.New().String(),
+			Timestamp:    time.Now().UTC(),
+			RoomID:       rfc.RoomID,
+			Sender:       agentActor,
+			ClearanceTag: ag.Definition.Clearance,
+			Type:         room.MessageToolCall,
+			Content:      rawResponse, // includes XML tool call blocks
+		}
+		if err := d.appendToTranscript(ctx, rfc.RoomID, toolCallTranscriptMsg); err != nil {
+			log.Printf("dispatcher: warning: failed to persist tool call message: %v", err)
+		}
+
+		for i, call := range calls {
+			result := results[i]
+			resultContent := toolResultContent(result)
+			resultXML := fmt.Sprintf("<tool_response tool_id=%q>%s</tool_response>", call.ToolID, resultContent)
+			resultTranscriptMsg := room.Message{
+				ID:           uuid.New().String(),
+				Timestamp:    time.Now().UTC(),
+				RoomID:       rfc.RoomID,
+				Sender:       agentActor,
+				ClearanceTag: ag.Definition.Clearance,
+				Type:         room.MessageToolResult,
+				Content:      resultXML,
+				ToolName:     call.ToolID,
+			}
+			if err := d.appendToTranscript(ctx, rfc.RoomID, resultTranscriptMsg); err != nil {
+				log.Printf("dispatcher: warning: failed to persist tool result message: %v", err)
+			}
+
+			args := make(map[string]interface{}, len(call.Parameters))
+			for k, v := range call.Parameters {
+				args[k] = v
+			}
+			toolCallLog = append(toolCallLog, toolCallLogEntry{
+				name:   call.ToolID,
+				args:   args,
+				result: truncateResult(resultContent),
+			})
+		}
+
 		if d.hub != nil {
 			d.hub.Broadcast(rfc.RoomID, StreamEvent{
 				Type:   "tool_result",
@@ -130,14 +240,14 @@ func (d *Dispatcher) runToolLoop(
 }
 
 // buildNativeToolTurn executes a set of native tool calls and returns the
-// assistant message and result messages to append to turnHistory.
+// assistant message, result messages to append to turnHistory, and the raw results.
 func buildNativeToolTurn(
 	ctx context.Context,
 	prose string,
 	toolCalls []inference.ToolCallWire,
 	executor *mcp.Executor,
 	agentName string,
-) (assistantMsg inference.HistoryMessage, resultMsgs []inference.HistoryMessage) {
+) (assistantMsg inference.HistoryMessage, resultMsgs []inference.HistoryMessage, results []mcp.ToolResult) {
 	assistantMsg = inference.HistoryMessage{
 		Role:      inference.RoleAssistant,
 		Content:   prose,
@@ -153,6 +263,7 @@ func buildNativeToolTurn(
 		_ = json.Unmarshal([]byte(call.Function.Arguments), &mcpCall.Parameters)
 
 		result := executor.Execute(ctx, agentName, mcpCall)
+		results = append(results, result)
 
 		resultMsgs = append(resultMsgs, inference.HistoryMessage{
 			Role:       inference.RoleTool,
@@ -162,19 +273,19 @@ func buildNativeToolTurn(
 		})
 	}
 
-	return assistantMsg, resultMsgs
+	return assistantMsg, resultMsgs, results
 }
 
 // buildXMLToolTurn executes a set of XML-parsed tool calls and returns the
 // assistant message (containing the raw response so the model sees its own
-// call) and result messages to append to turnHistory.
+// call), result messages to append to turnHistory, and the raw results.
 func buildXMLToolTurn(
 	ctx context.Context,
 	rawResponse string,
 	calls []mcp.ToolCall,
 	executor *mcp.Executor,
 	agentName string,
-) (assistantMsg inference.HistoryMessage, resultMsgs []inference.HistoryMessage) {
+) (assistantMsg inference.HistoryMessage, resultMsgs []inference.HistoryMessage, results []mcp.ToolResult) {
 	assistantMsg = inference.HistoryMessage{
 		Role:    inference.RoleAssistant,
 		Content: rawResponse,
@@ -182,6 +293,7 @@ func buildXMLToolTurn(
 
 	for _, call := range calls {
 		result := executor.Execute(ctx, agentName, call)
+		results = append(results, result)
 
 		resultMsgs = append(resultMsgs, inference.HistoryMessage{
 			Role:    inference.RoleUser,
@@ -190,7 +302,7 @@ func buildXMLToolTurn(
 		})
 	}
 
-	return assistantMsg, resultMsgs
+	return assistantMsg, resultMsgs, results
 }
 
 // buildExecutor constructs a permission-gated MCP executor for the given agent.
@@ -216,15 +328,21 @@ func mergeUsage(acc, iter inference.Usage) inference.Usage {
 
 // prependToolUse prepends <tool_use> tags for each tool call to the prose so
 // that the frontend can render them as persistent collapsed blocks, matching
-// how <thought> blocks are displayed.
-func prependToolUse(toolCallLog []string, prose string) string {
+// how <thought> blocks are displayed. Each tag's content is a JSON object
+// with name, args, and a truncated result.
+func prependToolUse(toolCallLog []toolCallLogEntry, prose string) string {
 	if len(toolCallLog) == 0 {
 		return prose
 	}
 	var sb strings.Builder
-	for _, name := range toolCallLog {
+	for _, entry := range toolCallLog {
+		data, _ := json.Marshal(map[string]interface{}{
+			"name":   entry.name,
+			"args":   entry.args,
+			"result": entry.result,
+		})
 		sb.WriteString("<tool_use>")
-		sb.WriteString(name)
+		sb.Write(data)
 		sb.WriteString("</tool_use>\n")
 	}
 	if prose != "" {
@@ -232,6 +350,16 @@ func prependToolUse(toolCallLog []string, prose string) string {
 		sb.WriteString(prose)
 	}
 	return sb.String()
+}
+
+// truncateResult truncates a tool result string for display in <tool_use> tags.
+const truncateResultLen = 500
+
+func truncateResult(s string) string {
+	if len(s) <= truncateResultLen {
+		return s
+	}
+	return s[:truncateResultLen] + "…"
 }
 
 // toolResultContent returns the text content stored for a tool-role history message.

@@ -68,7 +68,26 @@ const (
 	MessageText MessageType = "message"
 	// MessageSystem is a system-generated message (e.g. room created, turn limit reached).
 	MessageSystem MessageType = "system"
+	// MessageToolCall records an agent turn that included one or more tool calls.
+	// For native tool calling mode, ToolCalls carries the structured call data.
+	// For XML mode, Content contains the raw response including <tool_call> blocks.
+	MessageToolCall MessageType = "tool_call"
+	// MessageToolResult records the result of a single tool invocation.
+	// For native mode, ToolCallID correlates it with a MessageToolCall entry.
+	// For XML mode, Content carries the <tool_response> XML.
+	MessageToolResult MessageType = "tool_result"
 )
+
+// ToolCallRecord stores a single tool invocation in the transcript so that
+// native tool-call history can be reconstructed for subsequent RFC processing.
+type ToolCallRecord struct {
+	// ID is the provider-assigned tool call ID. Empty for XML-mode calls.
+	ID string `json:"id,omitempty"`
+	// ToolName is the tool identifier.
+	ToolName string `json:"tool_name"`
+	// Arguments is the JSON-encoded parameter map.
+	Arguments string `json:"arguments,omitempty"`
+}
 
 // Usage records token consumption for a message-producing inference call.
 type Usage struct {
@@ -103,6 +122,16 @@ type Message struct {
 
 	// Usage records token consumption for agent responses.
 	Usage *Usage `json:"usage,omitempty"`
+
+	// ToolCalls carries structured tool call records for MessageToolCall messages
+	// in native tool-calling mode. Empty for XML-mode tool call messages.
+	ToolCalls []ToolCallRecord `json:"tool_calls,omitempty"`
+
+	// ToolCallID correlates a MessageToolResult with its MessageToolCall (native mode).
+	ToolCallID string `json:"tool_call_id,omitempty"`
+
+	// ToolName is the tool identifier for MessageToolResult messages.
+	ToolName string `json:"tool_name,omitempty"`
 }
 
 // Validate checks that the message is well-formed.
@@ -116,10 +145,12 @@ func (m Message) Validate() error {
 	if err := m.Sender.Validate(); err != nil {
 		return fmt.Errorf("sender: %w", err)
 	}
-	if m.Type != MessageText && m.Type != MessageSystem {
+	if m.Type != MessageText && m.Type != MessageSystem &&
+		m.Type != MessageToolCall && m.Type != MessageToolResult {
 		return fmt.Errorf("invalid message type: %q", m.Type)
 	}
-	if m.Content == "" {
+	// MessageToolCall may have empty content (native mode with no prose).
+	if m.Content == "" && m.Type != MessageToolCall {
 		return fmt.Errorf("message content is required")
 	}
 	return nil

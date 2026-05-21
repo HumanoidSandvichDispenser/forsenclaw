@@ -156,14 +156,17 @@ type RoomResponse struct {
 
 // MessageResponse is the API representation of a message.
 type MessageResponse struct {
-	ID           string        `json:"id"             doc:"Unique message ID"`
-	Timestamp    time.Time     `json:"timestamp"      doc:"Message timestamp"`
-	RoomID       string        `json:"room_id"        doc:"Room this message belongs to"`
-	Sender       ActorResponse `json:"sender"         doc:"Actor who sent this message"`
-	ClearanceTag int           `json:"clearance_tag"  doc:"Classification tier"`
-	Type         string        `json:"type"           doc:"Message type" example:"message"`
-	Content      string        `json:"content"        doc:"Message body"`
-	Usage        *room.Usage   `json:"usage,omitempty" doc:"Token usage for agent responses"`
+	ID           string              `json:"id"             doc:"Unique message ID"`
+	Timestamp    time.Time           `json:"timestamp"      doc:"Message timestamp"`
+	RoomID       string              `json:"room_id"        doc:"Room this message belongs to"`
+	Sender       ActorResponse       `json:"sender"         doc:"Actor who sent this message"`
+	ClearanceTag int                 `json:"clearance_tag"  doc:"Classification tier"`
+	Type         string              `json:"type"           doc:"Message type" example:"message"`
+	Content      string              `json:"content"        doc:"Message body"`
+	Usage        *room.Usage         `json:"usage,omitempty" doc:"Token usage for agent responses"`
+	ToolCalls    []room.ToolCallRecord `json:"tool_calls,omitempty" doc:"Structured tool calls for tool_call messages"`
+	ToolCallID   string              `json:"tool_call_id,omitempty" doc:"Correlating tool call ID for tool_result messages"`
+	ToolName     string              `json:"tool_name,omitempty" doc:"Tool identifier for tool_result messages"`
 }
 
 // ContextMessageResponse is a simplified message representation for context previews.

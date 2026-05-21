@@ -138,7 +138,8 @@ func (m *mockLoopMCPClient) Healthy() bool     { return true }
 
 func newToolLoopDispatcher(t *testing.T) *Dispatcher {
 	t.Helper()
-	return &Dispatcher{hub: nil}
+	p := paths.NewPathsFromRoots(t.TempDir(), t.TempDir(), t.TempDir())
+	return &Dispatcher{hub: nil, paths: p, transcripts: make(map[string]*room.TranscriptWriter)}
 }
 
 func newTestAgent(t *testing.T, perms []string) *agent.Agent {
@@ -194,7 +195,8 @@ func TestRunToolLoop_SingleToolCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if prose != "Here is the weather: sunny." {
+	wantProse := "<tool_use>{\"args\":{\"q\":\"test\"},\"name\":\"web_search\",\"result\":\"sunny day\"}</tool_use>\n\nHere is the weather: sunny."
+	if prose != wantProse {
 		t.Errorf("expected final prose, got %q", prose)
 	}
 	if provider.callCount != 2 {
@@ -249,7 +251,8 @@ func TestRunToolLoop_SingleNativeToolCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if prose != "The weather is sunny." {
+	wantProse := "<tool_use>{\"args\":{\"q\":\"weather\"},\"name\":\"web_search\",\"result\":\"sunny day\"}</tool_use>\n\nThe weather is sunny."
+	if prose != wantProse {
 		t.Errorf("expected final prose, got %q", prose)
 	}
 	if callCount != 2 {
@@ -413,7 +416,8 @@ func TestRunToolLoop_DenyResultContinues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error even on deny, got: %v", err)
 	}
-	if prose != "Final after deny." {
+	wantProse := "<tool_use>{\"args\":{\"q\":\"test\"},\"name\":\"web_search\",\"result\":\"error: permission denied: tool:invoke[web_search]\"}</tool_use>\n\nFinal after deny."
+	if prose != wantProse {
 		t.Errorf("expected final prose after denied tool, got %q", prose)
 	}
 	if provider.callCount != 2 {
@@ -546,15 +550,22 @@ func TestProcessRFC_ToolCallNotInTranscript(t *testing.T) {
 		t.Fatalf("ReadMessages: %v", err)
 	}
 
-	// Should have: user message + final agent response only (no tool_call XML).
-	if len(msgs) != 2 {
-		t.Fatalf("expected 2 messages in transcript, got %d", len(msgs))
+	// Should have: user message + tool_call + tool_result + final agent response.
+	if len(msgs) != 4 {
+		t.Fatalf("expected 4 messages in transcript, got %d", len(msgs))
 	}
-	if msgs[1].Content != finalResp {
-		t.Errorf("expected final prose in transcript, got %q", msgs[1].Content)
+	if msgs[1].Type != room.MessageToolCall {
+		t.Errorf("expected message 1 to be tool_call, got %q", msgs[1].Type)
 	}
-	if strings.Contains(msgs[1].Content, "<tool_call>") {
-		t.Error("transcript should not contain raw tool_call XML")
+	if msgs[2].Type != room.MessageToolResult {
+		t.Errorf("expected message 2 to be tool_result, got %q", msgs[2].Type)
+	}
+	wantFinal := "<tool_use>{\"args\":{\"q\":\"test\"},\"name\":\"web_search\",\"result\":\"sunny\"}</tool_use>\n\nThe weather is sunny."
+	if msgs[3].Content != wantFinal {
+		t.Errorf("expected final prose in transcript, got %q", msgs[3].Content)
+	}
+	if strings.Contains(msgs[3].Content, "<tool_call>") {
+		t.Error("final transcript message should not contain raw tool_call XML")
 	}
 }
 
@@ -648,7 +659,8 @@ func (r *recordingBroadcaster) chunkEvents() []StreamEvent {
 
 func TestRunToolLoop_NoDuplicateProseBroadcast(t *testing.T) {
 	rec := &recordingBroadcaster{}
-	d := &Dispatcher{hub: rec}
+	p := paths.NewPathsFromRoots(t.TempDir(), t.TempDir(), t.TempDir())
+	d := &Dispatcher{hub: rec, paths: p, transcripts: make(map[string]*room.TranscriptWriter)}
 	ag := newTestAgent(t, []string{"tool:invoke[web_search]:allow"})
 	assembled := newTestAssembled()
 

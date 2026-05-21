@@ -58,9 +58,23 @@ onUnmounted(() => {
   if (animFrame) cancelAnimationFrame(animFrame);
 });
 
-function parseContent(content: string) {
-  const parts: Array<{ type: string; content: string; title?: string }> = [];
-  const regex = /<thought>([\s\S]*?)<\/thought>/g;
+interface ToolUsePart { type: 'tool_use'; name: string; args: Record<string, unknown> | null; result: string | null }
+interface TextPart { type: 'text'; content: string }
+interface ThoughtPart { type: 'thought'; title: string; content: string }
+type ContentPart = TextPart | ThoughtPart | ToolUsePart;
+
+function parseToolUse(raw: string): ToolUsePart {
+  try {
+    const data = JSON.parse(raw);
+    return { type: 'tool_use', name: data.name ?? raw.trim(), args: data.args ?? null, result: data.result ?? null };
+  } catch {
+    return { type: 'tool_use', name: raw.trim(), args: null, result: null };
+  }
+}
+
+function parseContent(content: string): ContentPart[] {
+  const parts: ContentPart[] = [];
+  const regex = /<thought>([\s\S]*?)<\/thought>|<tool_use>([\s\S]*?)<\/tool_use>/g;
   let lastIndex = 0;
   let match;
 
@@ -68,7 +82,11 @@ function parseContent(content: string) {
     if (match.index > lastIndex) {
       parts.push({ type: 'text', content: content.slice(lastIndex, match.index) });
     }
-    parts.push({ type: 'thought', title: 'Thought', content: match[1] ?? '' });
+    if (match[1] !== undefined) {
+      parts.push({ type: 'thought', title: 'Thought', content: match[1] });
+    } else {
+      parts.push(parseToolUse(match[2] ?? ''));
+    }
     lastIndex = match.index + match[0].length;
   }
 
@@ -109,10 +127,17 @@ function renderMarkdown(text: string) {
       </div>
       <template v-for="(part, idx) in parsedParts" :key="idx">
         <details v-if="part.type === 'thought'" class="thought" open>
-          <summary>{{ part.title }}</summary>
-          <p>{{ part.content }}</p>
+          <summary>{{ (part as ThoughtPart).title }}</summary>
+          <p>{{ (part as ThoughtPart).content }}</p>
         </details>
-        <div v-else class="content" v-html="renderMarkdown(part.content)" />
+        <details v-else-if="part.type === 'tool_use'" class="tool-use">
+          <summary>Used {{ (part as ToolUsePart).name }}</summary>
+          <div v-if="(part as ToolUsePart).args" class="tool-body">
+            <pre class="tool-args">{{ JSON.stringify((part as ToolUsePart).args, null, 2) }}</pre>
+          </div>
+          <div v-if="(part as ToolUsePart).result" class="tool-body tool-result">{{ (part as ToolUsePart).result }}</div>
+        </details>
+        <div v-else class="content" v-html="renderMarkdown((part as TextPart).content)" />
       </template>
       <span class="cursor" />
       <div class="speaker">
@@ -314,6 +339,30 @@ function renderMarkdown(text: string) {
   margin: 0.5rem 0 0;
   color: var(--fg-muted);
   font-size: var(--body-xs-size);
+}
+
+.tool-body {
+  margin: 0.4rem 0 0;
+  font-size: var(--body-xs-size);
+  color: var(--fg-muted);
+}
+
+.tool-args {
+  margin: 0;
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--border-subtle);
+  font-family: var(--code-family);
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+.tool-result {
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--border-subtle);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .msg details.thought summary,

@@ -175,26 +175,78 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req AssembleR
 	}
 
 	// 4. Current room history → formatted strings for size tracking
+	// Tool call/result messages are excluded from formatted strings; they only
+	// appear in the structured History slice below.
 	for _, m := range req.CurrentRoomHistory {
+		if m.Type == room.MessageToolCall || m.Type == room.MessageToolResult {
+			continue
+		}
 		result.CurrentRoomHistory = append(result.CurrentRoomHistory, fmt.Sprintf("%s: %s", m.Sender.Name, m.Content))
 	}
 
-	// 5. Build pre-role-assigned History (all messages except the last, which
-	//    becomes the RFC).
+	// 5. Build pre-role-assigned History (all messages except the last text
+	//    message, which becomes the RFC). Tool call/result messages are
+	//    reconstructed as structured HistoryMessages for provider adapters.
 	historyMsgs := req.CurrentRoomHistory
 	if len(historyMsgs) > 0 {
 		historyMsgs = historyMsgs[:len(historyMsgs)-1]
 	}
 	for _, m := range historyMsgs {
-		role := inference.RoleUser
-		if m.Sender.IsAgent() && m.Sender.ID == "agent:"+ag.Name() {
-			role = inference.RoleAssistant
+		switch m.Type {
+		case room.MessageToolCall:
+			if len(m.ToolCalls) > 0 {
+				// Native mode: reconstruct assistant message with structured tool calls.
+				toolCalls := make([]inference.ToolCallWire, len(m.ToolCalls))
+				for i, tc := range m.ToolCalls {
+					toolCalls[i] = inference.ToolCallWire{
+						ID:   tc.ID,
+						Type: "function",
+						Function: inference.ToolFunctionWire{
+							Name:      tc.ToolName,
+							Arguments: tc.Arguments,
+						},
+					}
+				}
+				result.History = append(result.History, inference.HistoryMessage{
+					Role:      inference.RoleAssistant,
+					Content:   m.Content,
+					ToolCalls: toolCalls,
+				})
+			} else {
+				// XML mode: assistant message contains raw response with XML tool calls.
+				result.History = append(result.History, inference.HistoryMessage{
+					Role:    inference.RoleAssistant,
+					Content: m.Content,
+				})
+			}
+		case room.MessageToolResult:
+			if m.ToolCallID != "" {
+				// Native mode: tool result correlated by ID.
+				result.History = append(result.History, inference.HistoryMessage{
+					Role:       inference.RoleTool,
+					ToolCallID: m.ToolCallID,
+					Name:       m.ToolName,
+					Content:    m.Content,
+				})
+			} else {
+				// XML mode: tool result as user message with XML content.
+				result.History = append(result.History, inference.HistoryMessage{
+					Role:    inference.RoleUser,
+					Name:    m.ToolName,
+					Content: m.Content,
+				})
+			}
+		default:
+			role := inference.RoleUser
+			if m.Sender.IsAgent() && m.Sender.ID == "agent:"+ag.Name() {
+				role = inference.RoleAssistant
+			}
+			result.History = append(result.History, inference.HistoryMessage{
+				Role:    role,
+				Content: fmt.Sprintf("%s: %s", m.Sender.Name, m.Content),
+				Name:    m.Sender.Name,
+			})
 		}
-		result.History = append(result.History, inference.HistoryMessage{
-			Role:    role,
-			Content: fmt.Sprintf("%s: %s", m.Sender.Name, m.Content),
-			Name:    m.Sender.Name,
-		})
 	}
 
 	// 6. Build RFC: interjections + last message from room history.
@@ -206,10 +258,16 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req AssembleR
 		}
 	}
 
-	if len(req.CurrentRoomHistory) > 0 {
-		m := req.CurrentRoomHistory[len(req.CurrentRoomHistory)-1]
+	// Walk backwards to find the last non-tool message so the RFC doesn't
+	// accidentally contain <tool_response> XML or native tool call JSON.
+	for i := len(req.CurrentRoomHistory) - 1; i >= 0; i-- {
+		m := req.CurrentRoomHistory[i]
+		if m.Type == room.MessageToolCall || m.Type == room.MessageToolResult {
+			continue
+		}
 		rfcContent.WriteString(fmt.Sprintf("# Request/Message Sent by %s:\n\n", m.Sender.Name))
 		rfcContent.WriteString(m.Content)
+		break
 	}
 	result.RFC = rfcContent.String()
 
