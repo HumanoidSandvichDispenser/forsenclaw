@@ -3,12 +3,16 @@ import { computed, onUnmounted, ref, watch } from 'vue';
 import { marked } from 'marked';
 
 import type { ActorResponse } from '@/client';
+import type { ToolCallEntry } from '@/stores/messages';
 
 const props = defineProps<{
   content: string;
   sender: ActorResponse;
-  toolCall: string | null;
+  toolCalls: ToolCallEntry[];
 }>();
+
+const completedToolCalls = computed(() => props.toolCalls.filter((tc) => tc.done));
+const activeToolCall = computed(() => props.toolCalls.find((tc) => !tc.done) ?? null);
 
 const displayedContent = ref('');
 let animFrame: number | null = null;
@@ -92,9 +96,16 @@ function renderMarkdown(text: string) {
 <template>
   <article class="msg other">
     <div class="bubble">
-      <div v-if="props.toolCall" class="tool-indicator">
+      <details
+        v-for="(tc, i) in completedToolCalls"
+        :key="i"
+        class="tool-use"
+      >
+        <summary>Used {{ tc.name }}</summary>
+      </details>
+      <div v-if="activeToolCall" class="tool-indicator">
         <span class="tool-spinner" />
-        <span class="tool-text">Using {{ props.toolCall }}...</span>
+        <span class="tool-text">Using {{ activeToolCall.name }}...</span>
       </div>
       <template v-for="(part, idx) in parsedParts" :key="idx">
         <details v-if="part.type === 'thought'" class="thought" open>
@@ -291,7 +302,8 @@ function renderMarkdown(text: string) {
   font-style: italic;
 }
 
-.msg details.thought {
+.msg details.thought,
+.msg details.tool-use {
   border-radius: 0.75rem;
   color: var(--fg-muted);
   font-family: var(--body-family);
@@ -304,7 +316,8 @@ function renderMarkdown(text: string) {
   font-size: var(--body-xs-size);
 }
 
-.msg details.thought summary {
+.msg details.thought summary,
+.msg details.tool-use summary {
   color: var(--fg-muted);
   font-size: var(--body-xs-size);
 }

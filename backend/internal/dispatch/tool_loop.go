@@ -43,6 +43,7 @@ func (d *Dispatcher) runToolLoop(
 	}
 
 	var prose string
+	var toolCallLog []string // names of all tool calls executed this loop
 
 	for iteration := 0; iteration < iterationCap; iteration++ {
 		payload := assembled.ToContextPayload(modelID)
@@ -66,6 +67,7 @@ func (d *Dispatcher) runToolLoop(
 				names = append(names, tc.Function.Name)
 			}
 			log.Printf("dispatcher: native tool calls in iteration %d for RFC %s: %s", iteration, rfc.ID, strings.Join(names, ", "))
+			toolCallLog = append(toolCallLog, names...)
 			if d.hub != nil {
 				d.hub.Broadcast(rfc.RoomID, StreamEvent{
 					Type:    "tool_call",
@@ -95,7 +97,7 @@ func (d *Dispatcher) runToolLoop(
 		if len(calls) == 0 {
 			// No tool calls — this is the final response.
 			log.Printf("dispatcher: no tool calls in iteration %d for RFC %s, returning prose (%d bytes)", iteration, rfc.ID, len(prose))
-			return prose, usage, nil
+			return prependToolUse(toolCallLog, prose), usage, nil
 		}
 
 		names := make([]string, 0, len(calls))
@@ -103,6 +105,7 @@ func (d *Dispatcher) runToolLoop(
 			names = append(names, tc.ToolID)
 		}
 		log.Printf("dispatcher: XML tool calls in iteration %d for RFC %s: %s", iteration, rfc.ID, strings.Join(names, ", "))
+		toolCallLog = append(toolCallLog, names...)
 		if d.hub != nil {
 			d.hub.Broadcast(rfc.RoomID, StreamEvent{
 				Type:    "tool_call",
@@ -123,7 +126,7 @@ func (d *Dispatcher) runToolLoop(
 
 	// Hard iteration cap hit.
 	log.Printf("dispatcher: tool loop hit iteration cap (%d) for RFC %s", iterationCap, rfc.ID)
-	return prose, usage, nil
+	return prependToolUse(toolCallLog, prose), usage, nil
 }
 
 // buildNativeToolTurn executes a set of native tool calls and returns the
@@ -209,6 +212,26 @@ func mergeUsage(acc, iter inference.Usage) inference.Usage {
 		CompletionTokens: acc.CompletionTokens + iter.CompletionTokens,
 		TotalTokens:      acc.TotalTokens + iter.TotalTokens,
 	}
+}
+
+// prependToolUse prepends <tool_use> tags for each tool call to the prose so
+// that the frontend can render them as persistent collapsed blocks, matching
+// how <thought> blocks are displayed.
+func prependToolUse(toolCallLog []string, prose string) string {
+	if len(toolCallLog) == 0 {
+		return prose
+	}
+	var sb strings.Builder
+	for _, name := range toolCallLog {
+		sb.WriteString("<tool_use>")
+		sb.WriteString(name)
+		sb.WriteString("</tool_use>\n")
+	}
+	if prose != "" {
+		sb.WriteString("\n")
+		sb.WriteString(prose)
+	}
+	return sb.String()
 }
 
 // toolResultContent returns the text content stored for a tool-role history message.

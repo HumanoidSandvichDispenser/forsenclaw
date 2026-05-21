@@ -14,24 +14,28 @@ const props = defineProps<{
 const sourceOpen = ref(false);
 
 function parseContent(content: string) {
-  const parts = []
-  const regex = /<thought>([\s\S]*?)<\/thought>/g
-  let lastIndex = 0
-  let match
+  const parts: Array<{ type: string; content: string; title?: string }> = [];
+  const regex = /<thought>([\s\S]*?)<\/thought>|<tool_use>([\s\S]*?)<\/tool_use>/g;
+  let lastIndex = 0;
+  let match;
 
   while ((match = regex.exec(content)) !== null) {
     if (match.index > lastIndex) {
-      parts.push({ type: 'text', content: content.slice(lastIndex, match.index) })
+      parts.push({ type: 'text', content: content.slice(lastIndex, match.index) });
     }
-    parts.push({ type: 'thought', title: 'Thought', content: match[1] })
-    lastIndex = match.index + match[0].length
+    if (match[1] !== undefined) {
+      parts.push({ type: 'thought', title: 'Thought', content: match[1] });
+    } else {
+      parts.push({ type: 'tool_use', title: `Used ${match[2]?.trim()}`, content: '' });
+    }
+    lastIndex = match.index + match[0].length;
   }
 
   if (lastIndex < content.length) {
-    parts.push({ type: 'text', content: content.slice(lastIndex) })
+    parts.push({ type: 'text', content: content.slice(lastIndex) });
   }
 
-  return parts
+  return parts;
 }
 
 function renderMarkdown(text: string) {
@@ -54,6 +58,9 @@ function closeSource() {
         <details v-if="part.type === 'thought'" class="thought">
           <summary>{{ part.title }}</summary>
           <p>{{ part.content }}</p>
+        </details>
+        <details v-else-if="part.type === 'tool_use'" class="tool-use">
+          <summary>{{ part.title }}</summary>
         </details>
         <div v-else-if="!props.mine" class="content" v-html="renderMarkdown(part.content)" />
         <p v-else class="content">{{ part.content }}</p>
@@ -223,11 +230,18 @@ p.content {
   color: var(--fg-muted);
 }
 
-.msg details.thought {
+.msg details.thought,
+.msg details.tool-use {
   border-radius: 0.75rem;
   color: var(--fg-muted);
   font-family: var(--body-family);
   cursor: pointer;
+}
+
+.msg details.thought summary,
+.msg details.tool-use summary {
+  color: var(--fg-muted);
+  font-size: var(--body-xs-size);
 }
 
 .msg details.thought p {

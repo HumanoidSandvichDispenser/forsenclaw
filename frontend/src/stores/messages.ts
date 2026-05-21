@@ -4,12 +4,17 @@ import { defineStore } from 'pinia';
 import { listMessages, sendMessage, type ActorResponse, type MessageResponse } from '@/client';
 import { useClientStore } from '@/stores/client';
 
+export interface ToolCallEntry {
+  name: string;
+  done: boolean;
+}
+
 interface StreamingState {
   id: string;
   content: string;
   sender: ActorResponse;
   isStreaming: boolean;
-  toolCall: string | null;
+  toolCalls: ToolCallEntry[];
 }
 
 export const useMessagesStore = defineStore('messages', () => {
@@ -75,7 +80,7 @@ export const useMessagesStore = defineStore('messages', () => {
         content: '',
         sender,
         isStreaming: true,
-        toolCall: null,
+        toolCalls: [],
       },
     };
   }
@@ -99,7 +104,8 @@ export const useMessagesStore = defineStore('messages', () => {
       ...streamingByRoomId.value,
       [roomId]: {
         ...current,
-        toolCall: toolName,
+        content: current.content.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '').trimEnd(),
+        toolCalls: [...current.toolCalls, { name: toolName, done: false }],
       },
     };
   }
@@ -107,12 +113,12 @@ export const useMessagesStore = defineStore('messages', () => {
   function clearToolCall(roomId: string) {
     const current = streamingByRoomId.value[roomId];
     if (!current) return;
+    const toolCalls = current.toolCalls.map((tc, i) =>
+      i === current.toolCalls.length - 1 && !tc.done ? { ...tc, done: true } : tc,
+    );
     streamingByRoomId.value = {
       ...streamingByRoomId.value,
-      [roomId]: {
-        ...current,
-        toolCall: null,
-      },
+      [roomId]: { ...current, toolCalls },
     };
   }
 

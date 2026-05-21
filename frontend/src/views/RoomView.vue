@@ -210,7 +210,7 @@ async function send() {
               v-if="streaming"
               :content="streaming.content"
               :sender="streaming.sender"
-              :tool-call="streaming.toolCall"
+              :tool-calls="streaming.toolCalls"
             />
           </div>
         </div>
