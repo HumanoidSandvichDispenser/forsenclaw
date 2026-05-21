@@ -257,6 +257,14 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req AssembleR
 		}
 	}
 
+	// 5b. Sanitize history: remove incomplete native tool call sequences from
+	//     anywhere in history (server restart or context-window trim cutting
+	//     through a sequence), then trim any leading non-user messages so
+	//     providers that require strict user-first alternation (e.g. Gemini)
+	//     don't reject the request.
+	result.History = sanitizeToolCallHistory(result.History)
+	result.History = trimLeadingNonUserHistory(result.History)
+
 	// 6. Build RFC: interjections + last message from room history.
 	var rfcContent strings.Builder
 	if len(req.Interjections) > 0 {
@@ -280,6 +288,69 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req AssembleR
 	result.RFC = rfcContent.String()
 
 	return result, nil
+}
+
+// sanitizeToolCallHistory removes incomplete native tool call sequences from
+// anywhere in the history slice. This handles the case where the server
+// restarts mid-execution: the assistant tool call message is persisted but
+// some or all tool results never arrive. Such sequences cause providers like
+// Gemini to reject the entire request even if they appear in the middle of an
+// otherwise valid conversation.
+func sanitizeToolCallHistory(history []inference.HistoryMessage) []inference.HistoryMessage {
+	result := make([]inference.HistoryMessage, 0, len(history))
+	i := 0
+	for i < len(history) {
+		msg := history[i]
+
+		if msg.Role == inference.RoleAssistant && len(msg.ToolCalls) > 0 {
+			// Collect the tool call IDs we need results for.
+			needed := make(map[string]bool, len(msg.ToolCalls))
+			for _, tc := range msg.ToolCalls {
+				needed[tc.ID] = true
+			}
+			// Consume the immediately following tool result messages.
+			j := i + 1
+			var resultMsgs []inference.HistoryMessage
+			for j < len(history) && history[j].Role == inference.RoleTool {
+				delete(needed, history[j].ToolCallID)
+				resultMsgs = append(resultMsgs, history[j])
+				j++
+			}
+			if len(needed) == 0 {
+				// Complete sequence — keep it.
+				result = append(result, msg)
+				result = append(result, resultMsgs...)
+			}
+			// Incomplete sequence — silently drop the assistant message and
+			// any partial results already collected.
+			i = j
+			continue
+		}
+
+		// Orphaned tool result with no preceding assistant(tool_calls) — drop.
+		if msg.Role == inference.RoleTool {
+			i++
+			continue
+		}
+
+		result = append(result, msg)
+		i++
+	}
+	return result
+}
+
+// trimLeadingNonUserHistory drops messages from the front of history until the
+// first user-role message. This prevents providers like Gemini (which require
+// strict user-first turn alternation) from rejecting requests when the context
+// window trim slices off the user message that preceded an assistant or tool
+// message.
+func trimLeadingNonUserHistory(history []inference.HistoryMessage) []inference.HistoryMessage {
+	for i, msg := range history {
+		if msg.Role == inference.RoleUser {
+			return history[i:]
+		}
+	}
+	return nil
 }
 
 // formatRelativeTime returns a human-readable relative time string.

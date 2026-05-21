@@ -16,6 +16,7 @@ services:
       - ./data/.local/share/hearth:/root/.local/share/hearth
     environment:
       - CGO_ENABLED=0
+      - HEARTH_DEBUG_INFERENCE=1
     networks:
       - dev-network
 

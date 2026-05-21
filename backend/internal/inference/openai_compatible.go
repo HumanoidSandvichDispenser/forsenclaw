@@ -7,7 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -93,6 +96,10 @@ func (o *OpenAICompatibleAdapter) Infer(ctx context.Context, payload ContextPayl
 	jsonBody, err := json.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling request: %w", err)
+	}
+
+	if os.Getenv("HEARTH_DEBUG_INFERENCE") == "1" {
+		debugLogInferenceRequest(body.Messages, jsonBody)
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", o.baseURL+"/v1/chat/completions", bytes.NewReader(jsonBody))
@@ -284,6 +291,62 @@ func (o *OpenAICompatibleAdapter) readStream(body io.ReadCloser, ch chan<- Strea
 	if !sentFinal && usage.TotalTokens > 0 {
 		ch <- StreamingChunk{Usage: usage}
 	}
+}
+
+// debugLogInferenceRequest logs a compact message-structure summary and writes
+// the full request JSON to /tmp/hearth-inference-debug.json.
+// Only called when HEARTH_DEBUG_INFERENCE=1.
+func debugLogInferenceRequest(messages []openaiCompatMessage, fullJSON []byte) {
+	var sb strings.Builder
+	sb.WriteString("inference debug — message structure:\n")
+	for i, m := range messages {
+		contentLen := 0
+		if m.Content != nil {
+			contentLen = len(*m.Content)
+		}
+		toolCallInfo := ""
+		if len(m.ToolCalls) > 0 {
+			names := make([]string, 0, len(m.ToolCalls))
+			for _, tc := range m.ToolCalls {
+				names = append(names, tc.Function.Name)
+			}
+			toolCallInfo = fmt.Sprintf(" tool_calls=[%s]", strings.Join(names, ","))
+		}
+		toolCallIDInfo := ""
+		if m.ToolCallID != "" {
+			toolCallIDInfo = fmt.Sprintf(" tool_call_id=%s", m.ToolCallID)
+		}
+		nameInfo := ""
+		if m.Name != "" {
+			nameInfo = fmt.Sprintf(" name=%s", m.Name)
+		}
+		sb.WriteString(fmt.Sprintf("  [%d] role=%s content_len=%d%s%s%s\n",
+			i, m.Role, contentLen, toolCallInfo, toolCallIDInfo, nameInfo))
+	}
+	log.Print(sb.String())
+
+	debugPath := inferenceDebugPath()
+	var pretty bytes.Buffer
+	if err := json.Indent(&pretty, fullJSON, "", "  "); err == nil {
+		if err := os.MkdirAll(filepath.Dir(debugPath), 0o755); err != nil {
+			log.Printf("inference debug — could not create dir: %v", err)
+		} else if err := os.WriteFile(debugPath, pretty.Bytes(), 0o600); err != nil {
+			log.Printf("inference debug — could not write file: %v", err)
+		} else {
+			log.Printf("inference debug — full request written to %s", debugPath)
+		}
+	}
+}
+
+// inferenceDebugPath returns the path for the debug JSON file, placed in the
+// hearth data directory ($XDG_DATA_HOME/hearth or ~/.local/share/hearth).
+func inferenceDebugPath() string {
+	dataHome := os.Getenv("XDG_DATA_HOME")
+	if dataHome == "" {
+		home, _ := os.UserHomeDir()
+		dataHome = filepath.Join(home, ".local", "share")
+	}
+	return filepath.Join(dataHome, "hearth", "inference-debug.json")
 }
 
 // --- request/response types ---
