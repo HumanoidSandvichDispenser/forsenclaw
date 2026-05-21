@@ -623,8 +623,8 @@ func TestOpenAICompatibleAdapter_RoleToolHistory(t *testing.T) {
 	if toolMsg.ToolCallID != "call_1" {
 		t.Errorf("expected tool_call_id 'call_1', got %q", toolMsg.ToolCallID)
 	}
-	if toolMsg.Name != "" {
-		t.Errorf("expected tool name to be omitted, got %q", toolMsg.Name)
+	if toolMsg.Name != "some_tool" {
+		t.Errorf("expected tool name 'some_tool', got %q", toolMsg.Name)
 	}
 }
 

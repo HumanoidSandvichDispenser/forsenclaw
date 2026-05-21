@@ -245,9 +245,13 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req AssembleR
 			if m.Sender.IsAgent() && m.Sender.ID == "agent:"+ag.Name() {
 				role = inference.RoleAssistant
 			}
+			content := m.Content
+			if role == inference.RoleUser {
+				content = fmt.Sprintf("%s: %s", m.Sender.Name, m.Content)
+			}
 			result.History = append(result.History, inference.HistoryMessage{
 				Role:    role,
-				Content: fmt.Sprintf("%s: %s", m.Sender.Name, m.Content),
+				Content: content,
 				Name:    m.Sender.Name,
 			})
 		}
