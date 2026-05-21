@@ -6,7 +6,6 @@ import RoomComposer from '@/components/room/RoomComposer.vue';
 import RoomHeader from '@/components/room/RoomHeader.vue';
 import RoomMembersPanel from '@/components/room/RoomMembersPanel.vue';
 import RoomMessageItem from '@/components/room/RoomMessageItem.vue';
-import RoomStreamingMessageItem from '@/components/room/RoomStreamingMessageItem.vue';
 import type { MessageResponse } from '@/client';
 import { useWebSocket } from '@/composables/useWebSocket';
 import { useMessagesStore } from '@/stores/messages';
@@ -44,6 +43,19 @@ const messageGroups = computed((): MessageGroup[] => {
   return groups;
 });
 const streaming = computed(() => messagesStore.streamingByRoomId[roomId.value] ?? null);
+
+// liveStreaming keeps the streaming component mounted briefly after streaming
+// ends so the close animations on thought blocks have time to play out.
+const liveStreaming = ref(streaming.value);
+let lingerTimer: ReturnType<typeof setTimeout> | null = null;
+watch(streaming, (next) => {
+  if (next != null) {
+    if (lingerTimer) { clearTimeout(lingerTimer); lingerTimer = null; }
+    liveStreaming.value = next;
+  } else {
+    lingerTimer = setTimeout(() => { liveStreaming.value = null; lingerTimer = null; }, 400);
+  }
+});
 
 const messageText = ref('');
 const sending = ref(false);
@@ -152,6 +164,7 @@ onBeforeUnmount(() => {
     ws.unsubscribe(roomId.value);
   }
   if (unsubEvent) unsubEvent();
+  if (lingerTimer) clearTimeout(lingerTimer);
 });
 
 watch(roomId, (newId, oldId) => {
@@ -229,11 +242,9 @@ async function send() {
               :mine="g.message.sender.id === meActorId"
               :timestamp-label="formatTime(g.message.timestamp)"
             />
-            <RoomStreamingMessageItem
-              v-if="streaming"
-              :content="streaming.content"
-              :sender="streaming.sender"
-              :tool-calls="streaming.toolCalls"
+            <RoomMessageItem
+              v-if="liveStreaming"
+              :streaming="streaming ?? undefined"
             />
           </div>
         </div>
