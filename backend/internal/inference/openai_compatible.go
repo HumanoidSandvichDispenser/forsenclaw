@@ -163,6 +163,7 @@ func (o *OpenAICompatibleAdapter) serializeContextMessage(msg ContextMessage) op
 		return openaiCompatMessage{
 			Role:       "tool",
 			ToolCallID: msg.ToolCallID,
+			Name:       msg.Name,
 			Content:    &msg.Content,
 		}
 	}

@@ -221,11 +221,15 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req AssembleR
 			}
 		case room.MessageToolResult:
 			if m.ToolCallID != "" {
+				toolName := m.ToolName
+				if toolName == "" {
+					toolName = "tool"
+				}
 				// Native mode: tool result correlated by ID.
 				result.History = append(result.History, inference.HistoryMessage{
 					Role:       inference.RoleTool,
 					ToolCallID: m.ToolCallID,
-					Name:       m.ToolName,
+					Name:       toolName,
 					Content:    m.Content,
 				})
 			} else {
