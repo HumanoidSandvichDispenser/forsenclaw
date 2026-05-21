@@ -171,7 +171,7 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req AssembleR
 	// 3. Cross-room feed → formatted strings with relative timestamps
 	for _, crm := range req.CrossRoomFeed {
 		relTime := formatRelativeTime(crm.Message.Timestamp)
-		result.CrossRoomFeed = append(result.CrossRoomFeed, fmt.Sprintf("[#%s — %s] %s: %s", crm.RoomID, relTime, crm.Message.Sender.Name, crm.Message.Content))
+		result.CrossRoomFeed = append(result.CrossRoomFeed, fmt.Sprintf("[#%s %s][%s] %s", crm.RoomID, relTime, crm.Message.Sender.Name, crm.Message.Content))
 	}
 
 	// 4. Current room history → formatted strings for size tracking
