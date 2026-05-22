@@ -86,6 +86,7 @@ F7. Session Lifecycle + Dreaming
 - [ ] On session end, if `dreaming=on`, schedule non-blocking consolidation pass
 - [ ] Implement dreaming pass (use routine_model, structured prompt → promote durable content → append to MEMORY.md and write DREAMS.md summary)
 - [ ] Ensure proactive RFCs run with isolated context (no room history)
+- [ ] Implement compaction window; if context crosses M bytes, compact messages until under N bytes, and log compaction into daily notes
 
 Frontend follow-up (optional):
 - [ ] DREAMS log viewer and dreaming activity audit
