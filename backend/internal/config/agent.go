@@ -15,6 +15,8 @@ type AgentDefinition struct {
 	Permissions     []Permission `yaml:"-"`
 	RawPermissions  []string     `yaml:"permissions"`
 	Timeout         string       `yaml:"timeout,omitempty"`
+	MaxTokens       int          `yaml:"max_tokens,omitempty"`
+	Temperature     *float64     `yaml:"temperature,omitempty"`
 	Parent          string       `yaml:"parent,omitempty"`
 }
 

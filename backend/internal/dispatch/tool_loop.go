@@ -42,6 +42,17 @@ func (d *Dispatcher) runToolLoop(
 ) (finalProse string, usage inference.Usage, err error) {
 	iterationCap := executor.Cfg.MaxIterations
 
+	// Apply per-agent timeout to the context if configured.
+	if ag.Definition.Timeout != "" {
+		if dur, err := time.ParseDuration(ag.Definition.Timeout); err == nil {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, dur)
+			defer cancel()
+		} else {
+			log.Printf("dispatcher: invalid timeout %q for agent %q: %v", ag.Definition.Timeout, ag.Name(), err)
+		}
+	}
+
 	// turnHistory starts from the assembled room transcript and grows with each
 	// tool round-trip during this RFC.
 	turnHistory := make([]inference.HistoryMessage, len(assembled.History))
@@ -65,6 +76,13 @@ func (d *Dispatcher) runToolLoop(
 	for iteration := 0; iteration < iterationCap; iteration++ {
 		payload := assembled.ToContextPayload(modelID)
 		payload.History = turnHistory
+		if ag.Definition.MaxTokens > 0 {
+			n := ag.Definition.MaxTokens
+			payload.MaxTokens = &n
+		}
+		if ag.Definition.Temperature != nil {
+			payload.Temperature = ag.Definition.Temperature
+		}
 
 		log.Printf("dispatcher: tool loop iteration %d for RFC %s", iteration, rfc.ID)
 
