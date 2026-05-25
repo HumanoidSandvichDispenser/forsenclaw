@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -10,24 +11,49 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/config"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/paths"
 )
 
+// agentEntry groups an agent definition with its runtime.
+// runtime is nil when registry is not configured (e.g. in tests).
+type agentEntry struct {
+	agent   *Agent
+	runtime *AgentRuntime
+}
+
 // Manager loads, tracks, and hot-reloads agent definitions from disk.
+// It also owns the AgentRuntime for each agent.
 type Manager struct {
 	mu      sync.RWMutex
-	agents  map[string]*Agent
+	entries map[string]*agentEntry
 	watcher *fsnotify.Watcher
 	paths   *paths.Paths
 	server  *config.ServerConfig
+
+	// Runtime deps — nil means runtimes are not created (e.g. in tests).
+	registry  *inference.Registry
+	assembler Assembler
+	executor  ToolExecutor
+
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // NewManager creates a manager and loads all agents from disk.
-func NewManager(p *paths.Paths, serverCfg *config.ServerConfig) (*Manager, error) {
+// registry, assembler, and executor are optional — pass nil to skip runtime creation
+// (useful in tests).
+func NewManager(p *paths.Paths, serverCfg *config.ServerConfig, registry *inference.Registry, assembler Assembler, executor ToolExecutor) (*Manager, error) {
+	ctx, cancel := context.WithCancel(context.Background())
 	m := &Manager{
-		agents: make(map[string]*Agent),
-		paths:  p,
-		server: serverCfg,
+		entries:   make(map[string]*agentEntry),
+		paths:     p,
+		server:    serverCfg,
+		registry:  registry,
+		assembler: assembler,
+		executor:  executor,
+		ctx:       ctx,
+		cancel:    cancel,
 	}
 
 	// Initial load
@@ -71,7 +97,20 @@ func NewManager(p *paths.Paths, serverCfg *config.ServerConfig) (*Manager, error
 func (m *Manager) Get(name string) *Agent {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.agents[name]
+	if e := m.entries[name]; e != nil {
+		return e.agent
+	}
+	return nil
+}
+
+// Runtime returns the AgentRuntime for the given agent name, or nil if not found.
+func (m *Manager) Runtime(name string) *AgentRuntime {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if e := m.entries[name]; e != nil {
+		return e.runtime
+	}
+	return nil
 }
 
 // All returns a snapshot of all loaded agents.
@@ -79,15 +118,16 @@ func (m *Manager) All() map[string]*Agent {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	snapshot := make(map[string]*Agent, len(m.agents))
-	for k, v := range m.agents {
-		snapshot[k] = v
+	snapshot := make(map[string]*Agent, len(m.entries))
+	for k, e := range m.entries {
+		snapshot[k] = e.agent
 	}
 	return snapshot
 }
 
-// Close stops the fsnotify watcher.
+// Close stops the fsnotify watcher and all agent runtimes.
 func (m *Manager) Close() error {
+	m.cancel()
 	if m.watcher != nil {
 		return m.watcher.Close()
 	}
@@ -109,7 +149,7 @@ func (m *Manager) loadAll() error {
 			log.Printf("warning: failed to parse permissions for agent %q: %v", name, err)
 			continue
 		}
-		m.agents[name] = agent
+		m.entries[name] = m.newEntry(agent)
 	}
 
 	return nil
@@ -158,12 +198,23 @@ func (m *Manager) handleEvent(event fsnotify.Event) {
 		}
 	} else if event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename) {
 		m.mu.Lock()
-		if agent, ok := m.agents[agentName]; ok {
-			agent.Deactivate()
+		if e, ok := m.entries[agentName]; ok {
+			e.agent.Deactivate()
 			log.Printf("deactivated agent %q (file removed)", agentName)
 		}
 		m.mu.Unlock()
 	}
+}
+
+// newEntry creates an agentEntry and starts its runtime goroutine if deps are configured.
+// Must be called with m.mu held.
+func (m *Manager) newEntry(agent *Agent) *agentEntry {
+	e := &agentEntry{agent: agent}
+	if m.registry != nil {
+		e.runtime = NewAgentRuntime(agent, m.registry, m.assembler, m.executor)
+		go e.runtime.Run(m.ctx)
+	}
+	return e
 }
 
 func (m *Manager) reloadAgent(name string) error {
@@ -181,8 +232,8 @@ func (m *Manager) reloadAgent(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if agent, ok := m.agents[name]; ok {
-		if err := agent.UpdateDefinition(newDef); err != nil {
+	if e, ok := m.entries[name]; ok {
+		if err := e.agent.UpdateDefinition(newDef); err != nil {
 			return err
 		}
 	} else {
@@ -190,7 +241,7 @@ func (m *Manager) reloadAgent(name string) error {
 		if err != nil {
 			return err
 		}
-		m.agents[name] = agent
+		m.entries[name] = m.newEntry(agent)
 		// Watch the new agent directory
 		if m.watcher != nil {
 			if err := m.watcher.Add(agentDir); err != nil {
