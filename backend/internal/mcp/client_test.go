@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/humanoidsandvichdispenser/hearth/backend/internal/config"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/audit"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
 )
 
 // --- mock types ---
@@ -17,32 +17,38 @@ type mockMCPClient struct {
 	response  string
 	err       error
 	callCount int
+	lastParams map[string]string
 }
 
-func (m *mockMCPClient) Call(_ context.Context, _ string, _ map[string]string) (string, error) {
+func (m *mockMCPClient) Call(_ context.Context, _ string, params map[string]string) (string, error) {
 	m.callCount++
+	m.lastParams = params
 	return m.response, m.err
 }
 
 func (m *mockMCPClient) ToolIDs() []string { return m.toolIDs }
 func (m *mockMCPClient) Healthy() bool     { return true }
 
-type mockAuditLogger struct {
-	entries []ToolAuditEntry
+// recordingSink captures audit events for test assertions.
+type recordingSink struct {
+	events []audit.Event
 }
 
-func (m *mockAuditLogger) LogToolCall(entry ToolAuditEntry) {
-	m.entries = append(m.entries, entry)
+func (s *recordingSink) Write(e audit.Event) error {
+	s.events = append(s.events, e)
+	return nil
 }
 
 // --- helper ---
 
-func singleCallToolCall(toolID string) ToolCall {
-	return ToolCall{
-		ID:         "test-call-id",
-		ToolID:     toolID,
-		Parameters: map[string]string{"q": "test"},
-		RawXML:     fmt.Sprintf(`<tool_call><tool_id>%s</tool_id><parameters><q>test</q></parameters></tool_call>`, toolID),
+func wireCall(toolName, argsJSON string) inference.ToolCallWire {
+	return inference.ToolCallWire{
+		ID:   "test-call-id",
+		Type: "function",
+		Function: inference.ToolFunctionWire{
+			Name:      toolName,
+			Arguments: argsJSON,
+		},
 	}
 }
 
@@ -209,234 +215,103 @@ func TestParseToolCalls_NoToolCalls(t *testing.T) {
 	}
 }
 
-// --- AC-5: Executor — allow effect calls MCP ---
+// --- AC-5: Executor — calls MCP and returns result ---
 
-func TestExecutor_Allow_CallsMCP(t *testing.T) {
+func TestExecutor_CallsMCP(t *testing.T) {
 	client := &mockMCPClient{
 		toolIDs:  []string{"web_search"},
 		response: "search results",
 	}
 	reg := NewRegistry([]MCPClient{client})
-	perms := []config.Permission{
-		{Action: "tool:invoke", Scope: "web_search", Effect: "allow"},
-	}
-	audit := &mockAuditLogger{}
-	exec := NewExecutor(reg, perms, nil, audit, ExecutorConfig{MaxIterations: 10})
+	exec := NewExecutor(reg, audit.Nop())
 
-	call := singleCallToolCall("web_search")
-	result := exec.Execute(context.Background(), "agent1", call)
-
-	if result.IsError {
-		t.Fatalf("expected success, got error: %s", result.Error)
+	result, err := exec.Execute(context.Background(), wireCall("web_search", `{"q":"golang"}`))
+	if err != nil {
+		t.Fatalf("expected success, got error: %v", err)
 	}
-	if result.Content != "search results" {
-		t.Errorf("expected 'search results', got %q", result.Content)
+	if result != "search results" {
+		t.Errorf("expected 'search results', got %q", result)
 	}
 	if client.callCount != 1 {
 		t.Errorf("expected MCP client called once, got %d", client.callCount)
 	}
-}
-
-// --- AC-6: Executor — deny effect returns error result without calling MCP ---
-
-func TestExecutor_Deny_DoesNotCallMCP(t *testing.T) {
-	client := &mockMCPClient{
-		toolIDs:  []string{"email:send"},
-		response: "sent",
-	}
-	reg := NewRegistry([]MCPClient{client})
-	perms := []config.Permission{} // no permissions for email:send
-	audit := &mockAuditLogger{}
-	exec := NewExecutor(reg, perms, nil, audit, ExecutorConfig{MaxIterations: 10})
-
-	call := singleCallToolCall("email:send")
-	result := exec.Execute(context.Background(), "agent1", call)
-
-	if !result.IsError {
-		t.Fatal("expected error result for denied tool")
-	}
-	if client.callCount != 0 {
-		t.Errorf("expected MCP client never called, got %d calls", client.callCount)
+	if client.lastParams["q"] != "golang" {
+		t.Errorf("expected param q='golang', got %q", client.lastParams["q"])
 	}
 }
 
-// --- AC-7: Executor — require_confirmation with nil channel auto-denies ---
+// --- AC-6: Executor — unknown tool returns error ---
 
-func TestExecutor_RequireConfirmation_NilChannel_AutoDenies(t *testing.T) {
-	client := &mockMCPClient{
-		toolIDs:  []string{"email:send"},
-		response: "sent",
-	}
-	reg := NewRegistry([]MCPClient{client})
-	perms := []config.Permission{
-		{Action: "tool:invoke", Scope: "email:send", Effect: "require_confirmation"},
-	}
-	exec := NewExecutor(reg, perms, nil, nil, ExecutorConfig{MaxIterations: 10})
+func TestExecutor_UnknownTool_ReturnsError(t *testing.T) {
+	reg := NewRegistry([]MCPClient{})
+	exec := NewExecutor(reg, audit.Nop())
 
-	call := singleCallToolCall("email:send")
-	result := exec.Execute(context.Background(), "agent1", call)
-
-	if !result.IsError {
-		t.Fatal("expected error result for require_confirmation with nil channel")
-	}
-	if !strings.Contains(result.Error, "require_confirmation") {
-		t.Errorf("expected error to mention require_confirmation, got %q", result.Error)
-	}
-	if client.callCount != 0 {
-		t.Errorf("expected MCP client never called, got %d calls", client.callCount)
+	_, err := exec.Execute(context.Background(), wireCall("nonexistent", `{}`))
+	if err == nil {
+		t.Fatal("expected error for unknown tool")
 	}
 }
 
-// --- AC-8: Executor — require_confirmation approved ---
+// --- AC-7: Executor — MCP client error propagates ---
 
-func TestExecutor_RequireConfirmation_Approved(t *testing.T) {
-	client := &mockMCPClient{
-		toolIDs:  []string{"email:send"},
-		response: "sent",
-	}
-	reg := NewRegistry([]MCPClient{client})
-	perms := []config.Permission{
-		{Action: "tool:invoke", Scope: "email:send", Effect: "require_confirmation"},
-	}
-
-	confirmCh := make(chan ConfirmationRequest, 1)
-	exec := NewExecutor(reg, perms, confirmCh, nil, ExecutorConfig{MaxIterations: 10})
-
-	// Approve the confirmation in a goroutine.
-	go func() {
-		req := <-confirmCh
-		req.Response <- true
-	}()
-
-	call := singleCallToolCall("email:send")
-	result := exec.Execute(context.Background(), "agent1", call)
-
-	if result.IsError {
-		t.Fatalf("expected success after approval, got error: %s", result.Error)
-	}
-	if result.Content != "sent" {
-		t.Errorf("expected 'sent', got %q", result.Content)
-	}
-	if client.callCount != 1 {
-		t.Errorf("expected MCP client called once, got %d", client.callCount)
-	}
-}
-
-// --- AC-9: Executor — require_confirmation rejected ---
-
-func TestExecutor_RequireConfirmation_Rejected(t *testing.T) {
-	client := &mockMCPClient{
-		toolIDs:  []string{"email:send"},
-		response: "sent",
-	}
-	reg := NewRegistry([]MCPClient{client})
-	perms := []config.Permission{
-		{Action: "tool:invoke", Scope: "email:send", Effect: "require_confirmation"},
-	}
-
-	confirmCh := make(chan ConfirmationRequest, 1)
-	exec := NewExecutor(reg, perms, confirmCh, nil, ExecutorConfig{MaxIterations: 10})
-
-	// Reject the confirmation in a goroutine.
-	go func() {
-		req := <-confirmCh
-		req.Response <- false
-	}()
-
-	call := singleCallToolCall("email:send")
-	result := exec.Execute(context.Background(), "agent1", call)
-
-	if !result.IsError {
-		t.Fatal("expected error result for rejected confirmation")
-	}
-	if client.callCount != 0 {
-		t.Errorf("expected MCP client never called after rejection, got %d calls", client.callCount)
-	}
-}
-
-// --- AC-10: Executor — unreachable MCP server returns error result ---
-
-func TestExecutor_MCPCallError_ReturnsErrorResult(t *testing.T) {
+func TestExecutor_MCPError_Propagates(t *testing.T) {
 	client := &mockMCPClient{
 		toolIDs: []string{"web_search"},
 		err:     fmt.Errorf("connection refused"),
 	}
 	reg := NewRegistry([]MCPClient{client})
-	perms := []config.Permission{
-		{Action: "tool:invoke", Scope: "web_search", Effect: "allow"},
-	}
-	exec := NewExecutor(reg, perms, nil, nil, ExecutorConfig{MaxIterations: 10})
+	exec := NewExecutor(reg, audit.Nop())
 
-	call := singleCallToolCall("web_search")
-	result := exec.Execute(context.Background(), "agent1", call)
-
-	if !result.IsError {
-		t.Fatal("expected error result when MCP call fails")
+	_, err := exec.Execute(context.Background(), wireCall("web_search", `{}`))
+	if err == nil {
+		t.Fatal("expected error when MCP call fails")
 	}
-	if result.Error == "" {
-		t.Error("expected non-empty error message")
+	if !strings.Contains(err.Error(), "connection refused") {
+		t.Errorf("expected error to contain 'connection refused', got %q", err.Error())
 	}
 }
 
-// --- AC-11: Executor — audit log entry written for every call ---
+// --- AC-8: Executor — audit events written ---
 
-func TestExecutor_AuditLogWritten(t *testing.T) {
-	client := &mockMCPClient{
-		toolIDs:  []string{"web_search"},
-		response: "results",
-	}
-	reg := NewRegistry([]MCPClient{client})
-	perms := []config.Permission{
-		{Action: "tool:invoke", Scope: "web_search", Effect: "allow"},
-	}
-	audit := &mockAuditLogger{}
-	exec := NewExecutor(reg, perms, nil, audit, ExecutorConfig{MaxIterations: 10})
+func TestExecutor_AuditEvents(t *testing.T) {
+	sink := &recordingSink{}
+	logger := audit.NewLogger([]audit.SinkConfig{{Sink: sink, MinLevel: audit.LevelDebug}})
 
-	call := singleCallToolCall("web_search")
-	exec.Execute(context.Background(), "agent42", call)
+	t.Run("success logs KindToolInvoked", func(t *testing.T) {
+		client := &mockMCPClient{toolIDs: []string{"web_search"}, response: "ok"}
+		exec := NewExecutor(NewRegistry([]MCPClient{client}), logger)
+		ctx := audit.WithAgentID(context.Background(), "agent42")
 
-	if len(audit.entries) != 1 {
-		t.Fatalf("expected 1 audit entry, got %d", len(audit.entries))
-	}
-	entry := audit.entries[0]
-	if entry.ToolID != "web_search" {
-		t.Errorf("expected tool_id 'web_search', got %q", entry.ToolID)
-	}
-	if entry.AgentID != "agent42" {
-		t.Errorf("expected agent_id 'agent42', got %q", entry.AgentID)
-	}
-	if entry.Effect != "allow" {
-		t.Errorf("expected effect 'allow', got %q", entry.Effect)
-	}
-	if entry.Timestamp.IsZero() {
-		t.Error("expected non-zero timestamp")
-	}
-	if entry.Timestamp.After(time.Now().Add(time.Second)) {
-		t.Error("timestamp is in the future")
-	}
-}
+		exec.Execute(ctx, wireCall("web_search", `{}`)) //nolint:errcheck
+		logger.Close()
 
-// --- Scope matching ---
-
-func TestMatchScope(t *testing.T) {
-	tests := []struct {
-		scope  string
-		toolID string
-		want   bool
-	}{
-		{"*", "anything", true},
-		{"web_search", "web_search", true},
-		{"web_search", "email:send", false},
-		{"email:*", "email:send", true},
-		{"email:*", "email:reply", true},
-		{"email:*", "web_search", false},
-		{"email:send", "email:send", true},
-		{"email:send", "email:reply", false},
-	}
-	for _, tt := range tests {
-		got := matchScope(tt.scope, tt.toolID)
-		if got != tt.want {
-			t.Errorf("matchScope(%q, %q) = %v, want %v", tt.scope, tt.toolID, got, tt.want)
+		if len(sink.events) == 0 {
+			t.Fatal("expected audit event, got none")
 		}
-	}
+		ev := sink.events[len(sink.events)-1]
+		if ev.Kind != audit.KindToolInvoked {
+			t.Errorf("expected KindToolInvoked, got %q", ev.Kind)
+		}
+		if ev.AgentID != "agent42" {
+			t.Errorf("expected agentID 'agent42', got %q", ev.AgentID)
+		}
+	})
+
+	t.Run("failure logs KindToolFailed", func(t *testing.T) {
+		sink2 := &recordingSink{}
+		logger2 := audit.NewLogger([]audit.SinkConfig{{Sink: sink2, MinLevel: audit.LevelDebug}})
+		client := &mockMCPClient{toolIDs: []string{"web_search"}, err: fmt.Errorf("boom")}
+		exec := NewExecutor(NewRegistry([]MCPClient{client}), logger2)
+
+		exec.Execute(context.Background(), wireCall("web_search", `{}`)) //nolint:errcheck
+		logger2.Close()
+
+		if len(sink2.events) == 0 {
+			t.Fatal("expected audit event, got none")
+		}
+		ev := sink2.events[len(sink2.events)-1]
+		if ev.Kind != audit.KindToolFailed {
+			t.Errorf("expected KindToolFailed, got %q", ev.Kind)
+		}
+	})
 }

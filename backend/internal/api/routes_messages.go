@@ -6,9 +6,12 @@ import (
 	"net/http"
 	"time"
 
+	"strings"
+
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
 
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/agent"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
 )
 
@@ -66,9 +69,37 @@ func (svc *Service) sendMessage(ctx context.Context, input *SendMessageRequest) 
 		Content:      input.Body.Content,
 	}
 
-	// Handle through dispatcher (writes to transcript, notifies protocol)
-	if err := svc.dispatcher.HandleUserMessage(ctx, r.ID, *sender, msg); err != nil {
-		return nil, huma.Error500InternalServerError("failed to send message: "+err.Error())
+	// Write message to transcript
+	writer, err := room.NewTranscriptWriter(svc.paths.RoomsDir(), r.ID)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to open transcript: " + err.Error())
+	}
+	if err := writer.Append(ctx, msg); err != nil {
+		writer.Close()
+		return nil, huma.Error500InternalServerError("failed to write message: " + err.Error())
+	}
+	writer.Close()
+
+	// Submit to dispatcher for each agent participant
+	for _, p := range r.Participants {
+		if !p.IsAgent() {
+			continue
+		}
+		agentName := strings.TrimPrefix(p.ID, "agent:")
+		svc.dispatcher.Submit(agent.Request{
+			ID:     uuid.New().String(),
+			Target: agentName,
+			Source: agent.SourceRoom,
+			Payload: agent.RequestPayload{
+				RoomID: r.ID,
+				Messages: []agent.Message{{
+					Sender:    msg.Sender.Name,
+					Content:   msg.Content,
+					Timestamp: msg.Timestamp,
+					Type:      agent.MessageText,
+				}},
+			},
+		})
 	}
 
 	resp := &SendMessageResponse{}

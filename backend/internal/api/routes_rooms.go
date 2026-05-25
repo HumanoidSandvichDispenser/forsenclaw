@@ -94,11 +94,6 @@ func (svc *Service) createRoom(ctx context.Context, input *CreateRoomRequest) (*
 	}
 	writer.Close()
 
-	// Start protocol
-	if err := svc.dispatcher.StartProtocol(&r); err != nil {
-		return nil, huma.Error500InternalServerError("failed to start protocol: " + err.Error())
-	}
-
 	resp := &CreateRoomResponse{}
 	resp.Body = toRoomResponse(r)
 	return resp, nil

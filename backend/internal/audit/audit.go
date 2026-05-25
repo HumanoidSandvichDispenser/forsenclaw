@@ -87,6 +87,7 @@ type Event struct {
 type Logger struct {
 	sinks []filteredSink
 	ch    chan Event
+	done  chan struct{}
 }
 
 // Sink is an output destination for audit events.
@@ -131,6 +132,7 @@ func NewLogger(sinks []SinkConfig) *Logger {
 	l := &Logger{
 		sinks: fs,
 		ch:    make(chan Event, 256),
+		done:  make(chan struct{}),
 	}
 	go l.loop()
 	return l
@@ -138,7 +140,7 @@ func NewLogger(sinks []SinkConfig) *Logger {
 
 // Nop returns a Logger that discards all events. Useful in tests.
 func Nop() *Logger {
-	l := &Logger{ch: make(chan Event, 1)}
+	l := &Logger{ch: make(chan Event, 1), done: make(chan struct{})}
 	go l.loop()
 	return l
 }
@@ -174,12 +176,15 @@ func AgentIDFromContext(ctx context.Context) string {
 	return ""
 }
 
-// Close drains the event buffer and stops the background goroutine.
+// Close drains the event buffer, stops the background goroutine, and blocks
+// until all pending events have been delivered to sinks.
 func (l *Logger) Close() {
 	close(l.ch)
+	<-l.done
 }
 
 func (l *Logger) loop() {
+	defer close(l.done)
 	for e := range l.ch {
 		for _, fs := range l.sinks {
 			if !fs.matches(e) {

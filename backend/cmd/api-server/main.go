@@ -16,13 +16,13 @@ import (
 
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/agent"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/api"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/audit"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/bootstrap"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/config"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/dispatch"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/mcp"
 	mcpTools "github.com/humanoidsandvichdispenser/hearth/backend/internal/mcp/tools"
-	"github.com/humanoidsandvichdispenser/hearth/backend/internal/memory"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/paths"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/search"
@@ -163,13 +163,6 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 	}
 	defer store.Close()
 
-	// 2. Create agent manager (loads agents from disk, watches for changes)
-	agentMgr, err := agent.NewManager(p, cfg)
-	if err != nil {
-		log.Fatalf("failed to create agent manager: %v", err)
-	}
-	defer agentMgr.Close()
-
 	// 3. Create inference registry
 	registry, err := inference.NewRegistry(cfg)
 	if err != nil {
@@ -182,27 +175,25 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 		log.Fatalf("failed to create MCP registry: %v", err)
 	}
 
-	// 4. Create context assembler
-	assembler := memory.NewAssembler(p, 4096)
+	// 4. Create MCP executor
+	mcpExecutor := mcp.NewExecutor(mcpRegistry, audit.Nop())
 
-	// 5. Create WebSocket hub
+	// 5. Create agent manager (loads agents from disk, watches for changes)
+	// TODO: wire assembler once memory.Assembler is updated to satisfy agent.Assembler
+	agentMgr, err := agent.NewManager(p, cfg, registry, nil, mcpExecutor)
+	if err != nil {
+		log.Fatalf("failed to create agent manager: %v", err)
+	}
+	defer agentMgr.Close()
+
+	// 6. Create WebSocket hub
 	hub := api.NewHub()
 	go hub.Run()
 
-	// 6. Create dispatcher
-	dispatcher := dispatch.NewDispatcher(agentMgr, registry, assembler, store, p, cfg.Context)
+	// 7. Create dispatcher
+	dispatcher := dispatch.NewDispatcher(agentMgr)
 
-	// 7. Wire broadcaster
-	dispatcher.SetBroadcaster(hub)
-	dispatcher.SetMCPRegistry(mcpRegistry)
-
-	// 8. Register all loaded agents
-	for _, ag := range agentMgr.All() {
-		dispatcher.RegisterAgent(ag)
-	}
-	// TODO: wire agent manager add/remove callbacks to dispatcher for dynamic agents
-
-	// 9. Create service and API
+	// 8. Create service and API
 	svc := api.NewService(dispatcher, store, agentMgr, hub, p)
 
 	router := chi.NewRouter()

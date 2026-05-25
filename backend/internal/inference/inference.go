@@ -149,8 +149,9 @@ type ContextPayload struct {
 	ToolSchemas     []string         // for XML tool-mode fallback
 	ToolDefinitions []ToolDefinition // for native tool calling adapters
 	CrossRoomFeed   []string         // pre-formatted strings, one per message
-	History         []HistoryMessage
-	RFC             string
+	History            []HistoryMessage // room conversation history, static for the request
+	CurrentTurnHistory []HistoryMessage // tool exchanges accumulated this inference turn
+	RFC                string
 	Temperature     *float64
 	MaxTokens       *int
 	Stop            []string

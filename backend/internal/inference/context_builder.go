@@ -59,13 +59,23 @@ func BuildSystemPrompt(payload ContextPayload, toolMode string) string {
 // from the payload: history messages in order, preserving native tool call
 // fields, followed by the RFC as a final user-role message.
 func BuildMessageSequence(payload ContextPayload) []ContextMessage {
-	msgs := make([]ContextMessage, 0, len(payload.History)+1)
+	msgs := make([]ContextMessage, 0, len(payload.History)+len(payload.CurrentTurnHistory)+1)
 
 	for _, h := range payload.History {
 		msgs = append(msgs, ContextMessage{
 			Role:       string(h.Role),
 			Content:    h.Content,
-			ToolCalls:    h.ToolCalls,
+			ToolCalls:  h.ToolCalls,
+			ToolCallID: h.ToolCallID,
+			Name:       h.Name,
+		})
+	}
+
+	for _, h := range payload.CurrentTurnHistory {
+		msgs = append(msgs, ContextMessage{
+			Role:       string(h.Role),
+			Content:    h.Content,
+			ToolCalls:  h.ToolCalls,
 			ToolCallID: h.ToolCallID,
 			Name:       h.Name,
 		})

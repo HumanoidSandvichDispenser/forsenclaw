@@ -25,7 +25,7 @@ type InferenceHandler struct {
 	assembler Assembler
 	executor  ToolExecutor
 
-	history              []inference.HistoryMessage
+	turnHistory          []inference.HistoryMessage // tool exchanges accumulated this turn
 	pendingConfirmations []confirmationEntry
 	turnCount            int // for generating unique dep IDs
 }
@@ -50,7 +50,7 @@ func (h *InferenceHandler) applyConfirmations(ctx context.Context, childResults 
 			continue // shouldn't happen — DAG ensures all deps resolve before re-calling
 		}
 		if result.Status == dag.StatusDenied {
-			h.history = append(h.history, inference.HistoryMessage{
+			h.turnHistory = append(h.turnHistory, inference.HistoryMessage{
 				Role:       inference.RoleTool,
 				Content:    "Action denied by user.",
 				Name:       entry.call.Function.Name,
@@ -62,7 +62,7 @@ func (h *InferenceHandler) applyConfirmations(ctx context.Context, childResults 
 		if err != nil {
 			return fmt.Errorf("executing tool %q: %w", entry.call.Function.Name, err)
 		}
-		h.history = append(h.history, inference.HistoryMessage{
+		h.turnHistory = append(h.turnHistory, inference.HistoryMessage{
 			Role:       inference.RoleTool,
 			Content:    toolResult,
 			Name:       entry.call.Function.Name,
@@ -77,10 +77,11 @@ func (h *InferenceHandler) applyConfirmations(ctx context.Context, childResults 
 func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.Result, error) {
 	for {
 		tools := h.executor.AllDefinitions()
-		payload, err := h.assembler.Assemble(ctx, h.agent, h.req, h.history, tools)
+		payload, err := h.assembler.Assemble(ctx, h.agent, h.req, tools)
 		if err != nil {
 			return nil, nil, err
 		}
+		payload.CurrentTurnHistory = h.turnHistory
 
 		provider, modelID, err := h.registry.ResolveTier(h.agent.Definition, inference.TierPrimary)
 		if err != nil {
@@ -105,7 +106,7 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 			return nil, &dag.Result{Status: dag.StatusAllowed, Content: response}, nil
 		}
 
-		h.history = append(h.history, inference.HistoryMessage{
+		h.turnHistory = append(h.turnHistory, inference.HistoryMessage{
 			Role:      inference.RoleAssistant,
 			Content:   response,
 			ToolCalls: toolCalls,
@@ -119,7 +120,7 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 				if err != nil {
 					return nil, nil, fmt.Errorf("executing tool %q: %w", tc.Function.Name, err)
 				}
-				h.history = append(h.history, inference.HistoryMessage{
+				h.turnHistory = append(h.turnHistory, inference.HistoryMessage{
 					Role:       inference.RoleTool,
 					Content:    toolResult,
 					Name:       tc.Function.Name,
@@ -127,7 +128,7 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 				})
 
 			case "deny":
-				h.history = append(h.history, inference.HistoryMessage{
+				h.turnHistory = append(h.turnHistory, inference.HistoryMessage{
 					Role:       inference.RoleTool,
 					Content:    "Action not permitted.",
 					Name:       tc.Function.Name,
