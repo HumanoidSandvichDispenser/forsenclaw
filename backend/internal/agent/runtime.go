@@ -11,7 +11,13 @@ import (
 // Assembler assembles the context window for an agent invocation.
 // Defined here as an interface to avoid an import cycle with the memory package.
 type Assembler interface {
-	// TODO: define when we know what the runtime needs
+	Assemble(ctx context.Context, agent *Agent, req Request, history []inference.HistoryMessage) (inference.ContextPayload, error)
+}
+
+// ToolExecutor executes a single tool call and returns the result content.
+// Defined here as an interface to avoid a direct dependency on the mcp package.
+type ToolExecutor interface {
+	Execute(ctx context.Context, call inference.ToolCallWire) (string, error)
 }
 
 // AgentRuntime drives the request DAG for a single agent.
@@ -23,6 +29,7 @@ type AgentRuntime struct {
 
 	registry  *inference.Registry
 	assembler Assembler
+	executor  ToolExecutor
 
 	// work is pulsed when new work may be available.
 	work chan struct{}
@@ -32,12 +39,13 @@ type AgentRuntime struct {
 }
 
 // NewAgentRuntime creates a runtime for the given agent.
-func NewAgentRuntime(agent *Agent, registry *inference.Registry, assembler Assembler) *AgentRuntime {
+func NewAgentRuntime(agent *Agent, registry *inference.Registry, assembler Assembler, executor ToolExecutor) *AgentRuntime {
 	r := &AgentRuntime{
 		agent:     agent,
 		dag:       dag.New(),
 		registry:  registry,
 		assembler: assembler,
+		executor:  executor,
 		work:      make(chan struct{}, 1),
 	}
 	r.idle = sync.NewCond(&r.mu)
@@ -46,8 +54,30 @@ func NewAgentRuntime(agent *Agent, registry *inference.Registry, assembler Assem
 
 // Enqueue adds a request to the DAG and wakes the run loop.
 func (r *AgentRuntime) Enqueue(req Request) {
-	r.dag.Add(req.ID, &InferenceHandler{req: req}, "")
+	r.dag.Add(req.ID, &InferenceHandler{
+		req:       req,
+		agent:     r.agent,
+		registry:  r.registry,
+		assembler: r.assembler,
+		executor:  r.executor,
+	}, "")
 	r.pulse()
+}
+
+// Respond delivers a user decision to a confirmation node.
+// Called by the API layer when the user approves, denies, or modifies a tool call.
+// Returns false if the node does not exist or is not a confirmation handler.
+func (r *AgentRuntime) Respond(nodeID string, result dag.Result) bool {
+	node := r.dag.Get(nodeID)
+	if node == nil {
+		return false
+	}
+	h, ok := node.Handler.(interface{ Respond(dag.Result) })
+	if !ok {
+		return false
+	}
+	h.Respond(result)
+	return true
 }
 
 // Run is the main processing loop. Runs until ctx is cancelled.
