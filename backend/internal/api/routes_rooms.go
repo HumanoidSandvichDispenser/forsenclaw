@@ -59,11 +59,6 @@ func (svc *Service) createRoom(ctx context.Context, input *CreateRoomRequest) (*
 		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	// Validate exactly 2 participants for FreeForm
-	if len(participants) != 2 {
-		return nil, huma.Error400BadRequest("freeform rooms require exactly 2 participants")
-	}
-
 	// Default clearance ceiling
 	clearanceCeiling := input.Body.ClearanceCeiling
 	if clearanceCeiling == 0 {
@@ -76,8 +71,6 @@ func (svc *Service) createRoom(ctx context.Context, input *CreateRoomRequest) (*
 		Name:             input.Body.Name,
 		Participants:     participants,
 		ClearanceCeiling: clearanceCeiling,
-		ProtocolType:     room.ProtocolType(input.Body.ProtocolType),
-		ProtocolConfig:   input.Body.ProtocolConfig,
 		CreatedAt:        time.Now().UTC(),
 		UpdatedAt:        time.Now().UTC(),
 	}
@@ -102,7 +95,6 @@ func (svc *Service) createRoom(ctx context.Context, input *CreateRoomRequest) (*
 func (svc *Service) listRooms(ctx context.Context, input *ListRoomsRequest) (*ListRoomsResponse, error) {
 	opts := room.ListOpts{
 		Participant: input.Participant,
-		Protocol:    input.Protocol,
 		Limit:       input.Limit,
 		Offset:      input.Offset,
 	}
@@ -194,8 +186,6 @@ func toRoomResponse(r room.Room) RoomResponse {
 		Name:             r.Name,
 		Participants:     participants,
 		ClearanceCeiling: r.ClearanceCeiling,
-		ProtocolType:     string(r.ProtocolType),
-		ProtocolConfig:   r.ProtocolConfig,
 		CreatedAt:        r.CreatedAt,
 		UpdatedAt:        r.UpdatedAt,
 	}

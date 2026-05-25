@@ -66,14 +66,9 @@ func (s *SQLiteStore) migrate() error {
 		name              TEXT,
 		participants      TEXT NOT NULL,
 		clearance_ceiling INTEGER NOT NULL DEFAULT 5,
-		protocol_type     TEXT NOT NULL DEFAULT 'freeform',
-		protocol_config   TEXT,
-		protocol_state    TEXT,
 		created_at        DATETIME NOT NULL,
 		updated_at        DATETIME NOT NULL
 	);
-
-	CREATE INDEX IF NOT EXISTS idx_rooms_protocol ON rooms(protocol_type);
 	`
 
 	if _, err := s.db.Exec(schemaV1); err != nil {
@@ -113,6 +108,46 @@ func (s *SQLiteStore) migrate() error {
 		}
 	}
 
+	// Schema v4: drop protocol columns from existing databases.
+	var hasProtocolType bool
+	protRows, err := s.db.Query(`SELECT 1 FROM pragma_table_info('rooms') WHERE name = 'protocol_type'`)
+	if err != nil {
+		return fmt.Errorf("schema v4 check: %w", err)
+	}
+	if protRows.Next() {
+		hasProtocolType = true
+	}
+	protRows.Close()
+
+	if hasProtocolType {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("schema v4 begin: %w", err)
+		}
+		v4stmts := []string{
+			`CREATE TABLE rooms_v4 (
+				id                TEXT PRIMARY KEY,
+				name              TEXT DEFAULT '',
+				participants      TEXT NOT NULL,
+				clearance_ceiling INTEGER NOT NULL DEFAULT 5,
+				created_at        DATETIME NOT NULL,
+				updated_at        DATETIME NOT NULL
+			)`,
+			`INSERT INTO rooms_v4 SELECT id, name, participants, clearance_ceiling, created_at, updated_at FROM rooms`,
+			`DROP TABLE rooms`,
+			`ALTER TABLE rooms_v4 RENAME TO rooms`,
+		}
+		for _, stmt := range v4stmts {
+			if _, err := tx.Exec(stmt); err != nil {
+				tx.Rollback()
+				return fmt.Errorf("schema v4: %w", err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("schema v4 commit: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -139,16 +174,13 @@ func (s *SQLiteStore) CreateRoom(ctx context.Context, room *Room) error {
 	}
 
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO rooms (id, name, participants, clearance_ceiling, protocol_type, protocol_config, protocol_state, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO rooms (id, name, participants, clearance_ceiling, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
 	`,
 		room.ID,
 		room.Name,
 		participantsJSON,
 		room.ClearanceCeiling,
-		room.ProtocolType,
-		room.ProtocolConfig,
-		room.ProtocolState,
 		room.CreatedAt.Format(time.RFC3339Nano),
 		room.UpdatedAt.Format(time.RFC3339Nano),
 	)
@@ -162,7 +194,7 @@ func (s *SQLiteStore) CreateRoom(ctx context.Context, room *Room) error {
 // GetRoom retrieves a room by ID. Returns an error if the room does not exist.
 func (s *SQLiteStore) GetRoom(ctx context.Context, id string) (*Room, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, name, participants, clearance_ceiling, protocol_type, protocol_config, protocol_state, created_at, updated_at
+		SELECT id, name, participants, clearance_ceiling, created_at, updated_at
 		FROM rooms
 		WHERE id = ?
 	`, id)
@@ -195,16 +227,11 @@ func (s *SQLiteStore) ListRooms(ctx context.Context, opts ListOpts) ([]Room, err
 	}
 
 	query := `
-		SELECT id, name, participants, clearance_ceiling, protocol_type, protocol_config, protocol_state, created_at, updated_at
+		SELECT id, name, participants, clearance_ceiling, created_at, updated_at
 		FROM rooms
 		WHERE 1=1
 	`
 	args := []any{}
-
-	if opts.Protocol != "" {
-		query += ` AND protocol_type = ?`
-		args = append(args, opts.Protocol)
-	}
 
 	query += ` ORDER BY updated_at DESC`
 
@@ -285,18 +312,12 @@ func (s *SQLiteStore) UpdateRoom(ctx context.Context, room *Room) error {
 		SET name = ?,
 		    participants = ?,
 		    clearance_ceiling = ?,
-		    protocol_type = ?,
-		    protocol_config = ?,
-		    protocol_state = ?,
 		    updated_at = ?
 		WHERE id = ?
 	`,
 		room.Name,
 		participantsJSON,
 		room.ClearanceCeiling,
-		room.ProtocolType,
-		room.ProtocolConfig,
-		room.ProtocolState,
 		room.UpdatedAt.Format(time.RFC3339Nano),
 		room.ID,
 	)
@@ -396,7 +417,6 @@ func (s *SQLiteStore) scanRoom(sc interface {
 }) (*Room, error) {
 	var room Room
 	var participantsJSON string
-	var protocolConfigNull, protocolStateNull sql.NullString
 	var createdAtStr, updatedAtStr string
 
 	err := sc.Scan(
@@ -404,9 +424,6 @@ func (s *SQLiteStore) scanRoom(sc interface {
 		&room.Name,
 		&participantsJSON,
 		&room.ClearanceCeiling,
-		&room.ProtocolType,
-		&protocolConfigNull,
-		&protocolStateNull,
 		&createdAtStr,
 		&updatedAtStr,
 	)
@@ -416,13 +433,6 @@ func (s *SQLiteStore) scanRoom(sc interface {
 
 	if err := json.Unmarshal([]byte(participantsJSON), &room.Participants); err != nil {
 		return nil, fmt.Errorf("unmarshal participants: %w", err)
-	}
-
-	if protocolConfigNull.Valid {
-		room.ProtocolConfig = json.RawMessage(protocolConfigNull.String)
-	}
-	if protocolStateNull.Valid {
-		room.ProtocolState = json.RawMessage(protocolStateNull.String)
 	}
 
 	room.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAtStr)

@@ -161,7 +161,6 @@ func TestCreateRoom(t *testing.T) {
 	body, _ := json.Marshal(map[string]any{
 		"participant_ids":   []string{"user:alice", "agent:housewife"},
 		"clearance_ceiling": 5,
-		"protocol_type":     "freeform",
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/rooms", bytes.NewReader(body))
@@ -184,9 +183,6 @@ func TestCreateRoom(t *testing.T) {
 	if len(room.Participants) != 2 {
 		t.Fatalf("expected 2 participants, got %d", len(room.Participants))
 	}
-	if room.ProtocolType != "freeform" {
-		t.Fatalf("expected protocol freeform, got %s", room.ProtocolType)
-	}
 }
 
 // TestCreateRoomValidation tests validation errors on room creation.
@@ -198,7 +194,7 @@ func TestCreateRoomValidation(t *testing.T) {
 
 	// Missing participant_ids
 	body, _ := json.Marshal(map[string]any{
-		"protocol_type": "freeform",
+		"clearance_ceiling": 5,
 	})
 	req := httptest.NewRequest(http.MethodPost, "/api/rooms", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -587,7 +583,6 @@ func createTestRoom(t *testing.T, svc *Service, router chi.Router) room.Room {
 	body, _ := json.Marshal(map[string]any{
 		"participant_ids":   []string{"user:alice", "agent:housewife"},
 		"clearance_ceiling": 5,
-		"protocol_type":     "freeform",
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/rooms", bytes.NewReader(body))

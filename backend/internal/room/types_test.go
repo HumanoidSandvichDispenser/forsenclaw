@@ -1,10 +1,8 @@
 package room
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestActor_Validate(t *testing.T) {
@@ -167,10 +165,10 @@ func TestRoom_Validate(t *testing.T) {
 		errMsg  string
 	}{
 		{
-			name: "valid freeform room",
+			name: "valid room",
 			room: Room{
 				ID: "room_1", Participants: []Actor{alice, housewife},
-				ClearanceCeiling: 5, ProtocolType: ProtocolFreeForm,
+				ClearanceCeiling: 5,
 			},
 			wantErr: false,
 		},
@@ -178,20 +176,20 @@ func TestRoom_Validate(t *testing.T) {
 			name: "valid room with name",
 			room: Room{
 				ID: "room_1", Name: "Alice's Chat",
-				Participants: []Actor{alice, housewife},
-				ClearanceCeiling: 5, ProtocolType: ProtocolFreeForm,
+				Participants:     []Actor{alice, housewife},
+				ClearanceCeiling: 5,
 			},
 			wantErr: false,
 		},
 		{
 			name:    "missing id",
-			room:    Room{Participants: []Actor{alice}, ClearanceCeiling: 5, ProtocolType: ProtocolFreeForm},
+			room:    Room{Participants: []Actor{alice}, ClearanceCeiling: 5},
 			wantErr: true,
 			errMsg:  "room ID is required",
 		},
 		{
 			name:    "no participants",
-			room:    Room{ID: "room_1", ClearanceCeiling: 5, ProtocolType: ProtocolFreeForm},
+			room:    Room{ID: "room_1", ClearanceCeiling: 5},
 			wantErr: true,
 			errMsg:  "at least one participant",
 		},
@@ -199,25 +197,16 @@ func TestRoom_Validate(t *testing.T) {
 			name: "negative clearance ceiling",
 			room: Room{
 				ID: "room_1", Participants: []Actor{alice},
-				ClearanceCeiling: -1, ProtocolType: ProtocolFreeForm,
+				ClearanceCeiling: -1,
 			},
 			wantErr: true,
 			errMsg:  "clearance_ceiling must be non-negative",
 		},
 		{
-			name: "unsupported protocol",
-			room: Room{
-				ID: "room_1", Participants: []Actor{alice},
-				ClearanceCeiling: 5, ProtocolType: "roundrobin",
-			},
-			wantErr: true,
-			errMsg:  "unsupported protocol type",
-		},
-		{
 			name: "participant exceeds ceiling",
 			room: Room{
 				ID: "room_1", Participants: []Actor{alice, scout},
-				ClearanceCeiling: 1, ProtocolType: ProtocolFreeForm,
+				ClearanceCeiling: 1,
 			},
 			wantErr: true,
 			errMsg:  "exceeds room ceiling",
@@ -226,7 +215,7 @@ func TestRoom_Validate(t *testing.T) {
 			name: "invalid participant",
 			room: Room{
 				ID: "room_1", Participants: []Actor{{ID: "", Type: ActorUser, Clearance: 1}},
-				ClearanceCeiling: 5, ProtocolType: ProtocolFreeForm,
+				ClearanceCeiling: 5,
 			},
 			wantErr: true,
 			errMsg:  "actor ID is required",
@@ -282,33 +271,6 @@ func TestRoom_ParticipantLookups(t *testing.T) {
 	}
 }
 
-func TestDefaultFreeFormConfig(t *testing.T) {
-	cfg := DefaultFreeFormConfig()
-	if cfg.MaxTurns != 20 {
-		t.Fatalf("expected default MaxTurns=20, got %d", cfg.MaxTurns)
-	}
-}
-
-// TestRoom_Validate_MaxTurnsRoom tests a valid room with max_turns configuration.
-func TestRoom_Validate_MaxTurnsRoom(t *testing.T) {
-	alice := Actor{ID: "user:alice", Type: ActorUser, Clearance: 5}
-	housewife := Actor{ID: "agent:housewife", Type: ActorAgent, Clearance: 5}
-
-	cfg, _ := json.Marshal(FreeFormConfig{MaxTurns: 10})
-	r := Room{
-		ID:               "room_1",
-		Participants:     []Actor{alice, housewife},
-		ClearanceCeiling: 5,
-		ProtocolType:     ProtocolFreeForm,
-		ProtocolConfig:   cfg,
-		CreatedAt:        time.Now(),
-		UpdatedAt:        time.Now(),
-	}
-
-	if err := r.Validate(); err != nil {
-		t.Fatalf("unexpected validation error: %v", err)
-	}
-}
 
 func contains(s, substr string) bool {
 	return strings.Contains(s, substr)

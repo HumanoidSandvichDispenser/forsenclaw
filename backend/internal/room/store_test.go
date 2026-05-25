@@ -2,7 +2,6 @@ package room
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -27,7 +26,6 @@ func newTestRoom(participants ...Actor) Room {
 		ID:               uuid.New().String(),
 		Participants:     participants,
 		ClearanceCeiling: 5,
-		ProtocolType:     ProtocolFreeForm,
 		CreatedAt:        time.Now().UTC(),
 		UpdatedAt:        time.Now().UTC(),
 	}
@@ -145,15 +143,6 @@ func TestSQLiteStore_ListRooms(t *testing.T) {
 	}
 	if len(aliceRooms) != 2 {
 		t.Fatalf("expected 2 rooms for alice, got %d", len(aliceRooms))
-	}
-
-	// Filter by protocol
-	freeformRooms, err := store.ListRooms(ctx, ListOpts{Protocol: string(ProtocolFreeForm), Limit: 10})
-	if err != nil {
-		t.Fatalf("ListRooms by protocol: %v", err)
-	}
-	if len(freeformRooms) != 3 {
-		t.Fatalf("expected 3 freeform rooms, got %d", len(freeformRooms))
 	}
 
 	// Pagination: limit
@@ -425,36 +414,3 @@ func TestSQLiteStore_DBFileCreated(t *testing.T) {
 	}
 }
 
-func TestSQLiteStore_ProtocolStatePersistence(t *testing.T) {
-	store, _ := newTestStore(t)
-	defer store.Close()
-
-	alice := Actor{ID: "user:alice", Type: ActorUser, Clearance: 5}
-	housewife := Actor{ID: "agent:housewife", Type: ActorAgent, Clearance: 5}
-	room := newTestRoom(alice, housewife)
-
-	// Set a protocol state
-	state := ProtocolState{Type: "freeform", State: []byte(`{"turn_count":3}`)}
-	room.ProtocolState, _ = json.Marshal(state)
-
-	ctx := context.Background()
-	if err := store.CreateRoom(ctx, &room); err != nil {
-		t.Fatalf("CreateRoom: %v", err)
-	}
-
-	got, err := store.GetRoom(ctx, room.ID)
-	if err != nil {
-		t.Fatalf("GetRoom: %v", err)
-	}
-
-	var gotState ProtocolState
-	if err := json.Unmarshal(got.ProtocolState, &gotState); err != nil {
-		t.Fatalf("unmarshal protocol state: %v", err)
-	}
-	if gotState.Type != "freeform" {
-		t.Errorf("protocol state type: got %q, want freeform", gotState.Type)
-	}
-	if string(gotState.State) != `{"turn_count":3}` {
-		t.Errorf("protocol state: got %s, want {\"turn_count\":3}", string(gotState.State))
-	}
-}
