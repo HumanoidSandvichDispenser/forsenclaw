@@ -76,7 +76,8 @@ func (h *InferenceHandler) applyConfirmations(ctx context.Context, childResults 
 // produces a final response or must yield confirmation deps.
 func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.Result, error) {
 	for {
-		payload, err := h.assembler.Assemble(ctx, h.agent, h.req, h.history)
+		tools := h.executor.AllDefinitions()
+		payload, err := h.assembler.Assemble(ctx, h.agent, h.req, h.history, tools)
 		if err != nil {
 			return nil, nil, err
 		}

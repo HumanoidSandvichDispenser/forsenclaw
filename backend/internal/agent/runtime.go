@@ -14,9 +14,10 @@ type Assembler interface {
 	Assemble(ctx context.Context, agent *Agent, req Request, history []inference.HistoryMessage, tools []inference.ToolDefinition) (inference.ContextPayload, error)
 }
 
-// ToolExecutor executes a single tool call and returns the result content.
+// ToolExecutor executes tool calls and supplies tool definitions.
 // Defined here as an interface to avoid a direct dependency on the mcp package.
 type ToolExecutor interface {
+	AllDefinitions() []inference.ToolDefinition
 	Execute(ctx context.Context, call inference.ToolCallWire) (string, error)
 }
 

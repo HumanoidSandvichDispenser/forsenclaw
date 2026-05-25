@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"context"
 	"log"
 	"path/filepath"
 	"time"
@@ -153,6 +154,24 @@ func (l *Logger) Log(e Event) {
 	default:
 		log.Printf("audit: buffer full, dropping event %s for agent %q", e.Kind, e.AgentID)
 	}
+}
+
+// ctxKey is the unexported context key type for audit values.
+type ctxKey int
+
+const agentIDKey ctxKey = iota
+
+// WithAgentID returns a context carrying the given agent ID for audit logging.
+func WithAgentID(ctx context.Context, agentID string) context.Context {
+	return context.WithValue(ctx, agentIDKey, agentID)
+}
+
+// AgentIDFromContext returns the agent ID stored in the context, or empty string.
+func AgentIDFromContext(ctx context.Context) string {
+	if id, ok := ctx.Value(agentIDKey).(string); ok {
+		return id
+	}
+	return ""
 }
 
 // Close drains the event buffer and stops the background goroutine.

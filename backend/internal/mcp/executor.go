@@ -2,200 +2,75 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"log"
-	"strings"
-	"time"
 
-	"github.com/humanoidsandvichdispenser/hearth/backend/internal/config"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/audit"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
 )
 
-// AuditLogger records tool invocations.
-type AuditLogger interface {
-	LogToolCall(entry ToolAuditEntry)
-}
-
-// ToolAuditEntry is a single audit log record.
-type ToolAuditEntry struct {
-	Timestamp  time.Time
-	AgentID    string
-	ToolID     string
-	CallID     string
-	Parameters map[string]string
-	Effect     string
-	Result     string
-	IsError    bool
-}
-
-// ConfirmationRequest is sent to the confirmation channel when a tool requires
-// user approval before execution.
-type ConfirmationRequest struct {
-	Call     ToolCall
-	Response chan<- bool // send true to approve, false to reject
-}
-
-// ExecutorConfig controls executor behaviour.
-type ExecutorConfig struct {
-	// MaxIterations is the hard cap on agentic loop turns. Default 10.
-	MaxIterations int
-}
-
-// Executor runs permission-gated tool calls on behalf of an agent.
+// Executor executes tool calls against the MCP registry and logs each
+// invocation via the audit logger. Permission gating and confirmation are
+// handled upstream by the caller (InferenceHandler / ConfirmationHandler).
 type Executor struct {
-	registry      Registry
-	permissions   []config.Permission
-	confirmations chan<- ConfirmationRequest // nil means require_confirmation = auto-deny
-	audit         AuditLogger
-	Cfg           ExecutorConfig
+	registry Registry
+	audit    *audit.Logger
 }
 
-// NewExecutor creates a permission-gated Executor.
-func NewExecutor(
-	registry Registry,
-	permissions []config.Permission,
-	confirmations chan<- ConfirmationRequest,
-	audit AuditLogger,
-	cfg ExecutorConfig,
-) *Executor {
-	if cfg.MaxIterations <= 0 {
-		cfg.MaxIterations = 10
-	}
-	return &Executor{
-		registry:      registry,
-		permissions:   permissions,
-		confirmations: confirmations,
-		audit:         audit,
-		Cfg:           cfg,
-	}
+// NewExecutor creates an Executor backed by the given registry and audit logger.
+func NewExecutor(registry Registry, auditLogger *audit.Logger) *Executor {
+	return &Executor{registry: registry, audit: auditLogger}
 }
 
-// Execute checks permissions, routes to the MCP server, and returns a ToolResult.
-// It never returns a Go error — all failure modes are captured in ToolResult.IsError.
-func (e *Executor) Execute(ctx context.Context, agentID string, call ToolCall) ToolResult {
-	effect := e.checkPermission(call.ToolID)
+// AllDefinitions returns all tool definitions from the registry.
+// Satisfies the agent.ToolExecutor interface.
+func (e *Executor) AllDefinitions() []inference.ToolDefinition {
+	return e.registry.AllDefinitions()
+}
 
-	result := ToolResult{
-		CallID: call.ID,
-		ToolID: call.ToolID,
+// Execute resolves the tool, converts JSON arguments, calls the MCP client,
+// and logs the outcome. Satisfies the agent.ToolExecutor interface.
+func (e *Executor) Execute(ctx context.Context, call inference.ToolCallWire) (string, error) {
+	client, err := e.registry.Resolve(call.Function.Name)
+	if err != nil {
+		return "", fmt.Errorf("resolving tool %q: %w", call.Function.Name, err)
 	}
 
-	switch effect {
-	case "deny":
-		log.Printf("mcp: tool %q (call %s) denied by permission policy", call.ToolID, call.ID)
-		result.IsError = true
-		result.Error = fmt.Sprintf("permission denied: tool:invoke[%s]", call.ToolID)
-
-	case "require_confirmation":
-		if e.confirmations == nil {
-			result.IsError = true
-			result.Error = fmt.Sprintf("require_confirmation: no confirmation channel available for tool:invoke[%s]", call.ToolID)
-		} else {
-			respCh := make(chan bool, 1)
-			e.confirmations <- ConfirmationRequest{
-				Call:     call,
-				Response: respCh,
-			}
-			approved := <-respCh
-			if !approved {
-				result.IsError = true
-				result.Error = fmt.Sprintf("permission denied: user rejected tool:invoke[%s]", call.ToolID)
-			} else {
-				effect = "require_confirmation:approved"
-				result = e.callMCP(ctx, call)
-			}
+	var params map[string]string
+	if call.Function.Arguments != "" {
+		if err := json.Unmarshal([]byte(call.Function.Arguments), &params); err != nil {
+			return "", fmt.Errorf("parsing arguments for tool %q: %w", call.Function.Name, err)
 		}
-
-	case "allow":
-		result = e.callMCP(ctx, call)
 	}
 
-	if e.audit != nil {
-		auditResult := result.Content
-		if result.IsError {
-			auditResult = result.Error
-		}
-		e.audit.LogToolCall(ToolAuditEntry{
-			Timestamp:  time.Now().UTC(),
-			AgentID:    agentID,
-			ToolID:     call.ToolID,
-			CallID:     call.ID,
-			Parameters: call.Parameters,
-			Effect:     effect,
-			Result:     auditResult,
-			IsError:    result.IsError,
+	result, err := client.Call(ctx, call.Function.Name, params)
+
+	agentID := audit.AgentIDFromContext(ctx)
+	if err != nil {
+		e.audit.Log(audit.Event{
+			Level:   audit.LevelWarn,
+			Kind:    audit.KindToolFailed,
+			AgentID: agentID,
+			Fields: map[string]any{
+				"tool_id": call.Function.Name,
+				"call_id": call.ID,
+				"args":    params,
+				"error":   err.Error(),
+			},
 		})
+		return "", fmt.Errorf("calling tool %q: %w", call.Function.Name, err)
 	}
 
-	return result
-}
+	e.audit.Log(audit.Event{
+		Level:   audit.LevelInfo,
+		Kind:    audit.KindToolInvoked,
+		AgentID: agentID,
+		Fields: map[string]any{
+			"tool_id": call.Function.Name,
+			"call_id": call.ID,
+			"args":    params,
+		},
+	})
 
-// checkPermission returns the effect for the given tool ID by walking the
-// agent's permission list for the first matching tool:invoke entry.
-// Returns "deny" if no entry matches.
-func (e *Executor) checkPermission(toolID string) string {
-	// TODO: instead of first matching, we will later support specificity-based
-	// conflict resolution
-	for _, p := range e.permissions {
-		if p.Action != "tool:invoke" {
-			continue
-		}
-		if matchScope(p.Scope, toolID) {
-			return p.Effect
-		}
-	}
-	return "deny"
-}
-
-// matchScope returns true if the scope pattern matches the toolID.
-// Supported: exact match, "*" (all), "prefix:*" (prefix wildcard, e.g. "email:*").
-func matchScope(scope, toolID string) bool {
-	if scope == "*" {
-		return true
-	}
-	if strings.HasSuffix(scope, ":*") {
-		prefix := strings.TrimSuffix(scope, "*")
-		return strings.HasPrefix(toolID, prefix)
-	}
-	return scope == toolID
-}
-
-// callMCP invokes the MCP server for the given call.
-func (e *Executor) callMCP(ctx context.Context, call ToolCall) ToolResult {
-	if e.registry == nil {
-		return ToolResult{
-			CallID:  call.ID,
-			ToolID:  call.ToolID,
-			IsError: true,
-			Error:   "no MCP registry configured",
-		}
-	}
-
-	client, err := e.registry.Resolve(call.ToolID)
-	if err != nil {
-		return ToolResult{
-			CallID:  call.ID,
-			ToolID:  call.ToolID,
-			IsError: true,
-			Error:   err.Error(),
-		}
-	}
-
-	log.Printf("mcp: invoking tool %q (call %s) with params %v", call.ToolID, call.ID, call.Parameters)
-	content, err := client.Call(ctx, call.ToolID, call.Parameters)
-	if err != nil {
-		log.Printf("mcp: tool %q (call %s) failed: %v", call.ToolID, call.ID, err)
-		return ToolResult{
-			CallID:  call.ID,
-			ToolID:  call.ToolID,
-			IsError: true,
-			Error:   err.Error(),
-		}
-	}
-
-	log.Printf("mcp: tool %q (call %s) succeeded (%d bytes)", call.ToolID, call.ID, len(content))
-	return ToolResult{
-		CallID:  call.ID,
-		ToolID:  call.ToolID,
-		Content: content,
-	}
+	return result, nil
 }
