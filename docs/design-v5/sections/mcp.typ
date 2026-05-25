@@ -57,6 +57,12 @@ An agent permitted `tool:invoke[email:*]` with `require_confirmation` for
 send. This confirmation creates a blocked node in the Request DAG (see @rooms)
 that resolves on user response.
 
+OPA evaluation runs in the dispatch layer *before* the executor is invoked. The
+executor itself is a pure transport layer: it resolves the tool, converts
+arguments, calls the MCP client, and records the audit event. It assumes OPA
+has already approved the call. This separation keeps the executor stateless and
+testable independently of the policy engine.
+
 == DLP Boundary
 
 The MCP tool integration surface is bounded by the current room clearance.

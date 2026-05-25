@@ -91,6 +91,32 @@ Classification at write time: a message sent in a clearance-3 room is tagged
 clearance-3 in the transcript and never appears in a clearance-2 retrieval.
 Default classification is the sender's clearance, capped at the room's ceiling.
 
+=== Soft Integrity Tagging (Soft Biba)
+
+True Biba enforcement — no-read-down and no-write-up as hard integrity rules —
+is a v2 concern. v1 implements a lightweight integrity signal: when input
+arrives from a lower-clearance source in a higher-clearance context, the
+assembler annotates it:
+
+```
+[Source: clearance-2 (external) — treat with appropriate skepticism]
+<content>
+```
+
+This makes provenance explicit without blocking the information. The annotation
+applies to:
+
+- Messages in the transcript tagged below the current room ceiling.
+- Tool results from external sources (clearance determined by the tool's
+  declared level).
+- Content forwarded from lower-clearance rooms via the cross-room feed.
+
+The agent may act on the content but is aware it came from a less-trusted
+source and should not treat it as high-trust personal context.
+
+Full Biba (hard no-read-down, write integrity labels, subject integrity levels)
+is deferred to v2.
+
 === Explicit Cross-Clearance Handoff
 
 When an agent deliberately wants to pass sensitive content down --- e.g., the
