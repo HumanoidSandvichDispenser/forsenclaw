@@ -11,7 +11,7 @@ import (
 // Assembler assembles the context window for an agent invocation.
 // Defined here as an interface to avoid an import cycle with the memory package.
 type Assembler interface {
-	Assemble(ctx context.Context, agent *Agent, req Request, history []inference.HistoryMessage) (inference.ContextPayload, error)
+	Assemble(ctx context.Context, agent *Agent, req Request, history []inference.HistoryMessage, tools []inference.ToolDefinition) (inference.ContextPayload, error)
 }
 
 // ToolExecutor executes a single tool call and returns the result content.

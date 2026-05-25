@@ -34,6 +34,24 @@ type ServerConfig struct {
 	Embeddings EmbeddingsConfig `yaml:"embeddings"`
 	Context    ContextConfig    `yaml:"context"`
 	Tools      ToolsConfig      `yaml:"tools"`
+	Audit      AuditConfig      `yaml:"audit"`
+}
+
+// AuditConfig configures the audit logging pipeline.
+type AuditConfig struct {
+	Sinks []AuditSinkConfig `yaml:"sinks"`
+}
+
+// AuditSinkConfig defines a single audit output destination.
+type AuditSinkConfig struct {
+	// Type is "console" or "sqlite".
+	Type string `yaml:"type"`
+	// Kinds is a list of glob patterns (e.g. "permission.*", "*") that this sink receives.
+	// If empty, the sink receives all events.
+	Kinds []string `yaml:"kinds"`
+	// MinLevel is the minimum severity to forward to this sink ("debug", "info", "warn", "error").
+	// Defaults to "info".
+	MinLevel string `yaml:"min_level"`
 }
 
 // EnvString is a scalar config value that can be literal or interpolated as
