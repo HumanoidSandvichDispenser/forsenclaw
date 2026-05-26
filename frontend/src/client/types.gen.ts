@@ -79,9 +79,9 @@ export type CreateRoomRequestBody = {
      */
     readonly $schema?: string;
     /**
-     * Max clearance tier for messages (default 5)
+      * Room clearance tier (default 5)
      */
-    clearance_ceiling: number;
+    clearance: number;
     /**
      * Actor IDs (user:<name> or agent:<name>)
      */
@@ -237,7 +237,7 @@ export type RoomResponse = {
     /**
      * Max clearance tier
      */
-    clearance_ceiling: number;
+    clearance: number;
     /**
      * Room creation time
      */
@@ -331,9 +331,9 @@ export type AgentResponseWritable = {
 
 export type CreateRoomRequestBodyWritable = {
     /**
-     * Max clearance tier for messages (default 5)
+      * Room clearance tier (default 5)
      */
-    clearance_ceiling: number;
+    clearance: number;
     /**
      * Actor IDs (user:<name> or agent:<name>)
      */
@@ -434,7 +434,7 @@ export type RoomResponseWritable = {
     /**
      * Max clearance tier
      */
-    clearance_ceiling: number;
+    clearance: number;
     /**
      * Room creation time
      */

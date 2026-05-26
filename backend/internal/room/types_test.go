@@ -168,7 +168,7 @@ func TestRoom_Validate(t *testing.T) {
 			name: "valid room",
 			room: Room{
 				ID: "room_1", Participants: []Actor{alice, housewife},
-				ClearanceCeiling: 5,
+				Clearance: 5,
 			},
 			wantErr: false,
 		},
@@ -177,19 +177,19 @@ func TestRoom_Validate(t *testing.T) {
 			room: Room{
 				ID: "room_1", Name: "Alice's Chat",
 				Participants:     []Actor{alice, housewife},
-				ClearanceCeiling: 5,
+				Clearance: 5,
 			},
 			wantErr: false,
 		},
 		{
 			name:    "missing id",
-			room:    Room{Participants: []Actor{alice}, ClearanceCeiling: 5},
+			room:    Room{Participants: []Actor{alice}, Clearance: 5},
 			wantErr: true,
 			errMsg:  "room ID is required",
 		},
 		{
 			name:    "no participants",
-			room:    Room{ID: "room_1", ClearanceCeiling: 5},
+			room:    Room{ID: "room_1", Clearance: 5},
 			wantErr: true,
 			errMsg:  "at least one participant",
 		},
@@ -197,25 +197,25 @@ func TestRoom_Validate(t *testing.T) {
 			name: "negative clearance ceiling",
 			room: Room{
 				ID: "room_1", Participants: []Actor{alice},
-				ClearanceCeiling: -1,
+				Clearance: -1,
 			},
 			wantErr: true,
-			errMsg:  "clearance_ceiling must be non-negative",
+			errMsg:  "clearance must be non-negative",
 		},
 		{
 			name: "participant exceeds ceiling",
 			room: Room{
 				ID: "room_1", Participants: []Actor{alice, scout},
-				ClearanceCeiling: 1,
+				Clearance: 1,
 			},
 			wantErr: true,
-			errMsg:  "exceeds room ceiling",
+			errMsg:  "exceeds room clearance",
 		},
 		{
 			name: "invalid participant",
 			room: Room{
 				ID: "room_1", Participants: []Actor{{ID: "", Type: ActorUser, Clearance: 1}},
-				ClearanceCeiling: 5,
+				Clearance: 5,
 			},
 			wantErr: true,
 			errMsg:  "actor ID is required",

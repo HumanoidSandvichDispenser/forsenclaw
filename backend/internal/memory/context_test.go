@@ -63,7 +63,7 @@ func newTestRoom(t *testing.T, store *storedb.SQLiteStore, ceiling int, particip
 	t.Helper()
 	r := room.Room{
 		ID:               "room-test-" + t.Name(),
-		ClearanceCeiling: ceiling,
+		Clearance: ceiling,
 		Participants:     participants,
 		CreatedAt:        time.Now().UTC(),
 		UpdatedAt:        time.Now().UTC(),

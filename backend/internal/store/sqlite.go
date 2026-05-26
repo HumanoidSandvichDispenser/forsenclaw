@@ -52,12 +52,12 @@ func (s *SQLiteStore) Close() error {
 func (s *SQLiteStore) migrate() error {
 	const schemaV1 = `
 	CREATE TABLE IF NOT EXISTS rooms (
-		id                TEXT PRIMARY KEY,
-		name              TEXT,
-		participants      TEXT NOT NULL,
-		clearance_ceiling INTEGER NOT NULL DEFAULT 5,
-		created_at        DATETIME NOT NULL,
-		updated_at        DATETIME NOT NULL
+		id           TEXT PRIMARY KEY,
+		name         TEXT,
+		participants TEXT NOT NULL,
+		clearance    INTEGER NOT NULL DEFAULT 5,
+		created_at   DATETIME NOT NULL,
+		updated_at   DATETIME NOT NULL
 	);
 	`
 	if _, err := s.db.Exec(schemaV1); err != nil {
@@ -112,14 +112,15 @@ func (s *SQLiteStore) migrate() error {
 		}
 		v4stmts := []string{
 			`CREATE TABLE rooms_v4 (
-				id                TEXT PRIMARY KEY,
-				name              TEXT DEFAULT '',
-				participants      TEXT NOT NULL,
-				clearance_ceiling INTEGER NOT NULL DEFAULT 5,
-				created_at        DATETIME NOT NULL,
-				updated_at        DATETIME NOT NULL
+				id           TEXT PRIMARY KEY,
+				name         TEXT DEFAULT '',
+				participants TEXT NOT NULL,
+				clearance    INTEGER NOT NULL DEFAULT 5,
+				created_at   DATETIME NOT NULL,
+				updated_at   DATETIME NOT NULL
 			)`,
-			`INSERT INTO rooms_v4 SELECT id, name, participants, clearance_ceiling, created_at, updated_at FROM rooms`,
+			`INSERT INTO rooms_v4 (id, name, participants, clearance, created_at, updated_at)
+				SELECT id, name, participants, clearance_ceiling, created_at, updated_at FROM rooms`,
 			`DROP TABLE rooms`,
 			`ALTER TABLE rooms_v4 RENAME TO rooms`,
 		}
@@ -131,6 +132,23 @@ func (s *SQLiteStore) migrate() error {
 		}
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("schema v4 commit: %w", err)
+		}
+	}
+
+	// Schema v5: rename clearance_ceiling to clearance for existing databases.
+	var hasOldCol bool
+	oldRows, err := s.db.Query(`SELECT 1 FROM pragma_table_info('rooms') WHERE name = 'clearance_ceiling'`)
+	if err != nil {
+		return fmt.Errorf("schema v5 check: %w", err)
+	}
+	if oldRows.Next() {
+		hasOldCol = true
+	}
+	oldRows.Close()
+
+	if hasOldCol {
+		if _, err := s.db.Exec(`ALTER TABLE rooms RENAME COLUMN clearance_ceiling TO clearance`); err != nil {
+			return fmt.Errorf("schema v5: %w", err)
 		}
 	}
 
@@ -149,7 +167,7 @@ func (s *SQLiteStore) scanRoom(sc interface {
 		&r.ID,
 		&r.Name,
 		&participantsJSON,
-		&r.ClearanceCeiling,
+		&r.Clearance,
 		&createdAtStr,
 		&updatedAtStr,
 	)

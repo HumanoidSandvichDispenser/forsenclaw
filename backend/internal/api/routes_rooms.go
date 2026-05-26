@@ -60,18 +60,17 @@ func (svc *Service) createRoom(ctx context.Context, input *CreateRoomRequest) (*
 		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	// Default clearance ceiling
-	clearanceCeiling := input.Body.ClearanceCeiling
-	if clearanceCeiling == 0 {
-		clearanceCeiling = 5
+	// Default clearance
+	clearance := input.Body.Clearance
+	if clearance == 0 {
+		clearance = 5
 	}
 
-	// Build room
 	r := room.Room{
 		ID:               uuid.New().String(),
 		Name:             input.Body.Name,
 		Participants:     participants,
-		ClearanceCeiling: clearanceCeiling,
+		Clearance:        clearance,
 		CreatedAt:        time.Now().UTC(),
 		UpdatedAt:        time.Now().UTC(),
 	}
@@ -179,7 +178,7 @@ func toRoomResponse(r room.Room) RoomResponse {
 		ID:               r.ID,
 		Name:             r.Name,
 		Participants:     participants,
-		ClearanceCeiling: r.ClearanceCeiling,
+		Clearance: r.Clearance,
 		CreatedAt:        r.CreatedAt,
 		UpdatedAt:        r.UpdatedAt,
 	}

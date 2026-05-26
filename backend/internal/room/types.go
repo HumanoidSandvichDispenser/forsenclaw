@@ -109,7 +109,7 @@ type Message struct {
 	Sender Actor `json:"sender"`
 
 	// ClearanceTag is the data classification of this message. It defaults to
-	// min(sender.Clearance, room.ClearanceCeiling) at write time.
+	// min(sender.Clearance, room.Clearance) at write time.
 	ClearanceTag int `json:"clearance_tag"`
 
 	// Type distinguishes user/agent messages from system events.
@@ -154,7 +154,7 @@ func (m Message) Validate() error {
 	return nil
 }
 
-// Room is a clearance-bounded conversation space. The clearance ceiling is the
+// Room is a clearance-bounded conversation space. Clearance is the
 // primary structural boundary: it determines which memory strata agents
 // assemble, how messages are classified at write time, and what information
 // can flow in or out of the room. Rooms are context isolation units, not
@@ -169,9 +169,10 @@ type Room struct {
 	// Participants are the actors currently in the room.
 	Participants []Actor `json:"participants"`
 
-	// ClearanceCeiling is the highest clearance tier any message may carry,
-	// and the scope at which agents assemble context when operating here.
-	ClearanceCeiling int `json:"clearance_ceiling"`
+	// Clearance is the room's data classification tier. It determines which
+	// memory strata agents assemble and how messages are classified at write
+	// time. The effective clearance for an agent is min(agent.Clearance, room.Clearance).
+	Clearance int `json:"clearance"`
 
 	// CreatedAt is when the room was created.
 	CreatedAt time.Time `json:"created_at"`
@@ -188,16 +189,16 @@ func (r Room) Validate() error {
 	if len(r.Participants) == 0 {
 		return fmt.Errorf("room must have at least one participant")
 	}
-	if r.ClearanceCeiling < 0 {
-		return fmt.Errorf("room clearance_ceiling must be non-negative")
+	if r.Clearance < 0 {
+		return fmt.Errorf("room clearance must be non-negative")
 	}
 	for i, p := range r.Participants {
 		if err := p.Validate(); err != nil {
 			return fmt.Errorf("participant %d: %w", i, err)
 		}
-		if p.Clearance > r.ClearanceCeiling {
-			return fmt.Errorf("participant %q clearance %d exceeds room ceiling %d",
-				p.ID, p.Clearance, r.ClearanceCeiling)
+		if p.Clearance > r.Clearance {
+			return fmt.Errorf("participant %q clearance %d exceeds room clearance %d",
+				p.ID, p.Clearance, r.Clearance)
 		}
 	}
 	return nil

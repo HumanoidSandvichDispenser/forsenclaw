@@ -56,7 +56,7 @@ export const useRoomsStore = defineStore('rooms', () => {
       client: clientStore.client,
       throwOnError: true,
       body: {
-        clearance_ceiling: 5,
+        clearance: 5,
         participant_ids: participantIds,
         protocol_type: 'freeform',
       },

@@ -40,14 +40,14 @@ func NewAssembler(p *paths.Paths, memBudget int, rooms store.RoomRepository, mes
 // returns a ContextPayload ready for inference.
 func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req agent.Request, tools []inference.ToolDefinition) (inference.ContextPayload, error) {
 	var history []room.Message
-	clearanceCeiling := 5 // default: full clearance when no room context
+	effectiveClearance := 5 // default: full clearance when no room context
 
 	if req.Payload.RoomID != "" && a.rooms != nil && a.messages != nil {
 		r, err := a.rooms.GetRoom(ctx, req.Payload.RoomID)
 		if err != nil {
 			return inference.ContextPayload{}, fmt.Errorf("get room: %w", err)
 		}
-		clearanceCeiling = min(ag.Definition.Clearance, r.ClearanceCeiling)
+		effectiveClearance = min(ag.Definition.Clearance, r.Clearance)
 
 		offset, err := a.messages.GetCompactionOffset(ctx, ag.Name(), req.Payload.RoomID)
 		if err != nil {
@@ -63,11 +63,11 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req agent.Req
 		}
 
 		for _, m := range msgs {
-			if m.ClearanceTag > clearanceCeiling {
-				// Structural filter: message above ceiling is not present.
+			if m.ClearanceTag > effectiveClearance {
+				// Structural filter: message above effective clearance is not present.
 				continue
 			}
-			if m.ClearanceTag < clearanceCeiling {
+			if m.ClearanceTag < effectiveClearance {
 				// Soft Biba: annotate lower-clearance input with a trust label.
 				m.Content = fmt.Sprintf(
 					"[Source: clearance-%d — treat with appropriate skepticism]\n%s",
@@ -91,7 +91,7 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req agent.Req
 	if req.Payload.RoomID != "" {
 		notice := fmt.Sprintf(
 			"You are operating at clearance level %d. Higher-clearance context exists but is not available in this context. If a question requires deeper personal context, say so rather than guessing.",
-			clearanceCeiling,
+			effectiveClearance,
 		)
 		assembled.SystemPrompt = notice + "\n\n" + assembled.SystemPrompt
 	}

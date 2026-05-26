@@ -33,10 +33,10 @@ func (s *SQLiteStore) CreateRoom(ctx context.Context, r *room.Room) error {
 	}
 
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO rooms (id, name, participants, clearance_ceiling, created_at, updated_at)
+		INSERT INTO rooms (id, name, participants, clearance, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?)
 	`,
-		r.ID, r.Name, participantsJSON, r.ClearanceCeiling,
+		r.ID, r.Name, participantsJSON, r.Clearance,
 		r.CreatedAt.Format(time.RFC3339Nano),
 		r.UpdatedAt.Format(time.RFC3339Nano),
 	)
@@ -49,7 +49,7 @@ func (s *SQLiteStore) CreateRoom(ctx context.Context, r *room.Room) error {
 // GetRoom retrieves a room by ID. Returns an error if the room does not exist.
 func (s *SQLiteStore) GetRoom(ctx context.Context, id string) (*room.Room, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, name, participants, clearance_ceiling, created_at, updated_at
+		SELECT id, name, participants, clearance, created_at, updated_at
 		FROM rooms WHERE id = ?
 	`, id)
 
@@ -78,7 +78,7 @@ func (s *SQLiteStore) ListRooms(ctx context.Context, opts ListOpts) ([]room.Room
 	}
 
 	query := `
-		SELECT id, name, participants, clearance_ceiling, created_at, updated_at
+		SELECT id, name, participants, clearance, created_at, updated_at
 		FROM rooms ORDER BY updated_at DESC
 	`
 	args := []any{}
@@ -141,10 +141,10 @@ func (s *SQLiteStore) UpdateRoom(ctx context.Context, r *room.Room) error {
 	r.UpdatedAt = time.Now().UTC()
 
 	result, err := s.db.ExecContext(ctx, `
-		UPDATE rooms SET name = ?, participants = ?, clearance_ceiling = ?, updated_at = ?
+		UPDATE rooms SET name = ?, participants = ?, clearance = ?, updated_at = ?
 		WHERE id = ?
 	`,
-		r.Name, participantsJSON, r.ClearanceCeiling,
+		r.Name, participantsJSON, r.Clearance,
 		r.UpdatedAt.Format(time.RFC3339Nano), r.ID,
 	)
 	if err != nil {

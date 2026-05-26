@@ -45,7 +45,7 @@ Frontend follow-up (optional):
 
 F4. Rooms + FreeForm Protocol + RFC Dispatcher
 - [X] Define Room, Message, RFC, RFCPayload, Actor types
-- [X] SQLite schema: rooms table (participants, clearance_ceiling, protocol_type, protocol_state)
+- [X] SQLite schema: rooms table (participants, clearance, protocol_type, protocol_state)
 - [X] Implement JSONL append-only transcript writer for rooms
 - [X] Implement Dispatcher interface and per-agent RFC queue
 - [X] Implement Protocol interface and the FreeForm protocol (2 participants)

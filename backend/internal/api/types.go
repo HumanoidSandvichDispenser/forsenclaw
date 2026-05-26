@@ -15,7 +15,7 @@ type CreateRoomRequest struct {
 	Body struct {
 		ParticipantIDs   []string `json:"participant_ids"   validate:"required,min=1" doc:"Actor IDs (user:<name> or agent:<name>)"`
 		Name             string   `json:"name,omitempty"    doc:"Human-readable room name" example:"Alice's Kitchen"`
-		ClearanceCeiling int      `json:"clearance_ceiling" validate:"min=1"         doc:"Max clearance tier for messages (default 5)" example:"5"`
+		Clearance int      `json:"clearance" validate:"min=1"         doc:"Room clearance tier (default 5)" example:"5"`
 	}
 }
 
@@ -143,7 +143,7 @@ type RoomResponse struct {
 	ID               string          `json:"id"                doc:"Unique room ID" example:"room_abc123"`
 	Name             string          `json:"name"              doc:"Human-readable room name" example:"Alice's Kitchen"`
 	Participants     []ActorResponse `json:"participants"      doc:"Room participants"`
-	ClearanceCeiling int             `json:"clearance_ceiling" doc:"Max clearance tier" example:"5"`
+	Clearance int             `json:"clearance" doc:"Room clearance tier" example:"5"`
 	CreatedAt        time.Time       `json:"created_at"        doc:"Room creation time"`
 	UpdatedAt        time.Time       `json:"updated_at"        doc:"Last update time"`
 }

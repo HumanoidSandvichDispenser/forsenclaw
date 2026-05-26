@@ -26,7 +26,7 @@ func newTestRoom(participants ...room.Actor) room.Room {
 	return room.Room{
 		ID:               uuid.New().String(),
 		Participants:     participants,
-		ClearanceCeiling: 5,
+		Clearance: 5,
 		CreatedAt:        time.Now().UTC(),
 		UpdatedAt:        time.Now().UTC(),
 	}
@@ -56,8 +56,8 @@ func TestSQLiteStore_CreateRoom(t *testing.T) {
 	if len(got.Participants) != 2 {
 		t.Errorf("participant count: got %d, want 2", len(got.Participants))
 	}
-	if got.ClearanceCeiling != 5 {
-		t.Errorf("clearance: got %d, want 5", got.ClearanceCeiling)
+	if got.Clearance != 5 {
+		t.Errorf("clearance: got %d, want 5", got.Clearance)
 	}
 }
 
@@ -207,7 +207,7 @@ func TestSQLiteStore_UpdateRoom(t *testing.T) {
 	scout := room.Actor{ID: "agent:scout", Type: room.ActorAgent, Clearance: 1}
 
 	r := newTestRoom(alice, housewife)
-	r.ClearanceCeiling = 1
+	r.Clearance = 1
 	ctx := context.Background()
 	if err := store.CreateRoom(ctx, &r); err != nil {
 		t.Fatalf("CreateRoom: %v", err)
