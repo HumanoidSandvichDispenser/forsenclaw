@@ -100,6 +100,14 @@ type ToolsConfig struct {
 	// Default: 10. Must be >= 1 if explicitly set.
 	MaxToolIterations int `yaml:"max_tool_iterations"`
 
+	// DefaultClearance is the fallback clearance for tools that don't specify
+	// one explicitly. 0 means "system max" (the highest level defined in
+	// clearance_levels). See ResolveToolClearance for resolution order.
+	DefaultClearance int `yaml:"default_clearance"`
+
+	// WebFetch configures the built-in webfetch MCP tool.
+	WebFetch WebFetchConfig `yaml:"webfetch,omitempty"`
+
 	// BraveSearch configures the built-in Brave web search MCP tool.
 	BraveSearch BraveSearchConfig `yaml:"brave_search,omitempty"`
 
@@ -107,9 +115,24 @@ type ToolsConfig struct {
 	Servers []MCPServerConfig `yaml:"servers"`
 }
 
+// MCPToolConfig holds common properties for all tool configurations.
+// Embed this struct with `yaml:",inline"` to add clearance and future
+// common fields to any tool config without duplication.
+type MCPToolConfig struct {
+	// Clearance is the data classification tier for this tool.
+	// Higher numbers mean more sensitive data. 0 means "use default".
+	Clearance int `yaml:"clearance"`
+}
+
 // BraveSearchConfig configures the built-in Brave web search MCP tool.
 type BraveSearchConfig struct {
-	APIKey EnvString `yaml:"api_key,omitempty"`
+	MCPToolConfig `yaml:",inline"`
+	APIKey        EnvString `yaml:"api_key,omitempty"`
+}
+
+// WebFetchConfig configures the built-in webfetch MCP tool.
+type WebFetchConfig struct {
+	MCPToolConfig `yaml:",inline"`
 }
 
 // MCPServerConfig defines a remote MCP server endpoint.
@@ -117,6 +140,7 @@ type MCPServerConfig struct {
 	Name    string `yaml:"name"`
 	URL     string `yaml:"url"`     // HTTP/SSE endpoint
 	Timeout string `yaml:"timeout"` // e.g. "30s"
+	MCPToolConfig `yaml:",inline"`
 }
 
 // EmbeddingsConfig configures the embedding provider for the search index.
@@ -172,12 +196,30 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 	if cfg.Tools.MaxToolIterations == 0 {
 		cfg.Tools.MaxToolIterations = 10
 	}
+	if cfg.Tools.DefaultClearance < 0 {
+		cfg.Tools.DefaultClearance = 0
+	}
 
 	if errs := ValidateServerConfig(&cfg); len(errs) > 0 {
 		return nil, fmt.Errorf("invalid server config: %v", errs)
 	}
 
 	return &cfg, nil
+}
+
+// ResolveToolClearance returns the effective clearance for a tool given the
+// parsed config. Resolution order:
+//   1. The tool's own configured Clearance (if > 0).
+//   2. ToolsConfig.DefaultClearance (if > 0).
+//   3. The provided systemMax fallback.
+func (c *ServerConfig) ResolveToolClearance(toolClearance int, systemMax int) int {
+	if toolClearance > 0 {
+		return toolClearance
+	}
+	if c.Tools.DefaultClearance > 0 {
+		return c.Tools.DefaultClearance
+	}
+	return systemMax
 }
 
 func (c *ServerConfig) ProviderByName(name string) *Provider {

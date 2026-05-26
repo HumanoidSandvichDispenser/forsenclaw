@@ -7,6 +7,7 @@ import (
 )
 
 func TestLoadServerConfig_valid(t *testing.T) {
+	t.Setenv("BRAVE_API_KEY", "test-key")
 	path := filepath.Join("testdata", "valid_hearth.yaml")
 	cfg, err := LoadServerConfig(path)
 	if err != nil {

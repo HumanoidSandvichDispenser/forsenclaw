@@ -90,8 +90,17 @@ func ValidateServerConfig(cfg *ServerConfig) []ConfigError {
 	if cfg.Tools.MaxToolIterations < 0 {
 		errs = append(errs, ConfigError{Field: "tools.max_tool_iterations", Message: "must be non-negative (0 = use default of 10)"})
 	}
+	if cfg.Tools.DefaultClearance < 0 {
+		errs = append(errs, ConfigError{Field: "tools.default_clearance", Message: "must be non-negative (0 = use system max)"})
+	}
 	if raw := string(cfg.Tools.BraveSearch.APIKey); raw != "" && cfg.Tools.BraveSearch.APIKey.Resolve() == "" {
 		errs = append(errs, ConfigError{Field: "tools.brave_search.api_key", Message: "must resolve to a non-empty value"})
+	}
+	if cfg.Tools.WebFetch.Clearance < 0 {
+		errs = append(errs, ConfigError{Field: "tools.webfetch.clearance", Message: "must be non-negative"})
+	}
+	if cfg.Tools.BraveSearch.Clearance < 0 {
+		errs = append(errs, ConfigError{Field: "tools.brave_search.clearance", Message: "must be non-negative"})
 	}
 	for i, srv := range cfg.Tools.Servers {
 		if srv.Name == "" {
@@ -101,6 +110,9 @@ func ValidateServerConfig(cfg *ServerConfig) []ConfigError {
 			errs = append(errs, ConfigError{Field: fmt.Sprintf("tools.servers[%d].url", i), Message: "must not be empty"})
 		} else if u, err := url.ParseRequestURI(srv.URL); err != nil || u.Scheme == "" || u.Host == "" {
 			errs = append(errs, ConfigError{Field: fmt.Sprintf("tools.servers[%d].url", i), Message: fmt.Sprintf("invalid URL %q", srv.URL)})
+		}
+		if srv.Clearance < 0 {
+			errs = append(errs, ConfigError{Field: fmt.Sprintf("tools.servers[%d].clearance", i), Message: "must be non-negative"})
 		}
 	}
 
