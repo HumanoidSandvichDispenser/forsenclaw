@@ -13,9 +13,13 @@ agents.
 
 == Tool Injection
 
-*v1: static injection.* At invocation time, all MCP tool schemas the agent is
-permitted to use (per its `tool:invoke[...]` permissions, evaluated by OPA) are
-resolved and injected into the API call. Simple and correct.
+*v1: static injection.* At invocation time, MCP tool schemas the agent is
+permitted to use (per its `tool:invoke[...]` permissions, evaluated by OPA)
+and cleared to see (per BLP tool clearance, evaluated against the room ceiling)
+are resolved and injected into the API call. Tools whose clearance exceeds the
+room ceiling are not injected --- they are structurally absent, same as
+higher-clearance memory files. Tools below the room ceiling are injected with a
+clearance annotation indicating the write-down risk.
 
 *v2 candidate: dynamic injection.* For agents with broad permissions and many
 available tools, a relevance filter matches the Request payload against tool
@@ -65,8 +69,17 @@ testable independently of the policy engine.
 
 == DLP Boundary
 
-The MCP tool integration surface is bounded by the current room clearance.
-Tools can only exfiltrate data present in the assembled context. Since the
-context is assembled at the room's clearance level, higher-clearance data is
-structurally absent --- it cannot be leaked even if a tool call attempts to
-transmit it. This is the structural DLP guarantee described in @access-control.
+The MCP tool integration surface is bounded by the current room clearance at
+two points:
+
+*Context-side DLP.* Tools can only exfiltrate data present in the assembled
+context. Since the context is assembled at the room's clearance level,
+higher-clearance data is structurally absent --- it cannot be leaked even if a
+tool call attempts to transmit it.
+
+*Tool-side DLP.* Tools themselves carry clearance levels (see
+@access-control). A clearance-5 finance tool called from a clearance-2 room
+cannot be invoked: it is not injected (no read-up). A clearance-2 email tool
+called from a clearance-4 room requires confirmation: any outbound data is a
+potential write-down. Tool clearance is a data classification orthogonal to
+`tool:invoke[...]` permissions.

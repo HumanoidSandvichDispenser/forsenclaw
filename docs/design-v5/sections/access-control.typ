@@ -16,8 +16,10 @@ low-clearance tool access; permissions are evaluated independently.
 == Clearance --- Context Scope
 
 Clearance is a tiered data classification. Levels are totally ordered integers;
-higher numbers mean more trust and more sensitive data. The number of tiers and
-their descriptions are fully user-configurable in `hearth.yaml`.
+only their relative ordering matters, not their magnitude or consecutiveness.
+A scheme of `[1, 4, 5, 20]` works identically to `[1, 2, 3, 4]`. Higher numbers
+mean more trust and more sensitive data. The number of tiers and their
+descriptions are fully user-configurable in `hearth.yaml`.
 
 *Clearance is not merely an access filter --- it is a context scope.* The
 room's clearance level determines which memory strata the agent assembles.
@@ -45,7 +47,7 @@ not present. This is a structural DLP guarantee.
 )
 
 Users can add, remove, renumber, or rename levels. The labels carry the
-semantics; the integers carry the ordering.
+semantics; the integers carry the ordering. Levels need not be consecutive.
 
 === Clearance Notice Injection
 
@@ -61,6 +63,10 @@ requires deeper personal context, say so rather than guessing.
 This prevents the agent from fabricating personal details it does not have
 access to.
 
+Tool schemas injected into the context are also annotated with their clearance
+level (see @mcp). This makes data boundaries at the tool surface explicit
+without hiding available tools.
+
 === Room Clearance Shifting
 
 The user can shift a room's clearance up or down at any time. Shifting down
@@ -71,7 +77,7 @@ frontend exposes a global clearance ceiling filter for session-wide scoping
 
 === Bell-LaPadula Enforcement
 
-BLP rules are enforced at three points:
+BLP rules are enforced at five points:
 
 + *Context assembly* --- only MEMORY-k.md and daily note files where k ≤ room
   clearance are included. Retrieval queries from the search index are filtered
@@ -80,6 +86,13 @@ BLP rules are enforced at three points:
   against the destination room's ceiling. Rejected if above.
 + *Spawn-time context injection* --- context passed to a child agent must not
   exceed the child's clearance. Dispatcher rejects violating spawns.
++ *Tool injection* --- only tool schemas whose clearance ≤ room ceiling are
+  injected into the agent's assembled context. Tools above the ceiling are
+  structurally absent --- the agent cannot request data from them.
++ *Tool invocation* --- tools below the room ceiling require confirmation when
+  invoked from a higher-clearance room. The agent may see and attempt to call
+  them, but any outbound data flow through a lower-clearance tool is a
+  potential write-down.
 
 No read-up: agents cannot read data above their current clearance level.
 
@@ -90,6 +103,68 @@ details.
 Classification at write time: a message sent in a clearance-3 room is tagged
 clearance-3 in the transcript and never appears in a clearance-2 retrieval.
 Default classification is the sender's clearance, capped at the room's ceiling.
+
+=== Tool Clearance
+
+MCP tools are assigned a clearance level in `hearth.yaml` (see @storage). Tool
+clearance is a *data classification*, not a permission --- it answers the
+question "what level of data does this tool access or emit?" rather than "is
+the agent allowed to use this tool?"
+
+Tool clearance and agent permissions are orthogonal: an agent must hold
+`tool:invoke[<tool_id>]` *and* satisfy BLP rules for the invocation to proceed.
+Permission governs capability; clearance governs data boundaries. The two
+checks happen at different enforcement points --- permissions at dispatch, BLP
+at assembly and invocation. BLP write-down confirmation is structural and cannot
+be overridden by an `allow` permission; it uses the same `require_confirmation`
+flow as permission-gated confirmations, but originates from a different source
+and cannot be bypassed.
+
+#table(
+  columns: (auto, auto, 1fr),
+  table.header([*Condition*], [*Result*], [*Rationale*]),
+  [Tool clearance > room ceiling],
+  [Not injected, not callable],
+  [No read-up: a higher-clearance tool returns data above the agent's assembled
+  context. The tool is structurally absent, same as MEMORY-k.md where k >
+  ceiling.],
+  [Tool clearance = room ceiling],
+  [Injected, callable (subject to permissions)],
+  [Same level. No BLP conflict.],
+  [Tool clearance < room ceiling],
+  [Injected, invocation requires confirmation],
+  [No write-down without approval: calling a lower-clearance tool from a
+  higher-clearance room is a potential data leak. Read-down is permitted (the
+  agent can see the tool exists and request to use it), but invocation carries
+  write-down risk.],
+)
+
+The default tool clearance, if not specified, is the system maximum (the highest
+level defined in `clearance_levels`). This is conservative: unlabeled tools are
+assumed to handle the most sensitive data and are only available at the highest
+clearance. Tools that handle public or external-safe data must be explicitly
+labeled.
+
+Tools below the room ceiling are annotated with their clearance level when
+injected, making data boundaries explicit:
+
+```
+[Tool: email_send — clearance 2 (external) — requires confirmation
+in this clearance-4 room due to write-down risk. Minimize or redact
+sensitive content before invoking, or use propose_handoff for deliberate
+content transfer.]
+```
+
+This mirrors soft Biba integrity tagging: the agent can see the tool and
+understand its data boundary, but invocation is gated by a confirmation step
+rather than silently permitted. The confirmation request surfaces the tool call
+arguments to the user for review, consistent with the existing
+`require_confirmation` DAG flow (see @rooms).
+
+When multiple write-down operations are needed, the agent should spawn a
+lower-clearance ephemeral (see @agents) rather than confirming each call
+individually. An ephemeral agent operating at the tool's clearance level has no
+write-down risk and can invoke the tool freely within its own ceiling.
 
 === Soft Integrity Tagging (Soft Biba)
 

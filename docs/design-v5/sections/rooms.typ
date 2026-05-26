@@ -23,6 +23,8 @@ The clearance ceiling is the room's defining property. It determines:
 
 - Which `MEMORY-k.md` strata agents assemble (k ≤ ceiling).
 - Which daily notes are in scope.
+- Which tool schemas are injected (tool clearance ≤ ceiling); tools below the
+  ceiling require confirmation on invocation (see @access-control).
 - The classification tag on messages written here:
   `min(sender.clearance, room.ceiling)`.
 - Which messages from this room surface in other agents' cross-room feeds.

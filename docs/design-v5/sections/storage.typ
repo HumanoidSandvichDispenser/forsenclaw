@@ -98,6 +98,36 @@ clearance_levels:
     description: "Vault tier. Manual curation only."
 ```
 
+Tool servers are configured in `hearth.yaml` under the `tools:` block. Each
+server (and built-in tool) is assigned a clearance level that classifies the
+sensitivity of the data it handles. Omitting `clearance` defaults to the system
+maximum --- conservative, since unlabeled tools are assumed to handle the most
+sensitive data.
+
+```yaml
+tools:
+  max_tool_iterations: 10
+  webfetch:
+    clearance: 1                # public data
+  brave_search:
+    api_key: "${BRAVE_API_KEY}"
+    clearance: 1                # public data
+  servers:
+    - name: email
+      url: "https://..."
+      clearance: 2              # external — handles outbound data
+    - name: calendar
+      url: "https://..."
+      clearance: 3              # professional
+    - name: finances
+      url: "https://..."
+      clearance: 5              # private — vault-tier data
+```
+
+Clearance on a tool server applies to all tools exposed by that server. If
+finer-grained control is needed per tool within a server, the server should be
+split into multiple instances with different clearance levels (see @mcp).
+
 == What Lives Where and Why
 
 #table(
@@ -108,7 +138,7 @@ clearance_levels:
   [OPA policy], [Config],
   [Git-trackable, diffable, human-editable. Proposed via staging.],
   [Server config], [Config],
-  [Providers, models, clearance labels. Rarely changes.],
+  [Providers, models, clearance labels, tool clearance. Rarely changes.],
   [Agent memory (MEMORY-k.md)], [Data],
   [Agent-written, grows over time, persistent.],
   [Daily notes], [Data],

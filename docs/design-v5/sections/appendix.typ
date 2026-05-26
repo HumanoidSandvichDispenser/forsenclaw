@@ -156,6 +156,24 @@ models:
   gemma-4-local:
     provider: ollama
     provider_model: gemma3:12b
+
+tools:
+  max_tool_iterations: 10
+  webfetch:
+    clearance: 1
+  brave_search:
+    api_key: "${BRAVE_API_KEY}"
+    clearance: 1
+  servers:
+    - name: email
+      url: "https://..."
+      clearance: 2
+    - name: calendar
+      url: "https://..."
+      clearance: 3
+    - name: finances
+      url: "https://..."
+      clearance: 5
 ```
 
 - Agents reference model strings (`claude-sonnet-4.6`, `gemma-4-local`).
