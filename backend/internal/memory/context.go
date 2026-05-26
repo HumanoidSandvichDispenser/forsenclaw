@@ -47,7 +47,7 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req agent.Req
 		if err != nil {
 			return inference.ContextPayload{}, fmt.Errorf("get room: %w", err)
 		}
-		clearanceCeiling = r.ClearanceCeiling
+		clearanceCeiling = min(ag.Definition.Clearance, r.ClearanceCeiling)
 
 		offset, err := a.messages.GetCompactionOffset(ctx, ag.Name(), req.Payload.RoomID)
 		if err != nil {
