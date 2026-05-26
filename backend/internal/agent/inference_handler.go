@@ -31,6 +31,10 @@ type InferenceHandler struct {
 	turnHistory          []inference.HistoryMessage // tool exchanges accumulated this turn
 	pendingConfirmations []confirmationEntry
 	turnCount            int // for generating unique dep IDs
+
+	// BLP state — computed at the start of each inference loop turn.
+	effectiveClearance int
+	toolClearances     map[string]int
 }
 
 func (h *InferenceHandler) Handle(ctx context.Context, childResults map[string]dag.Result) ([]dag.Dep, *dag.Result, error) {
@@ -94,7 +98,33 @@ func (h *InferenceHandler) applyConfirmations(ctx context.Context, childResults 
 // produces a final response or must yield confirmation deps.
 func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.Result, error) {
 	for {
-		tools := h.executor.AllDefinitions()
+		// Compute effective clearance for BLP tool gating.
+		var err error
+		h.effectiveClearance, err = h.assembler.EffectiveClearance(ctx, h.agent, h.req.Payload.RoomID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("effective clearance: %w", err)
+		}
+
+		// Build tool clearance map and filter/annotate tools for BLP.
+		allTools := h.executor.AllDefinitions()
+		h.toolClearances = make(map[string]int, len(allTools))
+		var tools []inference.ToolDefinition
+		for _, t := range allTools {
+			h.toolClearances[t.Name] = t.Clearance
+			if t.Clearance > h.effectiveClearance {
+				// No read-up: tool above effective clearance is not injected.
+				continue
+			}
+			if t.Clearance < h.effectiveClearance {
+				// No write-down without approval: annotate with warning.
+				t.Description = fmt.Sprintf(
+					"[Clearance %d — requires confirmation in this clearance-%d room due to write-down risk. Minimize sensitive content or use propose_handoff for deliberate transfer.]\n\n%s",
+					t.Clearance, h.effectiveClearance, t.Description,
+				)
+			}
+			tools = append(tools, t)
+		}
+
 		payload, err := h.assembler.Assemble(ctx, h.agent, h.req, tools)
 		if err != nil {
 			return nil, nil, err
@@ -181,9 +211,21 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 	}
 }
 
-// toolEffect returns the permission effect for a tool name.
-// Falls back to "deny" if no matching permission is found.
+// toolEffect returns the combined BLP + permission effect for a tool name.
+// BLP is checked first (structural, not overridable by permissions), then
+// the agent's permission grant is evaluated. Falls back to "deny".
 func (h *InferenceHandler) toolEffect(toolName string) string {
+	// BLP pre-check: effectiveClearance is 0 only when not yet computed.
+	if h.effectiveClearance > 0 {
+		tc := h.toolClearances[toolName]
+		if tc > h.effectiveClearance {
+			return "deny" // no read-up (defense in depth)
+		}
+		if tc < h.effectiveClearance {
+			return "require_confirmation" // no write-down, mandatory
+		}
+	}
+	// Permission check: fall through when clearance matches.
 	for _, perm := range h.agent.Permissions() {
 		if perm.Action == toolName || perm.Scope == "*" {
 			return perm.Effect

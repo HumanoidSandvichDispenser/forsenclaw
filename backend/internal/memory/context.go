@@ -99,6 +99,20 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req agent.Req
 	return assembled.toContextPayload(), nil
 }
 
+// EffectiveClearance returns min(agent.Clearance, room.Clearance) for the
+// given agent and room. If roomID is empty, returns the agent's clearance.
+// This is used for BLP tool filtering before assembly.
+func (a *Assembler) EffectiveClearance(ctx context.Context, ag *agent.Agent, roomID string) (int, error) {
+	if roomID == "" || a.rooms == nil {
+		return ag.Definition.Clearance, nil
+	}
+	r, err := a.rooms.GetRoom(ctx, roomID)
+	if err != nil {
+		return 0, fmt.Errorf("get room: %w", err)
+	}
+	return min(ag.Definition.Clearance, r.Clearance), nil
+}
+
 // crossRoomMessage is a message from another room, labeled with its room ID.
 type crossRoomMessage struct {
 	Message room.Message
