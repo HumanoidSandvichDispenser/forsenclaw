@@ -144,7 +144,9 @@ func (s *SQLiteStore) migrate() error {
 	if oldRows.Next() {
 		hasOldCol = true
 	}
-	oldRows.Close()
+	if err := oldRows.Close(); err != nil {
+		return fmt.Errorf("schema v5 check close: %w", err)
+	}
 
 	if hasOldCol {
 		if _, err := s.db.Exec(`ALTER TABLE rooms RENAME COLUMN clearance_ceiling TO clearance`); err != nil {

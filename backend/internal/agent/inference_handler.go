@@ -107,23 +107,8 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 
 		// Build tool clearance map and filter/annotate tools for BLP.
 		allTools := h.executor.AllDefinitions()
-		h.toolClearances = make(map[string]int, len(allTools))
 		var tools []inference.ToolDefinition
-		for _, t := range allTools {
-			h.toolClearances[t.Name] = t.Clearance
-			if t.Clearance > h.effectiveClearance {
-				// No read-up: tool above effective clearance is not injected.
-				continue
-			}
-			if t.Clearance < h.effectiveClearance {
-				// No write-down without approval: annotate with warning.
-				t.Description = fmt.Sprintf(
-					"[Clearance %d — requires confirmation in this clearance-%d room due to write-down risk. Minimize sensitive content or use propose_handoff for deliberate transfer.]\n\n%s",
-					t.Clearance, h.effectiveClearance, t.Description,
-				)
-			}
-			tools = append(tools, t)
-		}
+		tools, h.toolClearances = filterToolsByClearance(allTools, h.effectiveClearance)
 
 		payload, err := h.assembler.Assemble(ctx, h.agent, h.req, tools)
 		if err != nil {
@@ -215,7 +200,7 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 // BLP is checked first (structural, not overridable by permissions), then
 // the agent's permission grant is evaluated. Falls back to "deny".
 func (h *InferenceHandler) toolEffect(toolName string) string {
-	// BLP pre-check: effectiveClearance is 0 only when not yet computed.
+	// BLP pre-check: skip when effectiveClearance has not been computed yet.
 	if h.effectiveClearance > 0 {
 		tc := h.toolClearances[toolName]
 		if tc > h.effectiveClearance {
@@ -227,9 +212,38 @@ func (h *InferenceHandler) toolEffect(toolName string) string {
 	}
 	// Permission check: fall through when clearance matches.
 	for _, perm := range h.agent.Permissions() {
-		if perm.Action == toolName || perm.Scope == "*" {
+		if perm.Action != "tool:invoke" {
+			continue
+		}
+		if perm.Scope == toolName || perm.Scope == "*" {
 			return perm.Effect
 		}
 	}
 	return "deny"
+}
+
+// filterToolsByClearance applies BLP rules to a set of tool definitions.
+// Tools with clearance > effectiveClearance are dropped (no read-up).
+// Tools with clearance < effectiveClearance are annotated with a write-down
+// warning in their description (no write-down without approval).
+// Returns the filtered list and a map of tool name → clearance.
+func filterToolsByClearance(tools []inference.ToolDefinition, effectiveClearance int) ([]inference.ToolDefinition, map[string]int) {
+	clearances := make(map[string]int, len(tools))
+	var filtered []inference.ToolDefinition
+	for _, t := range tools {
+		clearances[t.Name] = t.Clearance
+		if t.Clearance > effectiveClearance {
+			// No read-up: tool above effective clearance is not injected.
+			continue
+		}
+		if t.Clearance < effectiveClearance {
+			// No write-down without approval: annotate with warning.
+			t.Description = fmt.Sprintf(
+				"[Clearance %d — requires confirmation in this clearance-%d room due to write-down risk. Minimize sensitive content or use propose_handoff for deliberate transfer.]\n\n%s",
+				t.Clearance, effectiveClearance, t.Description,
+			)
+		}
+		filtered = append(filtered, t)
+	}
+	return filtered, clearances
 }

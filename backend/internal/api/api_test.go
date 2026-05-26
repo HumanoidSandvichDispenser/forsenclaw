@@ -160,8 +160,8 @@ func TestCreateRoom(t *testing.T) {
 	router, _ := newTestRouter(t, svc)
 
 	body, _ := json.Marshal(map[string]any{
-		"participant_ids":   []string{"user:alice", "agent:housewife"},
-      "clearance": 5,
+		"participant_ids": []string{"user:alice", "agent:housewife"},
+		"clearance":       5,
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/rooms", bytes.NewReader(body))
@@ -195,7 +195,7 @@ func TestCreateRoomValidation(t *testing.T) {
 
 	// Missing participant_ids
 	body, _ := json.Marshal(map[string]any{
-      "clearance": 5,
+		"clearance": 5,
 	})
 	req := httptest.NewRequest(http.MethodPost, "/api/rooms", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -582,8 +582,8 @@ func createTestRoom(t *testing.T, svc *Service, router chi.Router) room.Room {
 	t.Helper()
 
 	body, _ := json.Marshal(map[string]any{
-		"participant_ids":   []string{"user:alice", "agent:housewife"},
-      "clearance": 5,
+		"participant_ids": []string{"user:alice", "agent:housewife"},
+		"clearance":       5,
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/rooms", bytes.NewReader(body))
