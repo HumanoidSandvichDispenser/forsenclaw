@@ -64,7 +64,7 @@ func (svc *Service) sendMessage(ctx context.Context, input *SendMessageRequest) 
 		Timestamp:    time.Now().UTC(),
 		RoomID:       r.ID,
 		Sender:       *sender,
-		ClearanceTag: sender.Clearance,
+		ClearanceTag: min(sender.Clearance, r.ClearanceCeiling),
 		Type:         room.MessageText,
 		Content:      input.Body.Content,
 	}
