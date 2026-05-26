@@ -123,7 +123,7 @@ permissions: []
 			"test-model": {Provider: "test", ProviderModel: "test-model"},
 		},
 	}
-	agentMgr, err := agent.NewManager(p, serverCfg, nil, nil, nil)
+	agentMgr, err := agent.NewManager(p, serverCfg, nil, nil, nil, nil)
 	if err != nil {
 		store.Close()
 		t.Fatalf("NewManager: %v", err)

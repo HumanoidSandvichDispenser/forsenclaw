@@ -12,13 +12,15 @@ const (
 	StatusAllowed ResultStatus = "allowed"
 	StatusDenied  ResultStatus = "denied"
 	StatusFailed  ResultStatus = "failed"
+	StatusRevise  ResultStatus = "revise"
 )
 
 // Result is what a node produces when it resolves.
 type Result struct {
-	Content string
-	Source  string
-	Status  ResultStatus
+	Content    string
+	Source     string
+	Status     ResultStatus
+	EditedArgs string // non-empty: use these JSON args instead of original (edit-args confirmation)
 }
 
 // Handler is the interface implemented by each node type. The runtime calls

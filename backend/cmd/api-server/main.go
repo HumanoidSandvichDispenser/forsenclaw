@@ -179,17 +179,17 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 	// 4. Create MCP executor
 	mcpExecutor := mcp.NewExecutor(mcpRegistry, audit.Nop())
 
-	// 5. Create assembler and agent manager
+	// 5. Create WebSocket hub (before manager so we can pass the notifier adapter)
+	hub := api.NewHub()
+	go hub.Run()
+
+	// 5b. Create assembler and agent manager
 	assembler := memory.NewAssembler(p, 0, store, store)
-	agentMgr, err := agent.NewManager(p, cfg, registry, assembler, mcpExecutor)
+	agentMgr, err := agent.NewManager(p, cfg, registry, assembler, mcpExecutor, api.NewHubNotifier(hub))
 	if err != nil {
 		log.Fatalf("failed to create agent manager: %v", err)
 	}
 	defer agentMgr.Close()
-
-	// 6. Create WebSocket hub
-	hub := api.NewHub()
-	go hub.Run()
 
 	// 7. Create dispatcher
 	dispatcher := dispatch.NewDispatcher(agentMgr)

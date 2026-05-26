@@ -32,28 +32,33 @@ type Manager struct {
 	server  *config.ServerConfig
 
 	// Runtime deps — nil means runtimes are not created (e.g. in tests).
-	registry  *inference.Registry
-	assembler Assembler
-	executor  ToolExecutor
+	registry             *inference.Registry
+	assembler            Assembler
+	executor             ToolExecutor
+	confirmationRegistry *ConfirmationRegistry
+	notifier             ConfirmationNotifier
 
 	ctx    context.Context
 	cancel context.CancelFunc
 }
 
 // NewManager creates a manager and loads all agents from disk.
-// registry, assembler, and executor are optional — pass nil to skip runtime creation
-// (useful in tests).
-func NewManager(p *paths.Paths, serverCfg *config.ServerConfig, registry *inference.Registry, assembler Assembler, executor ToolExecutor) (*Manager, error) {
+// registry, assembler, executor, and notifier are optional — pass nil to skip
+// runtime creation (useful in tests).
+func NewManager(p *paths.Paths, serverCfg *config.ServerConfig, registry *inference.Registry, assembler Assembler, executor ToolExecutor, notifier ConfirmationNotifier) (*Manager, error) {
 	ctx, cancel := context.WithCancel(context.Background())
+	confirmationRegistry := NewConfirmationRegistry()
 	m := &Manager{
-		entries:   make(map[string]*agentEntry),
-		paths:     p,
-		server:    serverCfg,
-		registry:  registry,
-		assembler: assembler,
-		executor:  executor,
-		ctx:       ctx,
-		cancel:    cancel,
+		entries:              make(map[string]*agentEntry),
+		paths:                p,
+		server:               serverCfg,
+		registry:             registry,
+		assembler:            assembler,
+		executor:             executor,
+		confirmationRegistry: confirmationRegistry,
+		notifier:             notifier,
+		ctx:                  ctx,
+		cancel:               cancel,
 	}
 
 	// Initial load
@@ -206,12 +211,18 @@ func (m *Manager) handleEvent(event fsnotify.Event) {
 	}
 }
 
+// ConfirmationRegistry returns the shared in-memory registry of pending confirmations.
+// Used by the API layer to serve GET /api/rooms/{id}/confirmations and WS replays.
+func (m *Manager) ConfirmationRegistry() *ConfirmationRegistry {
+	return m.confirmationRegistry
+}
+
 // newEntry creates an agentEntry and starts its runtime goroutine if deps are configured.
 // Must be called with m.mu held.
 func (m *Manager) newEntry(agent *Agent) *agentEntry {
 	e := &agentEntry{agent: agent}
 	if m.registry != nil {
-		e.runtime = NewAgentRuntime(agent, m.registry, m.assembler, m.executor)
+		e.runtime = NewAgentRuntime(agent, m.registry, m.assembler, m.executor, m.confirmationRegistry, m.notifier)
 		go e.runtime.Run(m.ctx)
 	}
 	return e

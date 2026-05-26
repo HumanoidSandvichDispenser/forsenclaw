@@ -189,6 +189,48 @@ type AgentResponse struct {
 	Active          bool   `json:"active"            doc:"Whether agent is currently loaded"`
 }
 
+// ---------------------------------------------------------------------------
+// Confirmation endpoints
+// ---------------------------------------------------------------------------
+
+// ListConfirmationsRequest is the input for GET /api/rooms/{room_id}/confirmations.
+type ListConfirmationsRequest struct {
+	RoomID string `path:"room_id" validate:"required" doc:"Room ID"`
+}
+
+// ListConfirmationsResponse is the output for GET /api/rooms/{room_id}/confirmations.
+type ListConfirmationsResponse struct {
+	Body struct {
+		Confirmations []ConfirmationResponse `json:"confirmations"`
+	}
+}
+
+// RespondConfirmationRequest is the input for POST /api/rooms/{room_id}/confirmations/{node_id}.
+type RespondConfirmationRequest struct {
+	RoomID string `path:"room_id" validate:"required" doc:"Room ID"`
+	NodeID string `path:"node_id" validate:"required" doc:"Confirmation node ID"`
+	Body   struct {
+		// Action is one of: "allow", "deny", "revise".
+		// For "allow" with edited arguments, set Args.
+		// For "revise", set Feedback.
+		Action   string `json:"action"             validate:"required" doc:"allow | deny | revise"`
+		Args     string `json:"args,omitempty"     doc:"Edited JSON arguments (action=allow only)"`
+		Feedback string `json:"feedback,omitempty" doc:"Revision guidance for the agent (action=revise only)"`
+	}
+}
+
+// RespondConfirmationResponse is the output for POST /api/rooms/{room_id}/confirmations/{node_id}.
+type RespondConfirmationResponse struct{}
+
+// ConfirmationResponse is the API representation of a pending confirmation.
+type ConfirmationResponse struct {
+	NodeID    string `json:"node_id"    doc:"Unique node ID — used in the respond endpoint"`
+	AgentName string `json:"agent_name" doc:"Name of the agent waiting for confirmation"`
+	RoomID    string `json:"room_id"    doc:"Room the confirmation belongs to"`
+	ToolName  string `json:"tool_name"  doc:"Tool the agent wants to call"`
+	Args      string `json:"args"       doc:"JSON-encoded tool arguments"`
+}
+
 // UserResponse is the API representation of the authenticated user.
 type UserResponse struct {
 	ID   string `json:"id"   doc:"User ID" example:"local"`

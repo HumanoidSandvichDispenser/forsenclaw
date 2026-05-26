@@ -28,9 +28,11 @@ type AgentRuntime struct {
 	agent *Agent
 	dag   *dag.DAG
 
-	registry  *inference.Registry
-	assembler Assembler
-	executor  ToolExecutor
+	registry             *inference.Registry
+	assembler            Assembler
+	executor             ToolExecutor
+	confirmationRegistry *ConfirmationRegistry
+	notifier             ConfirmationNotifier
 
 	// work is pulsed when new work may be available.
 	work chan struct{}
@@ -40,14 +42,16 @@ type AgentRuntime struct {
 }
 
 // NewAgentRuntime creates a runtime for the given agent.
-func NewAgentRuntime(agent *Agent, registry *inference.Registry, assembler Assembler, executor ToolExecutor) *AgentRuntime {
+func NewAgentRuntime(agent *Agent, registry *inference.Registry, assembler Assembler, executor ToolExecutor, confirmationRegistry *ConfirmationRegistry, notifier ConfirmationNotifier) *AgentRuntime {
 	r := &AgentRuntime{
-		agent:     agent,
-		dag:       dag.New(),
-		registry:  registry,
-		assembler: assembler,
-		executor:  executor,
-		work:      make(chan struct{}, 1),
+		agent:                agent,
+		dag:                  dag.New(),
+		registry:             registry,
+		assembler:            assembler,
+		executor:             executor,
+		confirmationRegistry: confirmationRegistry,
+		notifier:             notifier,
+		work:                 make(chan struct{}, 1),
 	}
 	r.idle = sync.NewCond(&r.mu)
 	return r
@@ -56,11 +60,13 @@ func NewAgentRuntime(agent *Agent, registry *inference.Registry, assembler Assem
 // Enqueue adds a request to the DAG and wakes the run loop.
 func (r *AgentRuntime) Enqueue(req Request) {
 	r.dag.Add(req.ID, &InferenceHandler{
-		req:       req,
-		agent:     r.agent,
-		registry:  r.registry,
-		assembler: r.assembler,
-		executor:  r.executor,
+		req:                  req,
+		agent:                r.agent,
+		registry:             r.registry,
+		assembler:            r.assembler,
+		executor:             r.executor,
+		confirmationRegistry: r.confirmationRegistry,
+		notifier:             r.notifier,
 	}, "")
 	r.pulse()
 }

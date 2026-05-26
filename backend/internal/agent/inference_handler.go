@@ -25,6 +25,9 @@ type InferenceHandler struct {
 	assembler Assembler
 	executor  ToolExecutor
 
+	confirmationRegistry *ConfirmationRegistry
+	notifier             ConfirmationNotifier
+
 	turnHistory          []inference.HistoryMessage // tool exchanges accumulated this turn
 	pendingConfirmations []confirmationEntry
 	turnCount            int // for generating unique dep IDs
@@ -49,25 +52,40 @@ func (h *InferenceHandler) applyConfirmations(ctx context.Context, childResults 
 		if !ok {
 			continue // shouldn't happen — DAG ensures all deps resolve before re-calling
 		}
-		if result.Status == dag.StatusDenied {
+
+		switch result.Status {
+		case dag.StatusDenied:
 			h.turnHistory = append(h.turnHistory, inference.HistoryMessage{
 				Role:       inference.RoleTool,
 				Content:    "Action denied by user.",
 				Name:       entry.call.Function.Name,
 				ToolCallID: entry.call.ID,
 			})
-			continue
+
+		case dag.StatusRevise:
+			h.turnHistory = append(h.turnHistory, inference.HistoryMessage{
+				Role:       inference.RoleTool,
+				Content:    "User asked you to revise this action: " + result.Content,
+				Name:       entry.call.Function.Name,
+				ToolCallID: entry.call.ID,
+			})
+
+		default: // StatusAllowed
+			call := entry.call
+			if result.EditedArgs != "" {
+				call.Function.Arguments = result.EditedArgs
+			}
+			toolResult, err := h.executor.Execute(ctx, call)
+			if err != nil {
+				return fmt.Errorf("executing tool %q: %w", call.Function.Name, err)
+			}
+			h.turnHistory = append(h.turnHistory, inference.HistoryMessage{
+				Role:       inference.RoleTool,
+				Content:    toolResult,
+				Name:       call.Function.Name,
+				ToolCallID: call.ID,
+			})
 		}
-		toolResult, err := h.executor.Execute(ctx, entry.call)
-		if err != nil {
-			return fmt.Errorf("executing tool %q: %w", entry.call.Function.Name, err)
-		}
-		h.turnHistory = append(h.turnHistory, inference.HistoryMessage{
-			Role:       inference.RoleTool,
-			Content:    toolResult,
-			Name:       entry.call.Function.Name,
-			ToolCallID: entry.call.ID,
-		})
 	}
 	return nil
 }
@@ -144,7 +162,14 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 				})
 				deps = append(deps, dag.Dep{
 					ID:      depID,
-					Handler: NewConfirmationHandler(tc),
+					Handler: NewConfirmationHandler(
+					tc,
+					depID,
+					h.agent.Name(),
+					h.req.Payload.RoomID,
+					h.confirmationRegistry,
+					h.notifier,
+				),
 				})
 			}
 		}

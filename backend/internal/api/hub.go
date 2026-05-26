@@ -8,8 +8,24 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/agent"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/dispatch"
 )
+
+// HubNotifier adapts Hub to satisfy agent.ConfirmationNotifier.
+// Used in main.go to wire the hub into the agent manager before Service exists.
+type HubNotifier struct{ hub *Hub }
+
+// NewHubNotifier wraps a Hub as an agent.ConfirmationNotifier.
+func NewHubNotifier(hub *Hub) *HubNotifier { return &HubNotifier{hub: hub} }
+
+// NotifyConfirmationPending implements agent.ConfirmationNotifier.
+func (n *HubNotifier) NotifyConfirmationPending(roomID string, c agent.PendingConfirmation) {
+	n.hub.Broadcast(roomID, dispatch.StreamEvent{
+		Type:    "confirmation.pending",
+		Payload: c,
+	})
+}
 
 // Hub manages WebSocket client connections and broadcasts room events.
 type Hub struct {
@@ -145,6 +161,10 @@ type Client struct {
 	conn  *websocket.Conn
 	rooms map[string]struct{} // subscribed room IDs
 	send  chan []byte
+
+	// onSubscribe is called after a client successfully subscribes to a room.
+	// Used to replay pending state (e.g. confirmation events) to newly connected clients.
+	onSubscribe func(roomID string)
 }
 
 // NewClient creates a new client for the given WebSocket connection.
@@ -211,6 +231,9 @@ func (c *Client) readPump() {
 		case "subscribe":
 			if action.RoomID != "" {
 				c.Subscribe(action.RoomID)
+				if c.onSubscribe != nil {
+					c.onSubscribe(action.RoomID)
+				}
 			}
 		case "unsubscribe":
 			if action.RoomID != "" {
