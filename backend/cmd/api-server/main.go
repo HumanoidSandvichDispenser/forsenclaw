@@ -237,15 +237,24 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 }
 
 func buildMCPRegistry(cfg *config.ServerConfig) (mcp.Registry, error) {
-	clients := []mcp.MCPClient{mcpTools.NewWebFetch()}
+	// TODO: read systemMax from clearance_levels config when implemented.
+	const systemMax = 5
+
+	clearances := make(map[string]int)
+
+	webfetchClearance := cfg.ResolveToolClearance(cfg.Tools.WebFetch.Clearance, systemMax)
+	clients := []mcp.MCPClient{mcpTools.NewWebFetch(webfetchClearance)}
+	clearances["webfetch"] = webfetchClearance
 
 	if apiKey := cfg.Tools.BraveSearch.APIKey.Resolve(); apiKey != "" {
-		client, err := mcpTools.NewBraveSearch(apiKey)
+		braveClearance := cfg.ResolveToolClearance(cfg.Tools.BraveSearch.Clearance, systemMax)
+		client, err := mcpTools.NewBraveSearch(apiKey, braveClearance)
 		if err != nil {
 			return nil, err
 		}
 		clients = append(clients, client)
+		clearances["web_search"] = braveClearance
 	}
 
-	return mcp.NewRegistry(clients), nil
+	return mcp.NewRegistry(clients, clearances), nil
 }

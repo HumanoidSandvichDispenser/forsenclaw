@@ -34,11 +34,15 @@ type ToolDescriber interface {
 	NativeDefinitions() []inference.ToolDefinition
 }
 
-// Registry maps tool IDs to their hosting MCPClient.
+// Registry maps tool IDs to their hosting MCPClient and clearance level.
 type Registry interface {
 	// Resolve returns the MCPClient responsible for the given tool ID.
 	// Returns an error if no server is registered for that tool.
 	Resolve(toolID string) (MCPClient, error)
+
+	// ToolClearance returns the clearance level for the given tool ID.
+	// Returns 0 if the tool is not registered.
+	ToolClearance(toolID string) int
 
 	// AllSchemas returns all tool schemas for tools the registry knows about,
 	// as pre-formatted strings suitable for injection into ContextPayload.ToolSchemas.
@@ -51,17 +55,26 @@ type Registry interface {
 
 // inMemoryRegistry is a simple in-memory Registry backed by a map.
 type inMemoryRegistry struct {
-	tools map[string]MCPClient
-	order []MCPClient // unique clients in insertion order
+	tools      map[string]MCPClient
+	clearances map[string]int
+	order      []MCPClient // unique clients in insertion order
 }
 
 // NewRegistry creates a new in-memory Registry populated from the given servers.
-func NewRegistry(servers []MCPClient) Registry {
-	r := &inMemoryRegistry{tools: make(map[string]MCPClient)}
+// The clearances map provides the clearance level for each tool ID; missing
+// entries default to 0 (which callers should resolve to system max).
+func NewRegistry(servers []MCPClient, clearances map[string]int) Registry {
+	r := &inMemoryRegistry{
+		tools:      make(map[string]MCPClient),
+		clearances: make(map[string]int),
+	}
 	seen := make(map[MCPClient]bool)
 	for _, srv := range servers {
 		for _, id := range srv.ToolIDs() {
 			r.tools[id] = srv
+			if clearances != nil {
+				r.clearances[id] = clearances[id]
+			}
 		}
 		if !seen[srv] {
 			seen[srv] = true
@@ -77,6 +90,10 @@ func (r *inMemoryRegistry) Resolve(toolID string) (MCPClient, error) {
 		return nil, fmt.Errorf("no MCP server registered for tool %q", toolID)
 	}
 	return client, nil
+}
+
+func (r *inMemoryRegistry) ToolClearance(toolID string) int {
+	return r.clearances[toolID]
 }
 
 func (r *inMemoryRegistry) AllSchemas() []string {

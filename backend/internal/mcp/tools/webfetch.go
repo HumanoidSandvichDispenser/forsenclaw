@@ -23,18 +23,19 @@ const webFetchMaxBytes = 10 << 20
 // WebFetchClient fetches a web page and extracts its main readable content.
 type WebFetchClient struct {
 	httpClient *http.Client
+	clearance  int
 }
 
 // NewWebFetch creates the built-in webfetch MCP tool.
-func NewWebFetch() *WebFetchClient {
-	return newWebFetchClient(http.DefaultClient)
+func NewWebFetch(clearance int) *WebFetchClient {
+	return newWebFetchClient(http.DefaultClient, clearance)
 }
 
-func newWebFetchClient(httpClient *http.Client) *WebFetchClient {
+func newWebFetchClient(httpClient *http.Client, clearance int) *WebFetchClient {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
-	return &WebFetchClient{httpClient: httpClient}
+	return &WebFetchClient{httpClient: httpClient, clearance: clearance}
 }
 
 func (c *WebFetchClient) Call(ctx context.Context, toolID string, params map[string]string) (string, error) {
@@ -184,6 +185,7 @@ func (c *WebFetchClient) NativeDefinitions() []inference.ToolDefinition {
 				},
 				"required": []string{"url"},
 			},
+			Clearance: c.clearance,
 		},
 	}
 }

@@ -20,14 +20,15 @@ type BraveSearchClient struct {
 	baseURL    string
 	apiKey     string
 	httpClient *http.Client
+	clearance  int
 }
 
 // NewBraveSearch creates a Brave search MCP client using Brave's public API.
-func NewBraveSearch(apiKey string) (*BraveSearchClient, error) {
-	return newBraveSearchClient(braveSearchBaseURL, apiKey, http.DefaultClient)
+func NewBraveSearch(apiKey string, clearance int) (*BraveSearchClient, error) {
+	return newBraveSearchClient(braveSearchBaseURL, apiKey, http.DefaultClient, clearance)
 }
 
-func newBraveSearchClient(baseURL, apiKey string, httpClient *http.Client) (*BraveSearchClient, error) {
+func newBraveSearchClient(baseURL, apiKey string, httpClient *http.Client, clearance int) (*BraveSearchClient, error) {
 	if strings.TrimSpace(apiKey) == "" {
 		return nil, fmt.Errorf("brave search api key is required")
 	}
@@ -37,7 +38,12 @@ func newBraveSearchClient(baseURL, apiKey string, httpClient *http.Client) (*Bra
 	if strings.TrimSpace(baseURL) == "" {
 		baseURL = braveSearchBaseURL
 	}
-	return &BraveSearchClient{baseURL: strings.TrimRight(baseURL, "/"), apiKey: apiKey, httpClient: httpClient}, nil
+	return &BraveSearchClient{
+		baseURL:   strings.TrimRight(baseURL, "/"),
+		apiKey:    apiKey,
+		httpClient: httpClient,
+		clearance:  clearance,
+	}, nil
 }
 
 func (c *BraveSearchClient) Call(ctx context.Context, toolID string, params map[string]string) (string, error) {
@@ -172,6 +178,7 @@ func (c *BraveSearchClient) NativeDefinitions() []inference.ToolDefinition {
 				},
 				"required": []string{"query"},
 			},
+			Clearance: c.clearance,
 		},
 	}
 }

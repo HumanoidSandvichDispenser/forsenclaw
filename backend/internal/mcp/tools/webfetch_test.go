@@ -32,7 +32,7 @@ func TestWebFetchClientPlaintext(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newWebFetchClient(server.Client())
+	client := newWebFetchClient(server.Client(), 0)
 	got, err := client.Call(context.Background(), webFetchToolID, map[string]string{"url": server.URL + "/start"})
 	if err != nil {
 		t.Fatalf("Call: %v", err)
@@ -67,7 +67,7 @@ func TestWebFetchClientStructured(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newWebFetchClient(server.Client())
+	client := newWebFetchClient(server.Client(), 0)
 	got, err := client.Call(context.Background(), webFetchToolID, map[string]string{"url": server.URL + "/article", "structure": "true"})
 	if err != nil {
 		t.Fatalf("Call: %v", err)
@@ -81,14 +81,14 @@ func TestWebFetchClientStructured(t *testing.T) {
 }
 
 func TestWebFetchClientMissingURL(t *testing.T) {
-	client := newWebFetchClient(http.DefaultClient)
+	client := newWebFetchClient(http.DefaultClient, 0)
 	if _, err := client.Call(context.Background(), webFetchToolID, map[string]string{}); err == nil {
 		t.Fatal("expected error for missing url")
 	}
 }
 
 func TestWebFetchClientInvalidStructure(t *testing.T) {
-	client := newWebFetchClient(http.DefaultClient)
+	client := newWebFetchClient(http.DefaultClient, 0)
 	if _, err := client.Call(context.Background(), webFetchToolID, map[string]string{"url": "https://example.com", "structure": "maybe"}); err == nil {
 		t.Fatal("expected error for invalid structure bool")
 	}

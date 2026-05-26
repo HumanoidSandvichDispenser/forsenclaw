@@ -34,7 +34,7 @@ func TestBraveSearchClientCall(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := newBraveSearchClient(server.URL, "test-key", server.Client())
+	client, err := newBraveSearchClient(server.URL, "test-key", server.Client(), 0)
 	if err != nil {
 		t.Fatalf("newBraveSearchClient: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestBraveSearchClientCall(t *testing.T) {
 }
 
 func TestBraveSearchClientMissingQuery(t *testing.T) {
-	client, err := newBraveSearchClient("http://example.com", "test-key", http.DefaultClient)
+	client, err := newBraveSearchClient("http://example.com", "test-key", http.DefaultClient, 0)
 	if err != nil {
 		t.Fatalf("newBraveSearchClient: %v", err)
 	}

@@ -127,6 +127,9 @@ type ToolDefinition struct {
 	Name        string
 	Description string
 	Parameters  map[string]interface{} // JSON Schema object
+	// Clearance is the data classification tier for this tool.
+	// Populated by the registry at construction from config.
+	Clearance int
 }
 
 // ContextMessage is a message in the conversation sequence built from a ContextPayload.
