@@ -9,15 +9,21 @@ import (
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/agent"
 )
 
+// roomKey identifies a (agent, room) pair for batching.
+type roomKey struct {
+	agentName string
+	roomID    string
+}
+
 // Dispatcher routes incoming requests to the appropriate AgentRuntime.
 // Room messages are batched — multiple messages arriving for the same agent
-// before it has processed them are combined into a single Request.
+// and room before it has processed them are combined into a single Request.
 // System and event requests bypass batching and are enqueued immediately.
 type Dispatcher struct {
 	manager *agent.Manager
 
 	mu      sync.Mutex
-	pending map[string][]agent.Message // agentName → buffered room messages
+	pending map[roomKey][]agent.Message // (agentName, roomID) → buffered room messages
 	work    chan struct{}
 }
 
@@ -25,7 +31,7 @@ type Dispatcher struct {
 func NewDispatcher(manager *agent.Manager) *Dispatcher {
 	return &Dispatcher{
 		manager: manager,
-		pending: make(map[string][]agent.Message),
+		pending: make(map[roomKey][]agent.Message),
 		work:    make(chan struct{}, 1),
 	}
 }
@@ -34,8 +40,9 @@ func NewDispatcher(manager *agent.Manager) *Dispatcher {
 // Room requests are buffered and batched; system and event requests are enqueued directly.
 func (d *Dispatcher) Submit(req agent.Request) {
 	if req.Source == agent.SourceRoom {
+		key := roomKey{agentName: req.Target, roomID: req.Payload.RoomID}
 		d.mu.Lock()
-		d.pending[req.Target] = append(d.pending[req.Target], req.Payload.Messages...)
+		d.pending[key] = append(d.pending[key], req.Payload.Messages...)
 		d.mu.Unlock()
 		d.pulse()
 		return
@@ -52,19 +59,20 @@ func (d *Dispatcher) Run(ctx context.Context) {
 	for {
 		d.mu.Lock()
 		batch := d.pending
-		d.pending = make(map[string][]agent.Message)
+		d.pending = make(map[roomKey][]agent.Message)
 		d.mu.Unlock()
 
-		for agentName, msgs := range batch {
-			rt := d.manager.Runtime(agentName)
+		for key, msgs := range batch {
+			rt := d.manager.Runtime(key.agentName)
 			if rt == nil {
 				continue
 			}
 			rt.Enqueue(agent.Request{
 				ID:     newRequestID(),
-				Target: agentName,
+				Target: key.agentName,
 				Source: agent.SourceRoom,
 				Payload: agent.RequestPayload{
+					RoomID:   key.roomID,
 					Messages: msgs,
 				},
 			})
