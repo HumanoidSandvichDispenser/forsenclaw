@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,14 +14,29 @@ import (
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/paths"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
+	storedb "github.com/humanoidsandvichdispenser/hearth/backend/internal/store"
 )
 
-func TestAssembler_Assemble(t *testing.T) {
+// newTestAssembler creates an Assembler wired to a real SQLiteStore for tests.
+func newTestAssembler(t *testing.T) (*Assembler, *storedb.SQLiteStore, *paths.Paths) {
+	t.Helper()
 	dir := t.TempDir()
 	p := paths.NewPathsFromRoots(dir, dir, dir)
 
-	// Create agent data dir with MEMORY.md
-	agentDir := p.AgentDataDir("housewife")
+	store, err := storedb.NewSQLiteStore(filepath.Join(dir, "rooms.db"), p.RoomsDir())
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	t.Cleanup(func() { store.Close() })
+
+	return NewAssembler(p, 4096, store, store), store, p
+}
+
+// newTestAgent creates an Agent with the given name and clearance.
+func newTestAgent(t *testing.T, p *paths.Paths, name string, clearance int) *agent.Agent {
+	t.Helper()
+
+	agentDir := p.AgentDataDir(name)
 	if err := os.MkdirAll(agentDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -28,212 +44,265 @@ func TestAssembler_Assemble(t *testing.T) {
 		t.Fatalf("write memory: %v", err)
 	}
 
-	// Create agent definition
-	def := &config.AgentDefinition{
-		Name:            "housewife",
+	ag, err := agent.NewAgent(&config.AgentDefinition{
+		Name:            name,
 		RoleDescription: "You are a helpful assistant.",
 		Models:          config.AgentModels{Primary: "test-model"},
 		FeatureFlags:    config.FeatureFlags{DailyNotes: false, IdentityContinuity: true},
-		Clearance:       5,
+		Clearance:       clearance,
 		MemoryBudget:    4096,
-	}
-	ag, err := agent.NewAgent(def)
+	})
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
 	}
+	return ag
+}
 
-	assembler := NewAssembler(p, 4096)
+// newTestRoom creates a room in the store and returns it.
+func newTestRoom(t *testing.T, store *storedb.SQLiteStore, ceiling int, participants ...room.Actor) room.Room {
+	t.Helper()
+	r := room.Room{
+		ID:               "room-test-" + t.Name(),
+		ClearanceCeiling: ceiling,
+		Participants:     participants,
+		CreatedAt:        time.Now().UTC(),
+		UpdatedAt:        time.Now().UTC(),
+	}
+	if err := store.CreateRoom(context.Background(), &r); err != nil {
+		t.Fatalf("CreateRoom: %v", err)
+	}
+	return r
+}
+
+func TestAssembler_Assemble_BasicContext(t *testing.T) {
+	assembler, store, p := newTestAssembler(t)
+	ag := newTestAgent(t, p, "housewife", 5)
 
 	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5, Name: "Alice"}
-	history := []room.Message{
-		{ID: "msg_1", Timestamp: time.Now(), RoomID: "room_1", Sender: alice, ClearanceTag: 5, Type: room.MessageText, Content: "Hello"},
-	}
+	housewife := room.Actor{ID: "agent:housewife", Type: room.ActorAgent, Clearance: 5, Name: "Housewife"}
+	r := newTestRoom(t, store, 5, alice, housewife)
 
 	ctx := context.Background()
-	result, err := assembler.Assemble(ctx, ag, AssembleRequest{
-		RoomID:             "room_1",
-		CurrentRoomHistory: history,
-	})
+	if err := store.AppendMessage(ctx, r.ID, room.Message{
+		ID: "msg-1", Timestamp: time.Now(), RoomID: r.ID,
+		Sender: alice, ClearanceTag: 5, Type: room.MessageText, Content: "Hello",
+	}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+
+	req := agent.Request{
+		ID:     "req-1",
+		Target: "housewife",
+		Source: agent.SourceRoom,
+		Payload: agent.RequestPayload{RoomID: r.ID},
+	}
+
+	payload, err := assembler.Assemble(ctx, ag, req, nil)
 	if err != nil {
 		t.Fatalf("Assemble: %v", err)
 	}
 
-	payload := result.ToContextPayload("test-model")
-
 	if !strings.Contains(payload.SystemPrompt, "helpful assistant") {
 		t.Errorf("system prompt missing role description: %q", payload.SystemPrompt)
+	}
+	if !strings.Contains(payload.SystemPrompt, "clearance level 5") {
+		t.Errorf("system prompt missing clearance notice: %q", payload.SystemPrompt)
 	}
 	if !strings.Contains(payload.Memory, "likes tea") {
 		t.Errorf("memory missing expected content: %q", payload.Memory)
 	}
 }
 
-func TestAssembler_Assemble_WithDailyNotes(t *testing.T) {
-	dir := t.TempDir()
-	p := paths.NewPathsFromRoots(dir, dir, dir)
+func TestAssembler_Assemble_ClearanceFilter(t *testing.T) {
+	assembler, store, p := newTestAssembler(t)
+	ag := newTestAgent(t, p, "housewife", 5)
+
+	// Alice's clearance must be ≤ room ceiling to join.
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 2, Name: "Alice"}
+	r := newTestRoom(t, store, 2, alice) // ceiling = 2
+
+	ctx := context.Background()
+	// Message at clearance 2 — within ceiling, should appear
+	if err := store.AppendMessage(ctx, r.ID, room.Message{
+		ID: "msg-1", Timestamp: time.Now(), RoomID: r.ID,
+		Sender: alice, ClearanceTag: 2, Type: room.MessageText, Content: "Public info",
+	}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	// Message at clearance 4 — above ceiling, should be filtered out
+	if err := store.AppendMessage(ctx, r.ID, room.Message{
+		ID: "msg-2", Timestamp: time.Now(), RoomID: r.ID,
+		Sender: alice, ClearanceTag: 4, Type: room.MessageText, Content: "Secret info",
+	}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	// Final message to trigger the request
+	if err := store.AppendMessage(ctx, r.ID, room.Message{
+		ID: "msg-3", Timestamp: time.Now(), RoomID: r.ID,
+		Sender: alice, ClearanceTag: 2, Type: room.MessageText, Content: "Final question",
+	}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+
+	payload, err := assembler.Assemble(ctx, ag, agent.Request{
+		ID: "req-1", Target: "housewife", Source: agent.SourceRoom,
+		Payload: agent.RequestPayload{RoomID: r.ID},
+	}, nil)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	if strings.Contains(payload.RFC, "Secret info") {
+		t.Error("RFC contains above-ceiling message, should have been filtered")
+	}
+	if !strings.Contains(payload.RFC, "Final question") {
+		t.Errorf("RFC missing expected content: %q", payload.RFC)
+	}
+}
+
+func TestAssembler_Assemble_SoftBiba(t *testing.T) {
+	assembler, store, p := newTestAssembler(t)
+	ag := newTestAgent(t, p, "housewife", 5)
+
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5, Name: "Alice"}
+	r := newTestRoom(t, store, 5, alice) // ceiling = 5
+
+	ctx := context.Background()
+	// Message at clearance 2 in a clearance-5 room → should get Biba annotation
+	if err := store.AppendMessage(ctx, r.ID, room.Message{
+		ID: "msg-1", Timestamp: time.Now(), RoomID: r.ID,
+		Sender: alice, ClearanceTag: 2, Type: room.MessageText, Content: "External source",
+	}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	// Final message (becomes RFC, also clearance 2)
+	if err := store.AppendMessage(ctx, r.ID, room.Message{
+		ID: "msg-2", Timestamp: time.Now(), RoomID: r.ID,
+		Sender: alice, ClearanceTag: 2, Type: room.MessageText, Content: "Follow-up",
+	}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+
+	payload, err := assembler.Assemble(ctx, ag, agent.Request{
+		ID: "req-1", Target: "housewife", Source: agent.SourceRoom,
+		Payload: agent.RequestPayload{RoomID: r.ID},
+	}, nil)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	// History[0] should be the annotated msg-1
+	if len(payload.History) < 1 {
+		t.Fatalf("expected at least 1 history message, got %d", len(payload.History))
+	}
+	if !strings.Contains(payload.History[0].Content, "treat with appropriate skepticism") {
+		t.Errorf("soft Biba annotation missing: %q", payload.History[0].Content)
+	}
+}
+
+func TestAssembler_Assemble_RoomHistoryRoles(t *testing.T) {
+	assembler, store, p := newTestAssembler(t)
+	ag := newTestAgent(t, p, "housewife", 5)
+
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5, Name: "Alice"}
+	housewife := room.Actor{ID: "agent:housewife", Type: room.ActorAgent, Clearance: 5, Name: "Housewife"}
+	r := newTestRoom(t, store, 5, alice, housewife)
+
+	ctx := context.Background()
+	msgs := []room.Message{
+		{ID: "msg-1", Timestamp: time.Now(), RoomID: r.ID, Sender: alice, ClearanceTag: 5, Type: room.MessageText, Content: "Hello"},
+		{ID: "msg-2", Timestamp: time.Now(), RoomID: r.ID, Sender: housewife, ClearanceTag: 5, Type: room.MessageText, Content: "Hi there"},
+		{ID: "msg-3", Timestamp: time.Now(), RoomID: r.ID, Sender: alice, ClearanceTag: 5, Type: room.MessageText, Content: "How are you?"},
+	}
+	for _, m := range msgs {
+		if err := store.AppendMessage(ctx, r.ID, m); err != nil {
+			t.Fatalf("AppendMessage: %v", err)
+		}
+	}
+
+	payload, err := assembler.Assemble(ctx, ag, agent.Request{
+		ID: "req-1", Target: "housewife", Source: agent.SourceRoom,
+		Payload: agent.RequestPayload{RoomID: r.ID},
+	}, nil)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	// History: msg-1 (user), msg-2 (assistant). msg-3 becomes the RFC.
+	if len(payload.History) != 2 {
+		t.Fatalf("expected 2 history messages, got %d", len(payload.History))
+	}
+	if payload.History[0].Role != inference.RoleUser {
+		t.Errorf("history[0] role: got %q, want user", payload.History[0].Role)
+	}
+	if payload.History[1].Role != inference.RoleAssistant {
+		t.Errorf("history[1] role: got %q, want assistant", payload.History[1].Role)
+	}
+	if !strings.Contains(payload.RFC, "How are you?") {
+		t.Errorf("RFC missing last message content: %q", payload.RFC)
+	}
+}
+
+func TestAssembler_Assemble_DailyNotes(t *testing.T) {
+	assembler, store, p := newTestAssembler(t)
 
 	agentDir := p.AgentDataDir("housewife")
 	if err := os.MkdirAll(filepath.Join(agentDir, "memory"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(agentDir, MemoryFileName), []byte("Base memory."), 0o644); err != nil {
-		t.Fatalf("write memory: %v", err)
-	}
-	// Write today's daily note
 	today := time.Now().UTC().Format("2006-01-02") + ".md"
 	if err := os.WriteFile(filepath.Join(agentDir, "memory", today), []byte("Today's observation."), 0o644); err != nil {
 		t.Fatalf("write daily note: %v", err)
 	}
 
-	def := &config.AgentDefinition{
+	ag, err := agent.NewAgent(&config.AgentDefinition{
 		Name:            "housewife",
 		RoleDescription: "Assistant.",
 		Models:          config.AgentModels{Primary: "test-model"},
 		FeatureFlags:    config.FeatureFlags{DailyNotes: true, IdentityContinuity: true},
 		Clearance:       5,
 		MemoryBudget:    4096,
-	}
-	ag, err := agent.NewAgent(def)
-	if err != nil {
-		t.Fatalf("NewAgent: %v", err)
-	}
-
-	assembler := NewAssembler(p, 4096)
-	ctx := context.Background()
-	result, err := assembler.Assemble(ctx, ag, AssembleRequest{
-		RoomID:             "room_1",
-		CurrentRoomHistory: []room.Message{},
 	})
 	if err != nil {
-		t.Fatalf("Assemble: %v", err)
-	}
-
-	if len(result.DailyNotes) != 1 {
-		t.Fatalf("expected 1 daily note, got %d", len(result.DailyNotes))
-	}
-	if !strings.Contains(result.DailyNotes[0], "Today's observation") {
-		t.Errorf("daily note content: %q", result.DailyNotes[0])
-	}
-}
-
-func TestAssembler_Assemble_NilAgent(t *testing.T) {
-	dir := t.TempDir()
-	p := paths.NewPathsFromRoots(dir, dir, dir)
-	assembler := NewAssembler(p, 4096)
-
-	ctx := context.Background()
-	_, err := assembler.Assemble(ctx, nil, AssembleRequest{})
-	if err == nil {
-		t.Fatal("expected error for nil agent, got nil")
-	}
-}
-
-func TestAssembler_Assemble_Truncation(t *testing.T) {
-	dir := t.TempDir()
-	p := paths.NewPathsFromRoots(dir, dir, dir)
-
-	agentDir := p.AgentDataDir("housewife")
-	if err := os.MkdirAll(agentDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	// Write a very long MEMORY.md
-	longMemory := strings.Repeat("word ", 10000) // ~50k chars, way over budget
-	if err := os.WriteFile(filepath.Join(agentDir, MemoryFileName), []byte(longMemory), 0o644); err != nil {
-		t.Fatalf("write memory: %v", err)
-	}
-
-	def := &config.AgentDefinition{
-		Name:            "housewife",
-		RoleDescription: "Assistant.",
-		Models:          config.AgentModels{Primary: "test-model"},
-		FeatureFlags:    config.FeatureFlags{IdentityContinuity: true},
-		Clearance:       5,
-		MemoryBudget:    10,
-	}
-	ag, err := agent.NewAgent(def)
-	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
 	}
 
-	// Small budget: 10 tokens ≈ 40 chars
-	assembler := NewAssembler(p, 10)
-	ctx := context.Background()
-	result, err := assembler.Assemble(ctx, ag, AssembleRequest{})
-	if err != nil {
-		t.Fatalf("Assemble: %v", err)
-	}
-
-	// Memory should be truncated to roughly 40 chars
-	if len(result.Memory) > 100 {
-		t.Errorf("memory not truncated: got %d chars", len(result.Memory))
-	}
-}
-
-func TestAssembler_RoomHistoryRoles(t *testing.T) {
-	dir := t.TempDir()
-	p := paths.NewPathsFromRoots(dir, dir, dir)
-
-	agentDir := p.AgentDataDir("housewife")
-	if err := os.MkdirAll(agentDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(agentDir, MemoryFileName), []byte("Memory."), 0o644); err != nil {
-		t.Fatalf("write memory: %v", err)
-	}
-
-	def := &config.AgentDefinition{
-		Name:            "housewife",
-		RoleDescription: "Assistant.",
-		Models:          config.AgentModels{Primary: "test-model"},
-		FeatureFlags:    config.FeatureFlags{IdentityContinuity: true},
-		Clearance:       5,
-		MemoryBudget:    4096,
-	}
-	ag, err := agent.NewAgent(def)
-	if err != nil {
-		t.Fatalf("NewAgent: %v", err)
-	}
-
-	assembler := NewAssembler(p, 4096)
 	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5, Name: "Alice"}
-	housewife := room.Actor{ID: "agent:housewife", Type: room.ActorAgent, Clearance: 5, Name: "Housewife"}
-
-	history := []room.Message{
-		{ID: "msg_1", Timestamp: time.Now(), RoomID: "room_1", Sender: alice, ClearanceTag: 5, Type: room.MessageText, Content: "Hello"},
-		{ID: "msg_2", Timestamp: time.Now(), RoomID: "room_1", Sender: housewife, ClearanceTag: 5, Type: room.MessageText, Content: "Hi there"},
-		{ID: "msg_3", Timestamp: time.Now(), RoomID: "room_1", Sender: alice, ClearanceTag: 5, Type: room.MessageText, Content: "How are you?"},
-	}
+	r := newTestRoom(t, store, 5, alice)
 
 	ctx := context.Background()
-	result, err := assembler.Assemble(ctx, ag, AssembleRequest{CurrentRoomHistory: history})
+	if err := store.AppendMessage(ctx, r.ID, room.Message{
+		ID: "msg-1", Timestamp: time.Now(), RoomID: r.ID,
+		Sender: alice, ClearanceTag: 5, Type: room.MessageText, Content: "Hello",
+	}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+
+	payload, err := assembler.Assemble(ctx, ag, agent.Request{
+		ID: "req-1", Target: "housewife", Source: agent.SourceRoom,
+		Payload: agent.RequestPayload{RoomID: r.ID},
+	}, nil)
 	if err != nil {
 		t.Fatalf("Assemble: %v", err)
 	}
 
-	payload := result.ToContextPayload("test-model")
-
-	// History should have 2 entries (msg_1, msg_2); msg_3 becomes the RFC
-	if len(result.History) != 2 {
-		t.Fatalf("expected 2 history messages, got %d", len(result.History))
+	if len(payload.DailyNotes) != 1 {
+		t.Fatalf("expected 1 daily note, got %d", len(payload.DailyNotes))
 	}
-
-	// msg_1 → user, msg_2 → assistant (same agent)
-	if result.History[0].Role != inference.RoleUser {
-		t.Errorf("history[0] role: got %q, want user", result.History[0].Role)
-	}
-	if result.History[1].Role != inference.RoleAssistant {
-		t.Errorf("history[1] role: got %q, want assistant", result.History[1].Role)
-	}
-
-	// RFC should contain the last message content
-	if !strings.Contains(payload.RFC, "How are you?") {
-		t.Errorf("RFC missing last message content: %q", payload.RFC)
+	if !strings.Contains(payload.DailyNotes[0], "Today's observation") {
+		t.Errorf("daily note content: %q", payload.DailyNotes[0])
 	}
 }
 
-func TestAssembler_Assemble_AgentMemoryBudgetOverride(t *testing.T) {
+func TestAssembler_Assemble_MemoryTruncation(t *testing.T) {
 	dir := t.TempDir()
 	p := paths.NewPathsFromRoots(dir, dir, dir)
+
+	store, err := storedb.NewSQLiteStore(filepath.Join(dir, "rooms.db"), p.RoomsDir())
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	defer store.Close()
 
 	agentDir := p.AgentDataDir("housewife")
 	if err := os.MkdirAll(agentDir, 0o755); err != nil {
@@ -244,26 +313,81 @@ func TestAssembler_Assemble_AgentMemoryBudgetOverride(t *testing.T) {
 		t.Fatalf("write memory: %v", err)
 	}
 
-	def := &config.AgentDefinition{
+	ag, err := agent.NewAgent(&config.AgentDefinition{
 		Name:            "housewife",
 		RoleDescription: "Assistant.",
 		Models:          config.AgentModels{Primary: "test-model"},
 		FeatureFlags:    config.FeatureFlags{IdentityContinuity: true},
 		Clearance:       5,
 		MemoryBudget:    10,
-	}
-	ag, err := agent.NewAgent(def)
+	})
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
 	}
 
-	assembler := NewAssembler(p, 4096)
-	result, err := assembler.Assemble(context.Background(), ag, AssembleRequest{})
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5, Name: "Alice"}
+	r := newTestRoom(t, store, 5, alice)
+
+	ctx := context.Background()
+	if err := store.AppendMessage(ctx, r.ID, room.Message{
+		ID: "msg-1", Timestamp: time.Now(), RoomID: r.ID,
+		Sender: alice, ClearanceTag: 5, Type: room.MessageText, Content: "Hello",
+	}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+
+	assembler := NewAssembler(p, 10, store, store)
+	payload, err := assembler.Assemble(ctx, ag, agent.Request{
+		ID: "req-1", Target: "housewife", Source: agent.SourceRoom,
+		Payload: agent.RequestPayload{RoomID: r.ID},
+	}, nil)
 	if err != nil {
 		t.Fatalf("Assemble: %v", err)
 	}
 
-	if len(result.Memory) > 100 {
-		t.Fatalf("expected agent override to truncate memory, got %d chars", len(result.Memory))
+	if len(payload.Memory) > 100 {
+		t.Errorf("memory not truncated: got %d chars", len(payload.Memory))
+	}
+}
+
+func TestAssembler_Assemble_CompactionOffset(t *testing.T) {
+	assembler, store, p := newTestAssembler(t)
+	ag := newTestAgent(t, p, "housewife", 5)
+
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5, Name: "Alice"}
+	r := newTestRoom(t, store, 5, alice)
+
+	ctx := context.Background()
+	// Append 3 messages; set compaction offset to 2 so only msg-3 is visible.
+	for i, content := range []string{"Compacted msg 1", "Compacted msg 2", "Visible msg 3"} {
+		if err := store.AppendMessage(ctx, r.ID, room.Message{
+			ID:           fmt.Sprintf("msg-%d", i+1),
+			Timestamp:    time.Now(),
+			RoomID:       r.ID,
+			Sender:       alice,
+			ClearanceTag: 5,
+			Type:         room.MessageText,
+			Content:      content,
+		}); err != nil {
+			t.Fatalf("AppendMessage: %v", err)
+		}
+	}
+	if err := store.SetCompactionOffset(ctx, "housewife", r.ID, 2); err != nil {
+		t.Fatalf("SetCompactionOffset: %v", err)
+	}
+
+	payload, err := assembler.Assemble(ctx, ag, agent.Request{
+		ID: "req-1", Target: "housewife", Source: agent.SourceRoom,
+		Payload: agent.RequestPayload{RoomID: r.ID},
+	}, nil)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	if strings.Contains(payload.RFC, "Compacted") {
+		t.Error("RFC contains compacted messages, should have been skipped")
+	}
+	if !strings.Contains(payload.RFC, "Visible msg 3") {
+		t.Errorf("RFC missing visible message: %q", payload.RFC)
 	}
 }

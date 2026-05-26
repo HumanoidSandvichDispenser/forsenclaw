@@ -233,30 +233,3 @@ func (r Room) ParticipantByID(id string) *Actor {
 	return nil
 }
 
-// CompactionCursor tracks how far an agent has compacted a room's transcript.
-type CompactionCursor struct {
-	// AgentName is the agent this cursor belongs to.
-	AgentName string `json:"agent_name"`
-
-	// RoomID is the room this cursor tracks.
-	RoomID string `json:"room_id"`
-
-	// Offset is the number of messages already compacted (0-based). Messages
-	// before this index are excluded from context assembly.
-	Offset int `json:"offset"`
-
-	// UpdatedAt is when the cursor was last modified.
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
-// ListOpts controls pagination and filtering for ListRooms.
-type ListOpts struct {
-	// Participant filters to rooms containing this actor ID.
-	Participant string
-
-	// Limit is the maximum number of rooms to return.
-	Limit int
-
-	// Offset is the number of rooms to skip.
-	Offset int
-}

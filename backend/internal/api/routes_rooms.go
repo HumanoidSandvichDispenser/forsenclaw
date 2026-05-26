@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/store"
 )
 
 // ---------------------------------------------------------------------------
@@ -76,16 +77,9 @@ func (svc *Service) createRoom(ctx context.Context, input *CreateRoomRequest) (*
 	}
 
 	// Persist room
-	if err := svc.store.CreateRoom(ctx, &r); err != nil {
+	if err := svc.rooms.CreateRoom(ctx, &r); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create room: " + err.Error())
 	}
-
-	// Create transcript file (will be reopened by dispatcher on first append)
-	writer, err := room.NewTranscriptWriter(svc.paths.RoomsDir(), r.ID)
-	if err != nil {
-		return nil, huma.Error500InternalServerError("failed to create transcript: " + err.Error())
-	}
-	writer.Close()
 
 	resp := &CreateRoomResponse{}
 	resp.Body = toRoomResponse(r)
@@ -93,13 +87,13 @@ func (svc *Service) createRoom(ctx context.Context, input *CreateRoomRequest) (*
 }
 
 func (svc *Service) listRooms(ctx context.Context, input *ListRoomsRequest) (*ListRoomsResponse, error) {
-	opts := room.ListOpts{
+	opts := store.ListOpts{
 		Participant: input.Participant,
 		Limit:       input.Limit,
 		Offset:      input.Offset,
 	}
 
-	rooms, err := svc.store.ListRooms(ctx, opts)
+	rooms, err := svc.rooms.ListRooms(ctx, opts)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list rooms: " + err.Error())
 	}
@@ -113,7 +107,7 @@ func (svc *Service) listRooms(ctx context.Context, input *ListRoomsRequest) (*Li
 }
 
 func (svc *Service) getRoom(ctx context.Context, input *GetRoomRequest) (*GetRoomResponse, error) {
-	r, err := svc.store.GetRoom(ctx, input.RoomID)
+	r, err := svc.rooms.GetRoom(ctx, input.RoomID)
 	if err != nil {
 		return nil, huma.Error404NotFound("room not found")
 	}

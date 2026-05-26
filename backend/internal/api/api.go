@@ -7,33 +7,32 @@ import (
 
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/agent"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/dispatch"
-	"github.com/humanoidsandvichdispenser/hearth/backend/internal/paths"
-	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/store"
 )
 
 // Service holds all dependencies for the API handlers.
 type Service struct {
 	dispatcher *dispatch.Dispatcher
-	store      room.Store
+	rooms      store.RoomRepository
+	messages   store.MessageRepository
 	agentMgr   *agent.Manager
 	hub        *Hub
-	paths      *paths.Paths
 }
 
 // NewService creates a new API service with the given dependencies.
 func NewService(
 	d *dispatch.Dispatcher,
-	s room.Store,
+	rooms store.RoomRepository,
+	messages store.MessageRepository,
 	m *agent.Manager,
 	h *Hub,
-	p *paths.Paths,
 ) *Service {
 	return &Service{
 		dispatcher: d,
-		store:      s,
+		rooms:      rooms,
+		messages:   messages,
 		agentMgr:   m,
 		hub:        h,
-		paths:      p,
 	}
 }
 

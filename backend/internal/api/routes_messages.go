@@ -4,15 +4,15 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"time"
-
 	"strings"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
 
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/agent"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/store"
 )
 
 // ---------------------------------------------------------------------------
@@ -47,7 +47,7 @@ func registerMessageRoutes(api huma.API, svc *Service) {
 
 func (svc *Service) sendMessage(ctx context.Context, input *SendMessageRequest) (*SendMessageResponse, error) {
 	// Look up room
-	r, err := svc.store.GetRoom(ctx, input.RoomID)
+	r, err := svc.rooms.GetRoom(ctx, input.RoomID)
 	if err != nil {
 		return nil, huma.Error404NotFound("room not found")
 	}
@@ -70,15 +70,9 @@ func (svc *Service) sendMessage(ctx context.Context, input *SendMessageRequest) 
 	}
 
 	// Write message to transcript
-	writer, err := room.NewTranscriptWriter(svc.paths.RoomsDir(), r.ID)
-	if err != nil {
-		return nil, huma.Error500InternalServerError("failed to open transcript: " + err.Error())
-	}
-	if err := writer.Append(ctx, msg); err != nil {
-		writer.Close()
+	if err := svc.messages.AppendMessage(ctx, r.ID, msg); err != nil {
 		return nil, huma.Error500InternalServerError("failed to write message: " + err.Error())
 	}
-	writer.Close()
 
 	// Submit to dispatcher for each agent participant
 	for _, p := range r.Participants {
@@ -109,7 +103,7 @@ func (svc *Service) sendMessage(ctx context.Context, input *SendMessageRequest) 
 
 func (svc *Service) listMessages(ctx context.Context, input *ListMessagesRequest) (*ListMessagesResponse, error) {
 	// Verify room exists
-	if _, err := svc.store.GetRoom(ctx, input.RoomID); err != nil {
+	if _, err := svc.rooms.GetRoom(ctx, input.RoomID); err != nil {
 		return nil, huma.Error404NotFound("room not found")
 	}
 
@@ -123,14 +117,12 @@ func (svc *Service) listMessages(ctx context.Context, input *ListMessagesRequest
 		before = &t
 	}
 
-	opts := room.ReadOpts{
+	msgs, err := svc.messages.GetMessages(ctx, input.RoomID, store.ReadOpts{
 		Limit:  input.Limit,
 		Before: before,
-	}
-
-	msgs, err := room.ReadMessages(ctx, svc.paths.RoomsDir(), input.RoomID, opts)
+	})
 	if err != nil {
-		return nil, huma.Error500InternalServerError("failed to read messages: "+err.Error())
+		return nil, huma.Error500InternalServerError("failed to read messages: " + err.Error())
 	}
 
 	resp := &ListMessagesResponse{}

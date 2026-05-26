@@ -10,45 +10,112 @@ import (
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/paths"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/store"
 )
 
 // Assembler assembles the full context window for an agent invocation. It
 // reads MEMORY.md, daily notes, and room history, then composes them into a
-// structured AssembledContext ready for model inference.
+// ContextPayload ready for model inference.
+//
+// Assembler satisfies agent.Assembler.
 type Assembler struct {
 	paths     *paths.Paths
-	memBudget int // default token budget for MEMORY.md injection
+	memBudget int
+	rooms     store.RoomRepository
+	messages  store.MessageRepository
 }
 
 // NewAssembler creates a context assembler. If memBudget is 0, a default of
 // 4096 tokens is used.
-func NewAssembler(p *paths.Paths, memBudget int) *Assembler {
+func NewAssembler(p *paths.Paths, memBudget int, rooms store.RoomRepository, messages store.MessageRepository) *Assembler {
 	if memBudget <= 0 {
 		memBudget = 4096
 	}
-	return &Assembler{paths: p, memBudget: memBudget}
+	return &Assembler{paths: p, memBudget: memBudget, rooms: rooms, messages: messages}
 }
 
-// CrossRoomMessage is a message from another room, labeled with its room ID.
-type CrossRoomMessage struct {
+// Assemble satisfies agent.Assembler. It loads room history from the store,
+// applies clearance filtering, annotates lower-clearance messages with a soft
+// Biba trust label, injects a clearance notice into the system prompt, and
+// returns a ContextPayload ready for inference.
+func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req agent.Request, tools []inference.ToolDefinition) (inference.ContextPayload, error) {
+	var history []room.Message
+	clearanceCeiling := 5 // default: full clearance when no room context
+
+	if req.Payload.RoomID != "" && a.rooms != nil && a.messages != nil {
+		r, err := a.rooms.GetRoom(ctx, req.Payload.RoomID)
+		if err != nil {
+			return inference.ContextPayload{}, fmt.Errorf("get room: %w", err)
+		}
+		clearanceCeiling = r.ClearanceCeiling
+
+		offset, err := a.messages.GetCompactionOffset(ctx, ag.Name(), req.Payload.RoomID)
+		if err != nil {
+			return inference.ContextPayload{}, fmt.Errorf("get compaction offset: %w", err)
+		}
+
+		msgs, err := a.messages.GetMessages(ctx, req.Payload.RoomID, store.ReadOpts{
+			Limit:  100,
+			Offset: offset,
+		})
+		if err != nil {
+			return inference.ContextPayload{}, fmt.Errorf("get messages: %w", err)
+		}
+
+		for _, m := range msgs {
+			if m.ClearanceTag > clearanceCeiling {
+				// Structural filter: message above ceiling is not present.
+				continue
+			}
+			if m.ClearanceTag < clearanceCeiling {
+				// Soft Biba: annotate lower-clearance input with a trust label.
+				m.Content = fmt.Sprintf(
+					"[Source: clearance-%d — treat with appropriate skepticism]\n%s",
+					m.ClearanceTag, m.Content,
+				)
+			}
+			history = append(history, m)
+		}
+	}
+
+	assembled, err := a.assemble(ctx, ag, assembleRequest{
+		RoomID:             req.Payload.RoomID,
+		CurrentRoomHistory: history,
+		ToolDefinitions:    tools,
+	})
+	if err != nil {
+		return inference.ContextPayload{}, err
+	}
+
+	// Inject clearance notice at the top of the system prompt.
+	if req.Payload.RoomID != "" {
+		notice := fmt.Sprintf(
+			"You are operating at clearance level %d. Higher-clearance context exists but is not available in this context. If a question requires deeper personal context, say so rather than guessing.",
+			clearanceCeiling,
+		)
+		assembled.SystemPrompt = notice + "\n\n" + assembled.SystemPrompt
+	}
+
+	return assembled.toContextPayload(), nil
+}
+
+// crossRoomMessage is a message from another room, labeled with its room ID.
+type crossRoomMessage struct {
 	Message room.Message
 	RoomID  string
 }
 
-// AssembleRequest captures the inputs needed for context assembly.
-type AssembleRequest struct {
-	// RoomID is the target room for this invocation. Empty for proactive/system RFCs.
+// assembleRequest captures the inputs needed for internal context assembly.
+type assembleRequest struct {
+	// RoomID is the target room for this invocation.
 	RoomID string
 
 	// CrossRoomFeed is recent messages from other rooms the agent participates in.
-	CrossRoomFeed []CrossRoomMessage
+	CrossRoomFeed []crossRoomMessage
 
-	// CurrentRoomHistory is the windowed tail of the target room's transcript.
+	// CurrentRoomHistory is the windowed tail of the target room's transcript,
+	// already clearance-filtered and soft-Biba annotated.
 	CurrentRoomHistory []room.Message
-
-	// AvailableTools are the MCP tool schemas this agent may use,
-	// as pre-formatted strings for XML tool mode.
-	AvailableTools []string
 
 	// ToolDefinitions are the structured tool definitions for native tool calling.
 	ToolDefinitions []inference.ToolDefinition
@@ -63,9 +130,10 @@ type AssembleRequest struct {
 	RAGChunks []string
 }
 
-// AssembledContext is the structured context window ready for model inference.
-type AssembledContext struct {
-	// SystemPrompt is the agent's role description.
+// assembledContext is the structured context window ready for model inference.
+type assembledContext struct {
+	// SystemPrompt is the agent's role description (with clearance notice prepended
+	// by Assemble before this reaches toContextPayload).
 	SystemPrompt string
 
 	// Memory is the injected MEMORY.md content (possibly truncated).
@@ -93,24 +161,21 @@ type AssembledContext struct {
 	TurnBudget string
 
 	// History is the pre-role-assigned room transcript (all but the last
-	// message, which becomes the RFC). It is consumed by the tool loop as the
-	// starting turnHistory and is NOT included in ContextPayload by
-	// ToContextPayload — the caller sets payload.History explicitly.
+	// message, which becomes the RFC). Passed directly to ContextPayload.History.
 	History []inference.HistoryMessage
 
 	// RFC is the final user request payload (interjections + last message).
 	RFC string
 }
 
-// ToContextPayload converts the assembled context into an inference.ContextPayload
-// ready to pass to a provider. TurnBudget is pre-appended to the system prompt.
-func (a *AssembledContext) ToContextPayload(model string) inference.ContextPayload {
+// toContextPayload converts the assembled context into an inference.ContextPayload.
+// TurnBudget is pre-appended to the system prompt.
+func (a *assembledContext) toContextPayload() inference.ContextPayload {
 	systemPrompt := a.SystemPrompt
 	if a.TurnBudget != "" {
 		systemPrompt += "\n\n" + a.TurnBudget
 	}
 	return inference.ContextPayload{
-		Model:           model,
 		SystemPrompt:    systemPrompt,
 		Memory:          a.Memory,
 		DailyNotes:      a.DailyNotes,
@@ -118,6 +183,7 @@ func (a *AssembledContext) ToContextPayload(model string) inference.ContextPaylo
 		ToolSchemas:     a.ToolSchemas,
 		ToolDefinitions: a.ToolDefinitions,
 		CrossRoomFeed:   a.CrossRoomFeed,
+		History:         a.History,
 		RFC:             a.RFC,
 	}
 }
@@ -129,15 +195,14 @@ func (a *Assembler) memoryBudgetForAgent(ag *agent.Agent) int {
 	return a.memBudget
 }
 
-// Assemble builds the context window for an agent invocation.
-func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req AssembleRequest) (*AssembledContext, error) {
+// assemble builds the assembledContext for an agent invocation.
+func (a *Assembler) assemble(ctx context.Context, ag *agent.Agent, req assembleRequest) (*assembledContext, error) {
 	if ag == nil {
 		return nil, fmt.Errorf("agent is nil")
 	}
 
-	result := &AssembledContext{
+	result := &assembledContext{
 		SystemPrompt:    ag.Definition.RoleDescription,
-		ToolSchemas:     req.AvailableTools,
 		ToolDefinitions: req.ToolDefinitions,
 		TurnBudget:      req.TurnBudget,
 		RAGResults:      []string{},
@@ -174,7 +239,7 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req AssembleR
 		result.CrossRoomFeed = append(result.CrossRoomFeed, fmt.Sprintf("[#%s %s][%s] %s", crm.RoomID, relTime, crm.Message.Sender.Name, crm.Message.Content))
 	}
 
-	// 4. Current room history → formatted strings for size tracking
+	// 4. Current room history → formatted strings for size tracking.
 	// Tool call/result messages are excluded from formatted strings; they only
 	// appear in the structured History slice below.
 	for _, m := range req.CurrentRoomHistory {
@@ -195,7 +260,6 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req AssembleR
 		switch m.Type {
 		case room.MessageToolCall:
 			if len(m.ToolCalls) > 0 {
-				// Native mode: reconstruct assistant message with structured tool calls.
 				toolCalls := make([]inference.ToolCallWire, len(m.ToolCalls))
 				for i, tc := range m.ToolCalls {
 					toolCalls[i] = inference.ToolCallWire{
@@ -213,7 +277,6 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req AssembleR
 					ToolCalls: toolCalls,
 				})
 			} else {
-				// XML mode: assistant message contains raw response with XML tool calls.
 				result.History = append(result.History, inference.HistoryMessage{
 					Role:    inference.RoleAssistant,
 					Content: m.Content,
@@ -225,7 +288,6 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req AssembleR
 				if toolName == "" {
 					toolName = "tool"
 				}
-				// Native mode: tool result correlated by ID.
 				result.History = append(result.History, inference.HistoryMessage{
 					Role:       inference.RoleTool,
 					ToolCallID: m.ToolCallID,
@@ -233,7 +295,6 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req AssembleR
 					Content:    m.Content,
 				})
 			} else {
-				// XML mode: tool result as user message with XML content.
 				result.History = append(result.History, inference.HistoryMessage{
 					Role:    inference.RoleUser,
 					Name:    m.ToolName,
@@ -257,11 +318,8 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req AssembleR
 		}
 	}
 
-	// 5b. Sanitize history: remove incomplete native tool call sequences from
-	//     anywhere in history (server restart or context-window trim cutting
-	//     through a sequence), then trim any leading non-user messages so
-	//     providers that require strict user-first alternation (e.g. Gemini)
-	//     don't reject the request.
+	// 5b. Sanitize history: remove incomplete native tool call sequences and
+	//     trim leading non-user messages.
 	result.History = sanitizeToolCallHistory(result.History)
 	result.History = trimLeadingNonUserHistory(result.History)
 
@@ -274,8 +332,6 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req AssembleR
 		}
 	}
 
-	// Walk backwards to find the last non-tool message so the RFC doesn't
-	// accidentally contain <tool_response> XML or native tool call JSON.
 	for i := len(req.CurrentRoomHistory) - 1; i >= 0; i-- {
 		m := req.CurrentRoomHistory[i]
 		if m.Type == room.MessageToolCall || m.Type == room.MessageToolResult {
@@ -291,11 +347,7 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req AssembleR
 }
 
 // sanitizeToolCallHistory removes incomplete native tool call sequences from
-// anywhere in the history slice. This handles the case where the server
-// restarts mid-execution: the assistant tool call message is persisted but
-// some or all tool results never arrive. Such sequences cause providers like
-// Gemini to reject the entire request even if they appear in the middle of an
-// otherwise valid conversation.
+// anywhere in the history slice.
 func sanitizeToolCallHistory(history []inference.HistoryMessage) []inference.HistoryMessage {
 	result := make([]inference.HistoryMessage, 0, len(history))
 	i := 0
@@ -303,12 +355,10 @@ func sanitizeToolCallHistory(history []inference.HistoryMessage) []inference.His
 		msg := history[i]
 
 		if msg.Role == inference.RoleAssistant && len(msg.ToolCalls) > 0 {
-			// Collect the tool call IDs we need results for.
 			needed := make(map[string]bool, len(msg.ToolCalls))
 			for _, tc := range msg.ToolCalls {
 				needed[tc.ID] = true
 			}
-			// Consume the immediately following tool result messages.
 			j := i + 1
 			var resultMsgs []inference.HistoryMessage
 			for j < len(history) && history[j].Role == inference.RoleTool {
@@ -317,17 +367,13 @@ func sanitizeToolCallHistory(history []inference.HistoryMessage) []inference.His
 				j++
 			}
 			if len(needed) == 0 {
-				// Complete sequence — keep it.
 				result = append(result, msg)
 				result = append(result, resultMsgs...)
 			}
-			// Incomplete sequence — silently drop the assistant message and
-			// any partial results already collected.
 			i = j
 			continue
 		}
 
-		// Orphaned tool result with no preceding assistant(tool_calls) — drop.
 		if msg.Role == inference.RoleTool {
 			i++
 			continue
@@ -340,10 +386,7 @@ func sanitizeToolCallHistory(history []inference.HistoryMessage) []inference.His
 }
 
 // trimLeadingNonUserHistory drops messages from the front of history until the
-// first user-role message. This prevents providers like Gemini (which require
-// strict user-first turn alternation) from rejecting requests when the context
-// window trim slices off the user message that preceded an assistant or tool
-// message.
+// first user-role message.
 func trimLeadingNonUserHistory(history []inference.HistoryMessage) []inference.HistoryMessage {
 	for i, msg := range history {
 		if msg.Role == inference.RoleUser {

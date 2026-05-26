@@ -1,4 +1,4 @@
-package room
+package store
 
 import (
 	"context"
@@ -8,21 +8,22 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
 )
 
 func newTestStore(t *testing.T) (*SQLiteStore, string) {
 	t.Helper()
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "rooms.db")
-	store, err := NewSQLiteStore(dbPath)
+	store, err := NewSQLiteStore(dbPath, dir)
 	if err != nil {
 		t.Fatalf("NewSQLiteStore: %v", err)
 	}
 	return store, dbPath
 }
 
-func newTestRoom(participants ...Actor) Room {
-	return Room{
+func newTestRoom(participants ...room.Actor) room.Room {
+	return room.Room{
 		ID:               uuid.New().String(),
 		Participants:     participants,
 		ClearanceCeiling: 5,
@@ -35,22 +36,22 @@ func TestSQLiteStore_CreateRoom(t *testing.T) {
 	store, _ := newTestStore(t)
 	defer store.Close()
 
-	alice := Actor{ID: "user:alice", Type: ActorUser, Clearance: 5, Name: "Alice"}
-	housewife := Actor{ID: "agent:housewife", Type: ActorAgent, Clearance: 5, Name: "Housewife"}
-	room := newTestRoom(alice, housewife)
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5, Name: "Alice"}
+	housewife := room.Actor{ID: "agent:housewife", Type: room.ActorAgent, Clearance: 5, Name: "Housewife"}
+	r := newTestRoom(alice, housewife)
 
 	ctx := context.Background()
-	if err := store.CreateRoom(ctx, &room); err != nil {
+	if err := store.CreateRoom(ctx, &r); err != nil {
 		t.Fatalf("CreateRoom: %v", err)
 	}
 
 	// Verify the room was persisted
-	got, err := store.GetRoom(ctx, room.ID)
+	got, err := store.GetRoom(ctx, r.ID)
 	if err != nil {
 		t.Fatalf("GetRoom: %v", err)
 	}
-	if got.ID != room.ID {
-		t.Errorf("ID mismatch: got %q, want %q", got.ID, room.ID)
+	if got.ID != r.ID {
+		t.Errorf("ID mismatch: got %q, want %q", got.ID, r.ID)
 	}
 	if len(got.Participants) != 2 {
 		t.Errorf("participant count: got %d, want 2", len(got.Participants))
@@ -65,9 +66,9 @@ func TestSQLiteStore_CreateRoom_InvalidRoom(t *testing.T) {
 	defer store.Close()
 
 	ctx := context.Background()
-	room := Room{ID: uuid.New().String()} // missing participants
+	r := room.Room{ID: uuid.New().String()} // missing participants
 
-	err := store.CreateRoom(ctx, &room)
+	err := store.CreateRoom(ctx, &r)
 	if err == nil {
 		t.Fatal("expected error for invalid room, got nil")
 	}
@@ -77,19 +78,19 @@ func TestSQLiteStore_CreateRoom_DuplicateID(t *testing.T) {
 	store, _ := newTestStore(t)
 	defer store.Close()
 
-	alice := Actor{ID: "user:alice", Type: ActorUser, Clearance: 5}
-	housewife := Actor{ID: "agent:housewife", Type: ActorAgent, Clearance: 5}
-	room := newTestRoom(alice, housewife)
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5}
+	housewife := room.Actor{ID: "agent:housewife", Type: room.ActorAgent, Clearance: 5}
+	r := newTestRoom(alice, housewife)
 
 	ctx := context.Background()
-	if err := store.CreateRoom(ctx, &room); err != nil {
+	if err := store.CreateRoom(ctx, &r); err != nil {
 		t.Fatalf("CreateRoom first: %v", err)
 	}
 
 	// Second insert with same ID should fail
-	room2 := newTestRoom(alice, housewife)
-	room2.ID = room.ID
-	err := store.CreateRoom(ctx, &room2)
+	r2 := newTestRoom(alice, housewife)
+	r2.ID = r.ID
+	err := store.CreateRoom(ctx, &r2)
 	if err == nil {
 		t.Fatal("expected error for duplicate ID, got nil")
 	}
@@ -110,10 +111,10 @@ func TestSQLiteStore_ListRooms(t *testing.T) {
 	store, _ := newTestStore(t)
 	defer store.Close()
 
-	alice := Actor{ID: "user:alice", Type: ActorUser, Clearance: 5}
-	bob := Actor{ID: "user:bob", Type: ActorUser, Clearance: 5}
-	housewife := Actor{ID: "agent:housewife", Type: ActorAgent, Clearance: 5}
-	scout := Actor{ID: "agent:scout", Type: ActorAgent, Clearance: 2}
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5}
+	bob := room.Actor{ID: "user:bob", Type: room.ActorUser, Clearance: 5}
+	housewife := room.Actor{ID: "agent:housewife", Type: room.ActorAgent, Clearance: 5}
+	scout := room.Actor{ID: "agent:scout", Type: room.ActorAgent, Clearance: 2}
 
 	ctx := context.Background()
 
@@ -121,7 +122,7 @@ func TestSQLiteStore_ListRooms(t *testing.T) {
 	room2 := newTestRoom(alice, scout)
 	room3 := newTestRoom(bob, scout)
 
-	for _, r := range []Room{room1, room2, room3} {
+	for _, r := range []room.Room{room1, room2, room3} {
 		if err := store.CreateRoom(ctx, &r); err != nil {
 			t.Fatalf("CreateRoom: %v", err)
 		}
@@ -170,10 +171,10 @@ func TestSQLiteStore_ListRooms_DefaultLimit(t *testing.T) {
 
 	ctx := context.Background()
 	for i := 0; i < 250; i++ {
-		alice := Actor{ID: "user:alice", Type: ActorUser, Clearance: 5}
-		agent := Actor{ID: "agent:scout", Type: ActorAgent, Clearance: 2}
-		room := newTestRoom(alice, agent)
-		if err := store.CreateRoom(ctx, &room); err != nil {
+		alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5}
+		agent := room.Actor{ID: "agent:scout", Type: room.ActorAgent, Clearance: 2}
+		r := newTestRoom(alice, agent)
+		if err := store.CreateRoom(ctx, &r); err != nil {
 			t.Fatalf("CreateRoom %d: %v", i, err)
 		}
 	}
@@ -201,25 +202,25 @@ func TestSQLiteStore_UpdateRoom(t *testing.T) {
 	store, _ := newTestStore(t)
 	defer store.Close()
 
-	alice := Actor{ID: "user:alice", Type: ActorUser, Clearance: 1}
-	housewife := Actor{ID: "agent:housewife", Type: ActorAgent, Clearance: 1}
-	scout := Actor{ID: "agent:scout", Type: ActorAgent, Clearance: 1}
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 1}
+	housewife := room.Actor{ID: "agent:housewife", Type: room.ActorAgent, Clearance: 1}
+	scout := room.Actor{ID: "agent:scout", Type: room.ActorAgent, Clearance: 1}
 
-	room := newTestRoom(alice, housewife)
-	room.ClearanceCeiling = 1
+	r := newTestRoom(alice, housewife)
+	r.ClearanceCeiling = 1
 	ctx := context.Background()
-	if err := store.CreateRoom(ctx, &room); err != nil {
+	if err := store.CreateRoom(ctx, &r); err != nil {
 		t.Fatalf("CreateRoom: %v", err)
 	}
 
 	// Update participants
-	room.Participants = []Actor{alice, scout}
-	if err := store.UpdateRoom(ctx, &room); err != nil {
+	r.Participants = []room.Actor{alice, scout}
+	if err := store.UpdateRoom(ctx, &r); err != nil {
 		t.Fatalf("UpdateRoom: %v", err)
 	}
 
 	// Verify
-	got, err := store.GetRoom(ctx, room.ID)
+	got, err := store.GetRoom(ctx, r.ID)
 	if err != nil {
 		t.Fatalf("GetRoom after update: %v", err)
 	}
@@ -235,12 +236,12 @@ func TestSQLiteStore_UpdateRoom_NotFound(t *testing.T) {
 	store, _ := newTestStore(t)
 	defer store.Close()
 
-	alice := Actor{ID: "user:alice", Type: ActorUser, Clearance: 5}
-	room := newTestRoom(alice)
-	room.ID = "nonexistent"
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5}
+	r := newTestRoom(alice)
+	r.ID = "nonexistent"
 
 	ctx := context.Background()
-	err := store.UpdateRoom(ctx, &room)
+	err := store.UpdateRoom(ctx, &r)
 	if err == nil {
 		t.Fatal("expected error for missing room, got nil")
 	}
@@ -250,22 +251,22 @@ func TestSQLiteStore_DeleteRoom(t *testing.T) {
 	store, _ := newTestStore(t)
 	defer store.Close()
 
-	alice := Actor{ID: "user:alice", Type: ActorUser, Clearance: 5}
-	housewife := Actor{ID: "agent:housewife", Type: ActorAgent, Clearance: 5}
-	room := newTestRoom(alice, housewife)
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5}
+	housewife := room.Actor{ID: "agent:housewife", Type: room.ActorAgent, Clearance: 5}
+	r := newTestRoom(alice, housewife)
 
 	ctx := context.Background()
-	if err := store.CreateRoom(ctx, &room); err != nil {
+	if err := store.CreateRoom(ctx, &r); err != nil {
 		t.Fatalf("CreateRoom: %v", err)
 	}
 
 	// Delete
-	if err := store.DeleteRoom(ctx, room.ID); err != nil {
+	if err := store.DeleteRoom(ctx, r.ID); err != nil {
 		t.Fatalf("DeleteRoom: %v", err)
 	}
 
 	// Verify it's gone
-	_, err := store.GetRoom(ctx, room.ID)
+	_, err := store.GetRoom(ctx, r.ID)
 	if err == nil {
 		t.Fatal("expected error after delete, got nil")
 	}
@@ -282,69 +283,61 @@ func TestSQLiteStore_DeleteRoom_NotFound(t *testing.T) {
 	}
 }
 
-func TestSQLiteStore_CompactionCursor(t *testing.T) {
+func TestSQLiteStore_CompactionOffset(t *testing.T) {
 	store, _ := newTestStore(t)
 	defer store.Close()
 
 	ctx := context.Background()
 
-	// Get cursor for non-existent entry → should default to 0
-	cursor, err := store.GetCompactionCursor(ctx, "housewife", "room_1")
+	// Non-existent entry → should default to 0
+	offset, err := store.GetCompactionOffset(ctx, "housewife", "room_1")
 	if err != nil {
-		t.Fatalf("GetCompactionCursor: %v", err)
+		t.Fatalf("GetCompactionOffset: %v", err)
 	}
-	if cursor.Offset != 0 {
-		t.Fatalf("expected offset 0 for new cursor, got %d", cursor.Offset)
-	}
-
-	// Set cursor
-	newCursor := &CompactionCursor{AgentName: "housewife", RoomID: "room_1", Offset: 50}
-	if err := store.SetCompactionCursor(ctx, newCursor); err != nil {
-		t.Fatalf("SetCompactionCursor: %v", err)
+	if offset != 0 {
+		t.Fatalf("expected offset 0 for new entry, got %d", offset)
 	}
 
-	// Get again
-	cursor, err = store.GetCompactionCursor(ctx, "housewife", "room_1")
+	// Set offset
+	if err := store.SetCompactionOffset(ctx, "housewife", "room_1", 50); err != nil {
+		t.Fatalf("SetCompactionOffset: %v", err)
+	}
+
+	offset, err = store.GetCompactionOffset(ctx, "housewife", "room_1")
 	if err != nil {
-		t.Fatalf("GetCompactionCursor after set: %v", err)
+		t.Fatalf("GetCompactionOffset after set: %v", err)
 	}
-	if cursor.Offset != 50 {
-		t.Fatalf("expected offset 50, got %d", cursor.Offset)
-	}
-
-	// Update cursor
-	newCursor.Offset = 100
-	if err := store.SetCompactionCursor(ctx, newCursor); err != nil {
-		t.Fatalf("SetCompactionCursor update: %v", err)
+	if offset != 50 {
+		t.Fatalf("expected offset 50, got %d", offset)
 	}
 
-	cursor, err = store.GetCompactionCursor(ctx, "housewife", "room_1")
+	// Update offset
+	if err := store.SetCompactionOffset(ctx, "housewife", "room_1", 100); err != nil {
+		t.Fatalf("SetCompactionOffset update: %v", err)
+	}
+
+	offset, err = store.GetCompactionOffset(ctx, "housewife", "room_1")
 	if err != nil {
-		t.Fatalf("GetCompactionCursor after update: %v", err)
+		t.Fatalf("GetCompactionOffset after update: %v", err)
 	}
-	if cursor.Offset != 100 {
-		t.Fatalf("expected offset 100, got %d", cursor.Offset)
+	if offset != 100 {
+		t.Fatalf("expected offset 100, got %d", offset)
 	}
 }
 
-func TestSQLiteStore_CompactionCursor_Invalid(t *testing.T) {
+func TestSQLiteStore_CompactionOffset_Invalid(t *testing.T) {
 	store, _ := newTestStore(t)
 	defer store.Close()
 
 	ctx := context.Background()
 
-	// Missing agent name
-	if err := store.SetCompactionCursor(ctx, &CompactionCursor{AgentName: "", RoomID: "room_1", Offset: 10}); err == nil {
-		t.Fatal("expected error for missing agent_name")
+	if err := store.SetCompactionOffset(ctx, "", "room_1", 10); err == nil {
+		t.Fatal("expected error for missing agentName")
 	}
-
-	// Missing room ID
-	if err := store.SetCompactionCursor(ctx, &CompactionCursor{AgentName: "housewife", RoomID: "", Offset: 10}); err == nil {
-		t.Fatal("expected error for missing room_id")
+	if err := store.SetCompactionOffset(ctx, "housewife", "", 10); err == nil {
+		t.Fatal("expected error for missing roomID")
 	}
-
-	// Negative offset
-	if err := store.SetCompactionCursor(ctx, &CompactionCursor{AgentName: "housewife", RoomID: "room_1", Offset: -1}); err == nil {
+	if err := store.SetCompactionOffset(ctx, "housewife", "room_1", -1); err == nil {
 		t.Fatal("expected error for negative offset")
 	}
 }
@@ -353,18 +346,18 @@ func TestSQLiteStore_RoomName(t *testing.T) {
 	store, _ := newTestStore(t)
 	defer store.Close()
 
-	alice := Actor{ID: "user:alice", Type: ActorUser, Clearance: 5, Name: "Alice"}
-	housewife := Actor{ID: "agent:housewife", Type: ActorAgent, Clearance: 5, Name: "Housewife"}
-	room := newTestRoom(alice, housewife)
-	room.Name = "Alice's Kitchen"
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5, Name: "Alice"}
+	housewife := room.Actor{ID: "agent:housewife", Type: room.ActorAgent, Clearance: 5, Name: "Housewife"}
+	r := newTestRoom(alice, housewife)
+	r.Name = "Alice's Kitchen"
 
 	ctx := context.Background()
-	if err := store.CreateRoom(ctx, &room); err != nil {
+	if err := store.CreateRoom(ctx, &r); err != nil {
 		t.Fatalf("CreateRoom: %v", err)
 	}
 
 	// Verify name persisted
-	got, err := store.GetRoom(ctx, room.ID)
+	got, err := store.GetRoom(ctx, r.ID)
 	if err != nil {
 		t.Fatalf("GetRoom: %v", err)
 	}
@@ -373,12 +366,12 @@ func TestSQLiteStore_RoomName(t *testing.T) {
 	}
 
 	// Update name
-	room.Name = "Renamed Kitchen"
-	if err := store.UpdateRoom(ctx, &room); err != nil {
+	r.Name = "Renamed Kitchen"
+	if err := store.UpdateRoom(ctx, &r); err != nil {
 		t.Fatalf("UpdateRoom: %v", err)
 	}
 
-	got, err = store.GetRoom(ctx, room.ID)
+	got, err = store.GetRoom(ctx, r.ID)
 	if err != nil {
 		t.Fatalf("GetRoom after update: %v", err)
 	}
@@ -403,7 +396,7 @@ func TestSQLiteStore_DBFileCreated(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "rooms.db")
 
-	store, err := NewSQLiteStore(dbPath)
+	store, err := NewSQLiteStore(dbPath, dir)
 	if err != nil {
 		t.Fatalf("NewSQLiteStore: %v", err)
 	}
@@ -413,4 +406,3 @@ func TestSQLiteStore_DBFileCreated(t *testing.T) {
 		t.Fatal("expected DB file to be created")
 	}
 }
-

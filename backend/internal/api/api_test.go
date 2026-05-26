@@ -22,6 +22,7 @@ import (
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/memory"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/paths"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
+	storedb "github.com/humanoidsandvichdispenser/hearth/backend/internal/store"
 )
 
 // mockBroadcaster captures broadcast events for testing.
@@ -111,7 +112,7 @@ permissions: []
 	}
 
 	// Create SQLite store
-	store, err := room.NewSQLiteStore(p.RoomsDBPath())
+	store, err := storedb.NewSQLiteStore(p.RoomsDBPath(), p.RoomsDir())
 	if err != nil {
 		t.Fatalf("NewSQLiteStore: %v", err)
 	}
@@ -133,7 +134,7 @@ permissions: []
 	hub := NewHub()
 	go hub.Run()
 
-	svc := NewService(dispatcher, store, agentMgr, hub, p)
+	svc := NewService(dispatcher, store, store, agentMgr, hub)
 
 	cleanup := func() {
 		store.Close()
@@ -601,7 +602,7 @@ func createTestRoom(t *testing.T, svc *Service, router chi.Router) room.Room {
 
 	// Return the created room (we need to look it up in the store)
 	ctx := context.Background()
-	r, err := svc.store.GetRoom(ctx, room.ID)
+	r, err := svc.rooms.GetRoom(ctx, room.ID)
 	if err != nil {
 		t.Fatalf("get created room: %v", err)
 	}

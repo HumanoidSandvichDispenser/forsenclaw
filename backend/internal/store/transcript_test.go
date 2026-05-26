@@ -1,4 +1,4 @@
-package room
+package store
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
 )
 
 func TestTranscriptWriter_Append(t *testing.T) {
@@ -21,14 +22,14 @@ func TestTranscriptWriter_Append(t *testing.T) {
 	}
 	defer w.Close()
 
-	alice := Actor{ID: "user:alice", Type: ActorUser, Clearance: 5, Name: "Alice"}
-	msg := Message{
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5, Name: "Alice"}
+	msg := room.Message{
 		ID:           uuid.New().String(),
 		Timestamp:    time.Now().UTC(),
 		RoomID:       roomID,
 		Sender:       alice,
 		ClearanceTag: 5,
-		Type:         MessageText,
+		Type:         room.MessageText,
 		Content:      "Hello, housewife!",
 	}
 
@@ -57,7 +58,7 @@ func TestTranscriptWriter_Append_InvalidMessage(t *testing.T) {
 	defer w.Close()
 
 	ctx := context.Background()
-	invalidMsg := Message{ID: "", Content: ""} // missing required fields
+	invalidMsg := room.Message{ID: "", Content: ""} // missing required fields
 
 	err = w.Append(ctx, invalidMsg)
 	if err == nil {
@@ -74,16 +75,16 @@ func TestReadMessages(t *testing.T) {
 		t.Fatalf("NewTranscriptWriter: %v", err)
 	}
 
-	alice := Actor{ID: "user:alice", Type: ActorUser, Clearance: 5, Name: "Alice"}
-	housewife := Actor{ID: "agent:housewife", Type: ActorAgent, Clearance: 5, Name: "Housewife"}
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5, Name: "Alice"}
+	housewife := room.Actor{ID: "agent:housewife", Type: room.ActorAgent, Clearance: 5, Name: "Housewife"}
 
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	msgs := []Message{
-		{ID: "msg_1", Timestamp: now.Add(-2 * time.Hour), RoomID: roomID, Sender: alice, ClearanceTag: 5, Type: MessageText, Content: "First message"},
-		{ID: "msg_2", Timestamp: now.Add(-1 * time.Hour), RoomID: roomID, Sender: housewife, ClearanceTag: 5, Type: MessageText, Content: "Response"},
-		{ID: "msg_3", Timestamp: now, RoomID: roomID, Sender: alice, ClearanceTag: 5, Type: MessageText, Content: "Latest"},
+	msgs := []room.Message{
+		{ID: "msg_1", Timestamp: now.Add(-2 * time.Hour), RoomID: roomID, Sender: alice, ClearanceTag: 5, Type: room.MessageText, Content: "First message"},
+		{ID: "msg_2", Timestamp: now.Add(-1 * time.Hour), RoomID: roomID, Sender: housewife, ClearanceTag: 5, Type: room.MessageText, Content: "Response"},
+		{ID: "msg_3", Timestamp: now, RoomID: roomID, Sender: alice, ClearanceTag: 5, Type: room.MessageText, Content: "Latest"},
 	}
 
 	for _, msg := range msgs {
@@ -118,18 +119,18 @@ func TestReadMessages_WithLimit(t *testing.T) {
 		t.Fatalf("NewTranscriptWriter: %v", err)
 	}
 
-	alice := Actor{ID: "user:alice", Type: ActorUser, Clearance: 5}
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5}
 	ctx := context.Background()
 	now := time.Now().UTC()
 
 	for i := 0; i < 10; i++ {
-		msg := Message{
+		msg := room.Message{
 			ID:           uuid.New().String(),
 			Timestamp:    now.Add(time.Duration(i) * time.Minute),
 			RoomID:       roomID,
 			Sender:       alice,
 			ClearanceTag: 5,
-			Type:         MessageText,
+			Type:         room.MessageText,
 			Content:      fmt.Sprintf("Message %d", i),
 		}
 		if err := w.Append(ctx, msg); err != nil {
@@ -164,14 +165,14 @@ func TestReadMessages_WithTimeFilters(t *testing.T) {
 		t.Fatalf("NewTranscriptWriter: %v", err)
 	}
 
-	alice := Actor{ID: "user:alice", Type: ActorUser, Clearance: 5}
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5}
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	msgs := []Message{
-		{ID: "old", Timestamp: now.Add(-2 * time.Hour), RoomID: roomID, Sender: alice, ClearanceTag: 5, Type: MessageText, Content: "Old"},
-		{ID: "mid", Timestamp: now.Add(-1 * time.Hour), RoomID: roomID, Sender: alice, ClearanceTag: 5, Type: MessageText, Content: "Mid"},
-		{ID: "new", Timestamp: now, RoomID: roomID, Sender: alice, ClearanceTag: 5, Type: MessageText, Content: "New"},
+	msgs := []room.Message{
+		{ID: "old", Timestamp: now.Add(-2 * time.Hour), RoomID: roomID, Sender: alice, ClearanceTag: 5, Type: room.MessageText, Content: "Old"},
+		{ID: "mid", Timestamp: now.Add(-1 * time.Hour), RoomID: roomID, Sender: alice, ClearanceTag: 5, Type: room.MessageText, Content: "Mid"},
+		{ID: "new", Timestamp: now, RoomID: roomID, Sender: alice, ClearanceTag: 5, Type: room.MessageText, Content: "New"},
 	}
 	for _, msg := range msgs {
 		if err := w.Append(ctx, msg); err != nil {
@@ -237,7 +238,7 @@ func TestTranscriptWriter_ConcurrentAppend(t *testing.T) {
 	}
 	defer w.Close()
 
-	alice := Actor{ID: "user:alice", Type: ActorUser, Clearance: 5}
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5}
 	ctx := context.Background()
 	now := time.Now().UTC()
 
@@ -250,13 +251,13 @@ func TestTranscriptWriter_ConcurrentAppend(t *testing.T) {
 		go func(gid int) {
 			defer func() { done <- struct{}{} }()
 			for j := 0; j < msgsPerGoroutine; j++ {
-				msg := Message{
+				msg := room.Message{
 					ID:           uuid.New().String(),
 					Timestamp:    now.Add(time.Duration(gid*msgsPerGoroutine+j) * time.Millisecond),
 					RoomID:       roomID,
 					Sender:       alice,
 					ClearanceTag: 5,
-					Type:         MessageText,
+					Type:         room.MessageText,
 					Content:      "concurrent",
 				}
 				if err := w.Append(ctx, msg); err != nil {
@@ -308,18 +309,18 @@ func TestReadMessagesTail_Basic(t *testing.T) {
 		t.Fatalf("NewTranscriptWriter: %v", err)
 	}
 
-	alice := Actor{ID: "user:alice", Type: ActorUser, Clearance: 5}
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5}
 	ctx := context.Background()
 	now := time.Now().UTC()
 
 	for i := 0; i < 10; i++ {
-		msg := Message{
+		msg := room.Message{
 			ID:           fmt.Sprintf("msg_%d", i),
 			Timestamp:    now.Add(time.Duration(i) * time.Minute),
 			RoomID:       roomID,
 			Sender:       alice,
 			ClearanceTag: 5,
-			Type:         MessageText,
+			Type:         room.MessageText,
 			Content:      fmt.Sprintf("Message %d", i),
 		}
 		if err := w.Append(ctx, msg); err != nil {
@@ -353,18 +354,18 @@ func TestReadMessagesTail_WithOffset(t *testing.T) {
 		t.Fatalf("NewTranscriptWriter: %v", err)
 	}
 
-	alice := Actor{ID: "user:alice", Type: ActorUser, Clearance: 5}
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5}
 	ctx := context.Background()
 	now := time.Now().UTC()
 
 	for i := 0; i < 10; i++ {
-		msg := Message{
+		msg := room.Message{
 			ID:           fmt.Sprintf("msg_%d", i),
 			Timestamp:    now.Add(time.Duration(i) * time.Minute),
 			RoomID:       roomID,
 			Sender:       alice,
 			ClearanceTag: 5,
-			Type:         MessageText,
+			Type:         room.MessageText,
 			Content:      fmt.Sprintf("Message %d", i),
 		}
 		if err := w.Append(ctx, msg); err != nil {
@@ -398,18 +399,18 @@ func TestReadMessagesTail_OffsetNearEnd(t *testing.T) {
 		t.Fatalf("NewTranscriptWriter: %v", err)
 	}
 
-	alice := Actor{ID: "user:alice", Type: ActorUser, Clearance: 5}
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5}
 	ctx := context.Background()
 	now := time.Now().UTC()
 
 	for i := 0; i < 10; i++ {
-		msg := Message{
+		msg := room.Message{
 			ID:           fmt.Sprintf("msg_%d", i),
 			Timestamp:    now.Add(time.Duration(i) * time.Minute),
 			RoomID:       roomID,
 			Sender:       alice,
 			ClearanceTag: 5,
-			Type:         MessageText,
+			Type:         room.MessageText,
 			Content:      fmt.Sprintf("Message %d", i),
 		}
 		if err := w.Append(ctx, msg); err != nil {
@@ -443,18 +444,18 @@ func TestReadMessagesTail_OffsetPastEnd(t *testing.T) {
 		t.Fatalf("NewTranscriptWriter: %v", err)
 	}
 
-	alice := Actor{ID: "user:alice", Type: ActorUser, Clearance: 5}
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5}
 	ctx := context.Background()
 	now := time.Now().UTC()
 
 	for i := 0; i < 5; i++ {
-		msg := Message{
+		msg := room.Message{
 			ID:           fmt.Sprintf("msg_%d", i),
 			Timestamp:    now.Add(time.Duration(i) * time.Minute),
 			RoomID:       roomID,
 			Sender:       alice,
 			ClearanceTag: 5,
-			Type:         MessageText,
+			Type:         room.MessageText,
 			Content:      fmt.Sprintf("Message %d", i),
 		}
 		if err := w.Append(ctx, msg); err != nil {
@@ -496,18 +497,18 @@ func TestTotalLineCount(t *testing.T) {
 		t.Fatalf("NewTranscriptWriter: %v", err)
 	}
 
-	alice := Actor{ID: "user:alice", Type: ActorUser, Clearance: 5}
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5}
 	ctx := context.Background()
 	now := time.Now().UTC()
 
 	for i := 0; i < 5; i++ {
-		msg := Message{
+		msg := room.Message{
 			ID:           uuid.New().String(),
 			Timestamp:    now.Add(time.Duration(i) * time.Minute),
 			RoomID:       roomID,
 			Sender:       alice,
 			ClearanceTag: 5,
-			Type:         MessageText,
+			Type:         room.MessageText,
 			Content:      fmt.Sprintf("Message %d", i),
 		}
 		if err := w.Append(ctx, msg); err != nil {

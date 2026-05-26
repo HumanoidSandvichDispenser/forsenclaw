@@ -23,9 +23,10 @@ import (
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/mcp"
 	mcpTools "github.com/humanoidsandvichdispenser/hearth/backend/internal/mcp/tools"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/memory"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/paths"
-	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/search"
+	storedb "github.com/humanoidsandvichdispenser/hearth/backend/internal/store"
 )
 
 func main() {
@@ -157,7 +158,7 @@ func resolvePaths(configOverride string) *paths.Paths {
 
 func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 	// 1. Open rooms DB
-	store, err := room.NewSQLiteStore(p.RoomsDBPath())
+	store, err := storedb.NewSQLiteStore(p.RoomsDBPath(), p.RoomsDir())
 	if err != nil {
 		log.Fatalf("failed to open rooms DB: %v", err)
 	}
@@ -178,9 +179,9 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 	// 4. Create MCP executor
 	mcpExecutor := mcp.NewExecutor(mcpRegistry, audit.Nop())
 
-	// 5. Create agent manager (loads agents from disk, watches for changes)
-	// TODO: wire assembler once memory.Assembler is updated to satisfy agent.Assembler
-	agentMgr, err := agent.NewManager(p, cfg, registry, nil, mcpExecutor)
+	// 5. Create assembler and agent manager
+	assembler := memory.NewAssembler(p, 0, store, store)
+	agentMgr, err := agent.NewManager(p, cfg, registry, assembler, mcpExecutor)
 	if err != nil {
 		log.Fatalf("failed to create agent manager: %v", err)
 	}
@@ -194,7 +195,7 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 	dispatcher := dispatch.NewDispatcher(agentMgr)
 
 	// 8. Create service and API
-	svc := api.NewService(dispatcher, store, agentMgr, hub, p)
+	svc := api.NewService(dispatcher, store, store, agentMgr, hub)
 
 	router := chi.NewRouter()
 	router.Use(middleware.Logger)
