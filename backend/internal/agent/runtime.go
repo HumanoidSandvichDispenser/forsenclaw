@@ -2,11 +2,18 @@ package agent
 
 import (
 	"context"
+	"log"
 	"sync"
 
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/dag"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
 )
+
+// ResponseWriter persists completed agent responses to the room transcript.
+// Defined here as an interface to avoid an import cycle with the store/api packages.
+type ResponseWriter interface {
+	WriteAgentResponse(ctx context.Context, roomID int64, agentName string, content string) error
+}
 
 // Assembler assembles the context window for an agent invocation.
 // Defined here as an interface to avoid an import cycle with the memory package.
@@ -25,6 +32,16 @@ type ToolExecutor interface {
 	Execute(ctx context.Context, call inference.ToolCallWire) (string, error)
 }
 
+// RuntimeDeps groups optional dependencies for AgentRuntime.
+type RuntimeDeps struct {
+	Registry             *inference.Registry
+	Assembler            Assembler
+	Executor             ToolExecutor
+	ConfirmationRegistry *ConfirmationRegistry
+	Notifier             ConfirmationNotifier
+	ResponseWriter       ResponseWriter
+}
+
 // AgentRuntime drives the request DAG for a single agent.
 // Each agent gets exactly one runtime; concurrency is across agents, not within one.
 type AgentRuntime struct {
@@ -38,6 +55,10 @@ type AgentRuntime struct {
 	confirmationRegistry *ConfirmationRegistry
 	notifier             ConfirmationNotifier
 
+	// responseWriter is called after a root InferenceHandler node resolves.
+	// May be nil (no-op in that case).
+	responseWriter ResponseWriter
+
 	// work is pulsed when new work may be available.
 	work chan struct{}
 
@@ -46,15 +67,16 @@ type AgentRuntime struct {
 }
 
 // NewAgentRuntime creates a runtime for the given agent.
-func NewAgentRuntime(agent *Agent, registry *inference.Registry, assembler Assembler, executor ToolExecutor, confirmationRegistry *ConfirmationRegistry, notifier ConfirmationNotifier) *AgentRuntime {
+func NewAgentRuntime(agent *Agent, deps RuntimeDeps) *AgentRuntime {
 	r := &AgentRuntime{
 		agent:                agent,
 		dag:                  dag.New(),
-		registry:             registry,
-		assembler:            assembler,
-		executor:             executor,
-		confirmationRegistry: confirmationRegistry,
-		notifier:             notifier,
+		registry:             deps.Registry,
+		assembler:            deps.Assembler,
+		executor:             deps.Executor,
+		confirmationRegistry: deps.ConfirmationRegistry,
+		notifier:             deps.Notifier,
+		responseWriter:       deps.ResponseWriter,
 		work:                 make(chan struct{}, 1),
 	}
 	r.idle = sync.NewCond(&r.mu)
@@ -156,6 +178,11 @@ func (r *AgentRuntime) runNode(ctx context.Context, node *dag.Node) {
 			r.dag.Fail(node.ID, err)
 		case result != nil:
 			r.dag.Resolve(node.ID, *result)
+			if ih, ok := node.Handler.(*InferenceHandler); ok && r.responseWriter != nil && result.Content != "" {
+				if werr := r.responseWriter.WriteAgentResponse(ctx, ih.req.Payload.RoomID, r.agent.Name(), result.Content); werr != nil {
+					log.Printf("agent %s: failed to write response: %v", r.agent.Name(), werr)
+				}
+			}
 		default:
 			for _, dep := range deps {
 				r.dag.Add(dep.ID, dep.Handler, node.ID)

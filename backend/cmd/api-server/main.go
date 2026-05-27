@@ -157,6 +157,9 @@ func resolvePaths(configOverride string) *paths.Paths {
 }
 
 func startServer(cfg *config.ServerConfig, p *paths.Paths) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// 1. Open rooms DB
 	store, err := storedb.NewSQLiteStore(p.RoomsDBPath())
 	if err != nil {
@@ -185,14 +188,21 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 
 	// 5b. Create assembler and agent manager
 	assembler := memory.NewAssembler(p, 0, store, store)
-	agentMgr, err := agent.NewManager(p, cfg, registry, assembler, mcpExecutor, api.NewHubNotifier(hub))
+	agentMgr, err := agent.NewManager(p, cfg, agent.ManagerDeps{
+		Registry:       registry,
+		Assembler:      assembler,
+		Executor:       mcpExecutor,
+		Notifier:       api.NewHubNotifier(hub),
+		ResponseWriter: api.NewAgentResponseWriter(store, store, hub),
+	})
 	if err != nil {
 		log.Fatalf("failed to create agent manager: %v", err)
 	}
 	defer agentMgr.Close()
 
-	// 7. Create dispatcher
+	// 7. Create dispatcher and start its run loop
 	dispatcher := dispatch.NewDispatcher(agentMgr)
+	go dispatcher.Run(ctx)
 
 	// 8. Create service and API
 	svc := api.NewService(dispatcher, store, store, agentMgr, hub)
@@ -235,6 +245,7 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 
 	log.Println("server stopped")
 }
+
 
 func buildMCPRegistry(cfg *config.ServerConfig) (mcp.Registry, error) {
 	// TODO: read systemMax from clearance_levels config when implemented.

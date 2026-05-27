@@ -22,6 +22,16 @@ type agentEntry struct {
 	runtime *AgentRuntime
 }
 
+// ManagerDeps groups optional runtime dependencies for Manager.
+// If Registry is nil, no AgentRuntimes are created (useful in tests).
+type ManagerDeps struct {
+	Registry       *inference.Registry
+	Assembler      Assembler
+	Executor       ToolExecutor
+	Notifier       ConfirmationNotifier
+	ResponseWriter ResponseWriter
+}
+
 // Manager loads, tracks, and hot-reloads agent definitions from disk.
 // It also owns the AgentRuntime for each agent.
 type Manager struct {
@@ -31,32 +41,32 @@ type Manager struct {
 	paths   *paths.Paths
 	server  *config.ServerConfig
 
-	// Runtime deps — nil means runtimes are not created (e.g. in tests).
+	// Runtime deps — nil Registry means runtimes are not created (e.g. in tests).
 	registry             *inference.Registry
 	assembler            Assembler
 	executor             ToolExecutor
 	confirmationRegistry *ConfirmationRegistry
 	notifier             ConfirmationNotifier
+	responseWriter       ResponseWriter
 
 	ctx    context.Context
 	cancel context.CancelFunc
 }
 
 // NewManager creates a manager and loads all agents from disk.
-// registry, assembler, executor, and notifier are optional — pass nil to skip
-// runtime creation (useful in tests).
-func NewManager(p *paths.Paths, serverCfg *config.ServerConfig, registry *inference.Registry, assembler Assembler, executor ToolExecutor, notifier ConfirmationNotifier) (*Manager, error) {
+func NewManager(p *paths.Paths, serverCfg *config.ServerConfig, deps ManagerDeps) (*Manager, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	confirmationRegistry := NewConfirmationRegistry()
 	m := &Manager{
 		entries:              make(map[string]*agentEntry),
 		paths:                p,
 		server:               serverCfg,
-		registry:             registry,
-		assembler:            assembler,
-		executor:             executor,
+		registry:             deps.Registry,
+		assembler:            deps.Assembler,
+		executor:             deps.Executor,
 		confirmationRegistry: confirmationRegistry,
-		notifier:             notifier,
+		notifier:             deps.Notifier,
+		responseWriter:       deps.ResponseWriter,
 		ctx:                  ctx,
 		cancel:               cancel,
 	}
@@ -222,7 +232,14 @@ func (m *Manager) ConfirmationRegistry() *ConfirmationRegistry {
 func (m *Manager) newEntry(agent *Agent) *agentEntry {
 	e := &agentEntry{agent: agent}
 	if m.registry != nil {
-		e.runtime = NewAgentRuntime(agent, m.registry, m.assembler, m.executor, m.confirmationRegistry, m.notifier)
+		e.runtime = NewAgentRuntime(agent, RuntimeDeps{
+			Registry:             m.registry,
+			Assembler:            m.assembler,
+			Executor:             m.executor,
+			ConfirmationRegistry: m.confirmationRegistry,
+			Notifier:             m.notifier,
+			ResponseWriter:       m.responseWriter,
+		})
 		go e.runtime.Run(m.ctx)
 	}
 	return e

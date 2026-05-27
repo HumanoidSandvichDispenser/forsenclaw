@@ -124,7 +124,7 @@ permissions:
 		},
 	}
 
-	mgr, err := NewManager(p, serverCfg, nil, nil, nil, nil)
+	mgr, err := NewManager(p, serverCfg, ManagerDeps{})
 	if err != nil {
 		t.Fatalf("NewManager failed: %v", err)
 	}
