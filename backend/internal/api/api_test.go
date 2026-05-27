@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -30,7 +31,7 @@ type mockBroadcaster struct {
 	events []dispatch.StreamEvent
 }
 
-func (m *mockBroadcaster) Broadcast(roomID string, event dispatch.StreamEvent) {
+func (m *mockBroadcaster) Broadcast(roomID int64, event dispatch.StreamEvent) {
 	m.events = append(m.events, event)
 }
 
@@ -74,7 +75,7 @@ func newTestService(t *testing.T) (*Service, *paths.Paths, func()) {
 	p := paths.NewPathsFromRoots(dir, dir, dir)
 
 	// Create required directories
-	for _, path := range []string{p.DBDir(), p.AgentsConfigDir(), p.AgentsDataDir(), p.RoomsDir()} {
+	for _, path := range []string{p.DBDir(), p.AgentsConfigDir(), p.AgentsDataDir()} {
 		if err := os.MkdirAll(path, 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", path, err)
 		}
@@ -112,7 +113,7 @@ permissions: []
 	}
 
 	// Create SQLite store
-	store, err := storedb.NewSQLiteStore(p.RoomsDBPath(), p.RoomsDir())
+	store, err := storedb.NewSQLiteStore(p.RoomsDBPath())
 	if err != nil {
 		t.Fatalf("NewSQLiteStore: %v", err)
 	}
@@ -178,8 +179,8 @@ func TestCreateRoom(t *testing.T) {
 		t.Fatalf("unmarshal response: %v\nbody: %s", err, w.Body.String())
 	}
 
-	if room.ID == "" {
-		t.Fatalf("expected room ID to be set, got empty. body: %s", w.Body.String())
+	if room.ID == 0 {
+		t.Fatalf("expected room ID to be assigned, got 0. body: %s", w.Body.String())
 	}
 	if len(room.Participants) != 2 {
 		t.Fatalf("expected 2 participants, got %d", len(room.Participants))
@@ -218,7 +219,7 @@ func TestGetRoom(t *testing.T) {
 	rm := createTestRoom(t, svc, router)
 
 	// Fetch it
-	req := httptest.NewRequest(http.MethodGet, "/api/rooms/"+rm.ID, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/rooms/"+strconv.FormatInt(rm.ID, 10), nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -232,7 +233,7 @@ func TestGetRoom(t *testing.T) {
 	}
 
 	if room.ID != rm.ID {
-		t.Fatalf("expected room ID %s, got %s", rm.ID, room.ID)
+		t.Fatalf("expected room ID %d, got %d", rm.ID, room.ID)
 	}
 }
 
@@ -282,7 +283,7 @@ func TestSendMessage(t *testing.T) {
 		"sender":  "user:alice",
 		"content": "Hello!",
 	})
-	req := httptest.NewRequest(http.MethodPost, "/api/rooms/"+rm.ID+"/messages", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/rooms/"+strconv.FormatInt(rm.ID, 10)+"/messages", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -307,7 +308,7 @@ func TestSendMessage(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	// List messages
-	req = httptest.NewRequest(http.MethodGet, "/api/rooms/"+rm.ID+"/messages", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/rooms/"+strconv.FormatInt(rm.ID, 10)+"/messages", nil)
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -347,7 +348,7 @@ func TestListMessages(t *testing.T) {
 	// Wait for processing
 	time.Sleep(100 * time.Millisecond)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/rooms/"+rm.ID+"/messages?limit=1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/rooms/"+strconv.FormatInt(rm.ID, 10)+"/messages?limit=1", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -435,7 +436,7 @@ func TestPreviewContext(t *testing.T) {
 	// Wait for async processing to append agent response.
 	time.Sleep(200 * time.Millisecond)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/rooms/"+rm.ID+"/agents/housewife/context-preview", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/rooms/"+strconv.FormatInt(rm.ID, 10)+"/agents/housewife/context-preview", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -479,7 +480,7 @@ func TestPreviewContext_HeadersMatchProviderRendering(t *testing.T) {
 	sendTestMessage(t, router, rm.ID, "user:alice", "Hello!")
 	time.Sleep(200 * time.Millisecond)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/rooms/"+rm.ID+"/agents/housewife/context-preview", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/rooms/"+strconv.FormatInt(rm.ID, 10)+"/agents/housewife/context-preview", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -550,7 +551,7 @@ func TestSendMessageInvalidSender(t *testing.T) {
 		"sender":  "user:bob", // not a participant
 		"content": "Hello!",
 	})
-	req := httptest.NewRequest(http.MethodPost, "/api/rooms/"+rm.ID+"/messages", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/rooms/"+strconv.FormatInt(rm.ID, 10)+"/messages", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -567,7 +568,7 @@ func TestGetRoomNotFound(t *testing.T) {
 
 	router, _ := newTestRouter(t, svc)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/rooms/nonexistent", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/rooms/999999", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -609,19 +610,19 @@ func createTestRoom(t *testing.T, svc *Service, router chi.Router) room.Room {
 	return *r
 }
 
-func sendTestMessage(t *testing.T, router chi.Router, roomID, sender, content string) {
+func sendTestMessage(t *testing.T, router chi.Router, roomID int64, sender, content string) {
 	t.Helper()
 
 	body, _ := json.Marshal(map[string]any{
 		"sender":  sender,
 		"content": content,
 	})
-	req := httptest.NewRequest(http.MethodPost, "/api/rooms/"+roomID+"/messages", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/rooms/"+strconv.FormatInt(roomID, 10)+"/messages", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Fatalf("send message: expected 200, got %d (roomID=%s): %s", w.Code, roomID, w.Body.String())
+		t.Fatalf("send message: expected 200, got %d (roomID=%d): %s", w.Code, roomID, w.Body.String())
 	}
 }

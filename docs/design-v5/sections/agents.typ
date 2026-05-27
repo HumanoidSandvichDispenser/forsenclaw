@@ -76,7 +76,7 @@ Order, narrowing from background to immediate:
   participates in, labeled by room ID and merged chronologically. Filtered by
   the agent's clearance.
 + *Current room history* --- windowed tail of the target room's transcript,
-  starting at the room's `compacted_offset`.
+  starting at the room's `compacted_number`.
 + *Turn budget notice* --- remaining turns before user approval required.
 + *Request payload* --- the actual message the agent is responding to,
   including any pending interjections.
@@ -106,9 +106,9 @@ in no other rooms, this tier is empty.
 === Current Room History
 
 Read only the tail of the current room transcript, starting from that room's
-`compacted_offset`. Tail reads seek from the end of the JSONL file and scan
-backward until the window is satisfied. This keeps the hot path bounded even
-for large rooms.
+`compacted_number`. The store returns messages with `number > compacted_number`
+in chronological order, bounded by the configured window. This keeps the hot
+path bounded even for large rooms.
 
 == Agents Are Not Knowledge Specialists
 

@@ -75,7 +75,6 @@ func TestAllDirs(t *testing.T) {
 	expected := []string{
 		"/cfg/agents",
 		"/data/agents",
-		"/data/rooms",
 		"/data/staging/agents",
 		"/data/db",
 		"/cache",

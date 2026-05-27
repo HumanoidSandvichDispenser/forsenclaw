@@ -91,33 +91,32 @@ func TestMessage_Validate(t *testing.T) {
 		{
 			name: "valid message",
 			msg: Message{
-				ID: "msg_1", RoomID: "room_1", Sender: validSender,
+				RoomID: 1, Number: 1, Sender: validSender,
 				Type: MessageText, Content: "Hello",
 			},
 			wantErr: false,
 		},
 		{
-			name:    "missing id",
-			msg:     Message{RoomID: "room_1", Sender: validSender, Type: MessageText, Content: "Hello"},
+			name: "missing room_id",
+			msg: Message{
+				Number: 1, Sender: validSender,
+				Type: MessageText, Content: "Hello",
+			},
 			wantErr: true,
-			errMsg:  "message ID is required",
+			errMsg:  "room_id must be positive",
 		},
 		{
-			name:    "missing room_id",
-			msg:     Message{ID: "msg_1", Sender: validSender, Type: MessageText, Content: "Hello"},
-			wantErr: true,
-			errMsg:  "room_id is required",
-		},
-		{
-			name:    "invalid sender",
-			msg:     Message{ID: "msg_1", RoomID: "room_1", Type: MessageText, Content: "Hello"},
+			name: "invalid sender",
+			msg: Message{
+				RoomID: 1, Number: 1, Type: MessageText, Content: "Hello",
+			},
 			wantErr: true,
 			errMsg:  "sender",
 		},
 		{
 			name: "invalid message type",
 			msg: Message{
-				ID: "msg_1", RoomID: "room_1", Sender: validSender,
+				RoomID: 1, Number: 1, Sender: validSender,
 				Type: "chat", Content: "Hello",
 			},
 			wantErr: true,
@@ -126,7 +125,7 @@ func TestMessage_Validate(t *testing.T) {
 		{
 			name: "missing content",
 			msg: Message{
-				ID: "msg_1", RoomID: "room_1", Sender: validSender,
+				RoomID: 1, Number: 1, Sender: validSender,
 				Type: MessageText,
 			},
 			wantErr: true,
@@ -167,7 +166,7 @@ func TestRoom_Validate(t *testing.T) {
 		{
 			name: "valid room",
 			room: Room{
-				ID: "room_1", Participants: []Actor{alice, housewife},
+				ID: 1, Participants: []Actor{alice, housewife},
 				Clearance: 5,
 			},
 			wantErr: false,
@@ -175,37 +174,31 @@ func TestRoom_Validate(t *testing.T) {
 		{
 			name: "valid room with name",
 			room: Room{
-				ID: "room_1", Name: "Alice's Chat",
-				Participants:     []Actor{alice, housewife},
+				ID: 1, Name: "Alice's Chat",
+				Participants: []Actor{alice, housewife},
 				Clearance: 5,
 			},
 			wantErr: false,
 		},
 		{
-			name:    "missing id",
-			room:    Room{Participants: []Actor{alice}, Clearance: 5},
-			wantErr: true,
-			errMsg:  "room ID is required",
-		},
-		{
 			name:    "no participants",
-			room:    Room{ID: "room_1", Clearance: 5},
+			room:    Room{ID: 1, Clearance: 5},
 			wantErr: true,
 			errMsg:  "at least one participant",
 		},
 		{
-			name: "negative clearance ceiling",
+			name: "negative clearance",
 			room: Room{
-				ID: "room_1", Participants: []Actor{alice},
+				ID: 1, Participants: []Actor{alice},
 				Clearance: -1,
 			},
 			wantErr: true,
 			errMsg:  "clearance must be non-negative",
 		},
 		{
-			name: "participant exceeds ceiling",
+			name: "participant exceeds clearance",
 			room: Room{
-				ID: "room_1", Participants: []Actor{alice, scout},
+				ID: 1, Participants: []Actor{alice, scout},
 				Clearance: 1,
 			},
 			wantErr: true,
@@ -214,7 +207,7 @@ func TestRoom_Validate(t *testing.T) {
 		{
 			name: "invalid participant",
 			room: Room{
-				ID: "room_1", Participants: []Actor{{ID: "", Type: ActorUser, Clearance: 1}},
+				ID: 1, Participants: []Actor{{ID: "", Type: ActorUser, Clearance: 1}},
 				Clearance: 5,
 			},
 			wantErr: true,
@@ -247,7 +240,7 @@ func TestRoom_ParticipantLookups(t *testing.T) {
 	scout := Actor{ID: "agent:scout", Type: ActorAgent, Clearance: 2}
 
 	r := Room{
-		ID:           "room_1",
+		ID:           1,
 		Participants: []Actor{alice, housewife, scout},
 	}
 
@@ -270,7 +263,6 @@ func TestRoom_ParticipantLookups(t *testing.T) {
 		t.Fatalf("expected no user participant, got %v", got)
 	}
 }
-
 
 func contains(s, substr string) bool {
 	return strings.Contains(s, substr)

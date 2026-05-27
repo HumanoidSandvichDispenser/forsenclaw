@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/google/uuid"
 
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/agent"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
@@ -60,7 +59,6 @@ func (svc *Service) sendMessage(ctx context.Context, input *SendMessageRequest) 
 
 	// Build message
 	msg := room.Message{
-		ID:           uuid.New().String(),
 		Timestamp:    time.Now().UTC(),
 		RoomID:       r.ID,
 		Sender:       *sender,
@@ -69,8 +67,9 @@ func (svc *Service) sendMessage(ctx context.Context, input *SendMessageRequest) 
 		Content:      input.Body.Content,
 	}
 
-	// Write message to transcript
-	if err := svc.messages.AppendMessage(ctx, r.ID, msg); err != nil {
+	// Write message (number assigned by DB)
+	_, err = svc.messages.AppendMessage(ctx, r.ID, msg)
+	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to write message: " + err.Error())
 	}
 
@@ -81,7 +80,6 @@ func (svc *Service) sendMessage(ctx context.Context, input *SendMessageRequest) 
 		}
 		agentName := strings.TrimPrefix(p.ID, "agent:")
 		svc.dispatcher.Submit(agent.Request{
-			ID:     uuid.New().String(),
 			Target: agentName,
 			Source: agent.SourceRoom,
 			Payload: agent.RequestPayload{

@@ -139,16 +139,16 @@ A *session* is a bounded period of agent activity.
 
 == Room Transcripts --- Shared Conversation History
 
-Room transcripts are stored as JSONL files at
-`$XDG_DATA_HOME/forsenClaw/rooms/<room-id>.jsonl`. Each line is a message
-record:
+Room transcripts are stored in the SQLite `messages` table, keyed by the
+composite primary key `(room_id, number)` where `number` is a per-room
+monotonic sequence:
 
 ```json
 {
-  "id": "msg_001",
+  "room_id": 1,
+  "number": 42,
   "timestamp": "2026-05-14T10:30:00Z",
-  "room": "room_abc",
-  "sender": "housewife",
+  "sender": {"id": "agent:housewife", "type": "agent", "clearance": 5, "name": "Housewife"},
   "clearance_tag": 4,
   "type": "message",
   "content": "..."
@@ -160,5 +160,5 @@ a room, distinct from agent memory (an agent's personal understanding of what
 matters).
 
 The active tail of each transcript is windowed by a per-agent, per-room
-compaction cursor stored in SQLite. Context assembly never re-injects messages
-before that cursor.
+compaction cursor (`compacted_number`) stored in SQLite. Context assembly never
+re-injects messages with `number <= compacted_number`.

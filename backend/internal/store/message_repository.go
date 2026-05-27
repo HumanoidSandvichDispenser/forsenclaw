@@ -2,90 +2,111 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
+
+	"gorm.io/gorm"
 
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
 )
 
-// AppendMessage writes a message to the room's JSONL transcript file.
-func (s *SQLiteStore) AppendMessage(ctx context.Context, roomID string, msg room.Message) error {
-	w, err := NewTranscriptWriter(s.roomsDir, roomID)
-	if err != nil {
-		return fmt.Errorf("open transcript: %w", err)
+// AppendMessage writes a message to the room's message log, assigning the
+// next per-room sequence number. Returns the assigned number or an error.
+func (s *SQLiteStore) AppendMessage(ctx context.Context, roomID int64, msg room.Message) (int64, error) {
+	if err := msg.Validate(); err != nil {
+		return 0, fmt.Errorf("invalid message: %w", err)
 	}
-	defer w.Close()
-	return w.Append(ctx, msg)
+
+	var nextNumber int64
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Raw(
+			"SELECT COALESCE(MAX(number), 0) + 1 FROM messages WHERE room_id = ?",
+			roomID,
+		).Scan(&nextNumber).Error; err != nil {
+			return fmt.Errorf("get next number: %w", err)
+		}
+		msg.RoomID = roomID
+		msg.Number = nextNumber
+		if err := tx.Create(&msg).Error; err != nil {
+			return fmt.Errorf("insert message: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return nextNumber, nil
 }
 
 // GetMessages returns messages for a room, applying the given options.
-// If opts.Offset > 0, messages before that line index are skipped (compaction
-// cursor boundary). If opts.Limit > 0, the last N messages are returned (tail
-// behaviour). Time filters are applied before limit.
-func (s *SQLiteStore) GetMessages(ctx context.Context, roomID string, opts ReadOpts) ([]room.Message, error) {
-	msgs, err := ReadMessages(ctx, s.roomsDir, roomID, ReadOpts{
-		After:  opts.After,
-		Before: opts.Before,
-	})
-	if err != nil {
-		return nil, err
-	}
+// Messages are returned in chronological order (by number).
+func (s *SQLiteStore) GetMessages(ctx context.Context, roomID int64, opts ReadOpts) ([]room.Message, error) {
+	query := s.db.WithContext(ctx).Model(&room.Message{}).Where("room_id = ?", roomID)
 
 	if opts.Offset > 0 {
-		if opts.Offset >= len(msgs) {
-			return []room.Message{}, nil
+		query = query.Where("number > ?", opts.Offset)
+	}
+	if opts.After != nil {
+		query = query.Where("timestamp > ?", *opts.After)
+	}
+	if opts.Before != nil {
+		query = query.Where("timestamp < ?", *opts.Before)
+	}
+
+	if opts.Limit > 0 {
+		// Tail behaviour: get last N in chronological order
+		var rev []room.Message
+		err := query.Order("number DESC").Limit(opts.Limit).Find(&rev).Error
+		if err != nil {
+			return nil, fmt.Errorf("get messages: %w", err)
 		}
-		msgs = msgs[opts.Offset:]
+		// Reverse to chronological order (TODO: can be done with a subquery)
+		for i, j := 0, len(rev)-1; i < j; i, j = i+1, j-1 {
+			rev[i], rev[j] = rev[j], rev[i]
+		}
+		return rev, nil
 	}
 
-	if opts.Limit > 0 && len(msgs) > opts.Limit {
-		msgs = msgs[len(msgs)-opts.Limit:]
+	var msgs []room.Message
+	err := query.Order("number ASC").Find(&msgs).Error
+	if err != nil {
+		return nil, fmt.Errorf("get messages: %w", err)
 	}
-
 	return msgs, nil
 }
 
-// GetCompactionOffset returns the number of messages already compacted for
-// the given agent+room pair. Returns 0 if no record exists yet.
-func (s *SQLiteStore) GetCompactionOffset(ctx context.Context, agentName, roomID string) (int, error) {
-	row := s.db.QueryRowContext(ctx, `
-		SELECT compacted_offset FROM compaction_cursors
-		WHERE agent_name = ? AND room_id = ?
-	`, agentName, roomID)
-
-	var offset int
-	err := row.Scan(&offset)
+// GetCompactionOffset returns the last compacted message number for the
+// given agent+room pair. Returns 0 if no record exists yet.
+func (s *SQLiteStore) GetCompactionOffset(ctx context.Context, agentName string, roomID int64) (int, error) {
+	var cursor CompactionCursor
+	err := s.db.WithContext(ctx).
+		Where("agent_name = ? AND room_id = ?", agentName, roomID).
+		First(&cursor).Error
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return 0, nil
-		}
-		return 0, fmt.Errorf("get compaction offset: %w", err)
+		// gorm.ErrRecordNotFound is expected for new pairs
+		return 0, nil
 	}
-	return offset, nil
+	return cursor.CompactedNumber, nil
 }
 
-// SetCompactionOffset upserts the compaction offset for an agent+room pair.
-func (s *SQLiteStore) SetCompactionOffset(ctx context.Context, agentName, roomID string, offset int) error {
+// SetCompactionOffset upserts the compaction number for an agent+room pair.
+func (s *SQLiteStore) SetCompactionOffset(ctx context.Context, agentName string, roomID int64, offset int) error {
 	if agentName == "" {
 		return fmt.Errorf("agentName is required")
 	}
-	if roomID == "" {
-		return fmt.Errorf("roomID is required")
+	if roomID <= 0 {
+		return fmt.Errorf("roomID must be positive")
 	}
 	if offset < 0 {
 		return fmt.Errorf("offset must be non-negative")
 	}
 
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO compaction_cursors (agent_name, room_id, compacted_offset, updated_at)
-		VALUES (?, ?, ?, ?)
-		ON CONFLICT(agent_name, room_id) DO UPDATE SET
-			compacted_offset = excluded.compacted_offset,
-			updated_at = excluded.updated_at
-	`, agentName, roomID, offset, time.Now().UTC().Format(time.RFC3339Nano))
-	if err != nil {
-		return fmt.Errorf("set compaction offset: %w", err)
+	cursor := CompactionCursor{
+		AgentName:       agentName,
+		RoomID:          roomID,
+		CompactedNumber: offset,
+		UpdatedAt:       time.Now().UTC(),
 	}
-	return nil
+
+	return s.db.WithContext(ctx).Save(&cursor).Error
 }

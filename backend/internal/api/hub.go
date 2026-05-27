@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/agent"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/dispatch"
 )
@@ -20,7 +21,7 @@ type HubNotifier struct{ hub *Hub }
 func NewHubNotifier(hub *Hub) *HubNotifier { return &HubNotifier{hub: hub} }
 
 // NotifyConfirmationPending implements agent.ConfirmationNotifier.
-func (n *HubNotifier) NotifyConfirmationPending(roomID string, c agent.PendingConfirmation) {
+func (n *HubNotifier) NotifyConfirmationPending(roomID int64, c agent.PendingConfirmation) {
 	n.hub.Broadcast(roomID, dispatch.StreamEvent{
 		Type:    "confirmation.pending",
 		Payload: c,
@@ -30,7 +31,7 @@ func (n *HubNotifier) NotifyConfirmationPending(roomID string, c agent.PendingCo
 // Hub manages WebSocket client connections and broadcasts room events.
 type Hub struct {
 	mu              sync.RWMutex
-	rooms           map[string]map[*Client]struct{} // room_id -> set of clients
+	rooms           map[int64]map[*Client]struct{} // room_id -> set of clients
 	register        chan *Client
 	unregister      chan *Client
 	unsubscribeRoom chan roomUnsubscribeMsg
@@ -38,19 +39,19 @@ type Hub struct {
 }
 
 type broadcastMsg struct {
-	roomID string
+	roomID int64
 	data   []byte
 }
 
 type roomUnsubscribeMsg struct {
 	client *Client
-	roomID string
+	roomID int64
 }
 
 // NewHub creates a new WebSocket hub.
 func NewHub() *Hub {
 	return &Hub{
-		rooms:           make(map[string]map[*Client]struct{}),
+		rooms:           make(map[int64]map[*Client]struct{}),
 		register:        make(chan *Client),
 		unregister:      make(chan *Client),
 		unsubscribeRoom: make(chan roomUnsubscribeMsg),
@@ -79,7 +80,7 @@ func (h *Hub) Run() {
 }
 
 // Broadcast sends a real-time event to all clients subscribed to the given room.
-func (h *Hub) Broadcast(roomID string, event dispatch.StreamEvent) {
+func (h *Hub) Broadcast(roomID int64, event dispatch.StreamEvent) {
 	data, err := json.Marshal(event)
 	if err != nil {
 		log.Printf("hub: failed to marshal event: %v", err)
@@ -89,7 +90,7 @@ func (h *Hub) Broadcast(roomID string, event dispatch.StreamEvent) {
 	select {
 	case h.broadcast <- broadcastMsg{roomID: roomID, data: data}:
 	default:
-		log.Printf("hub: broadcast channel full, dropping event for room %s", roomID)
+		log.Printf("hub: broadcast channel full, dropping event for room %d", roomID)
 	}
 }
 
@@ -107,7 +108,7 @@ func (h *Hub) registerClient(client *Client) {
 }
 
 // unsubscribeClientFromRoom removes a single client from one room in the hub map.
-func (h *Hub) unsubscribeClientFromRoom(client *Client, roomID string) {
+func (h *Hub) unsubscribeClientFromRoom(client *Client, roomID int64) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -136,7 +137,7 @@ func (h *Hub) unregisterClient(client *Client) {
 }
 
 // broadcastToRoom fans out a message to all clients subscribed to a room.
-func (h *Hub) broadcastToRoom(roomID string, data []byte) {
+func (h *Hub) broadcastToRoom(roomID int64, data []byte) {
 	h.mu.RLock()
 	clients, ok := h.rooms[roomID]
 	h.mu.RUnlock()
@@ -159,12 +160,12 @@ func (h *Hub) broadcastToRoom(roomID string, data []byte) {
 type Client struct {
 	hub   *Hub
 	conn  *websocket.Conn
-	rooms map[string]struct{} // subscribed room IDs
+	rooms map[int64]struct{} // subscribed room IDs
 	send  chan []byte
 
 	// onSubscribe is called after a client successfully subscribes to a room.
 	// Used to replay pending state (e.g. confirmation events) to newly connected clients.
-	onSubscribe func(roomID string)
+	onSubscribe func(roomID int64)
 }
 
 // NewClient creates a new client for the given WebSocket connection.
@@ -172,20 +173,20 @@ func NewClient(hub *Hub, conn *websocket.Conn) *Client {
 	return &Client{
 		hub:   hub,
 		conn:  conn,
-		rooms: make(map[string]struct{}),
+		rooms: make(map[int64]struct{}),
 		send:  make(chan []byte, 256),
 	}
 }
 
 // Subscribe adds a room to this client's subscription set.
-func (c *Client) Subscribe(roomID string) {
+func (c *Client) Subscribe(roomID int64) {
 	c.rooms[roomID] = struct{}{}
 	c.hub.register <- c
 }
 
 // Unsubscribe removes a room from this client's subscription set and notifies
 // the hub so it stops delivering events for that room to this client.
-func (c *Client) Unsubscribe(roomID string) {
+func (c *Client) Unsubscribe(roomID int64) {
 	delete(c.rooms, roomID)
 	c.hub.unsubscribeRoom <- roomUnsubscribeMsg{client: c, roomID: roomID}
 }
@@ -221,7 +222,7 @@ func (c *Client) readPump() {
 
 		var action struct {
 			Action string `json:"action"`
-			RoomID string `json:"room_id"`
+			RoomID int64  `json:"room_id"`
 		}
 		if err := json.Unmarshal(data, &action); err != nil {
 			continue
@@ -229,14 +230,14 @@ func (c *Client) readPump() {
 
 		switch action.Action {
 		case "subscribe":
-			if action.RoomID != "" {
+			if action.RoomID > 0 {
 				c.Subscribe(action.RoomID)
 				if c.onSubscribe != nil {
 					c.onSubscribe(action.RoomID)
 				}
 			}
 		case "unsubscribe":
-			if action.RoomID != "" {
+			if action.RoomID > 0 {
 				c.Unsubscribe(action.RoomID)
 			}
 		}

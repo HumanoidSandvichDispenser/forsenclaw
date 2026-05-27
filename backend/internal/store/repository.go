@@ -9,6 +9,10 @@ import (
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
 )
 
+// ---------------------------------------------------------------------------
+// Query options
+// ---------------------------------------------------------------------------
+
 // ListOpts controls pagination and filtering for ListRooms.
 type ListOpts struct {
 	// Participant filters to rooms containing this actor ID.
@@ -26,8 +30,8 @@ type ReadOpts struct {
 	// Limit is the maximum number of messages to return (0 = all).
 	Limit int
 
-	// Offset is the number of messages to skip from the start (compaction
-	// cursor line index). 0 means no offset.
+	// Offset is the compaction cursor: only messages with number > Offset
+	// are returned.
 	Offset int
 
 	// After returns only messages strictly after this time.
@@ -37,20 +41,24 @@ type ReadOpts struct {
 	Before *time.Time
 }
 
+// ---------------------------------------------------------------------------
+// Repository interfaces
+// ---------------------------------------------------------------------------
+
 // RoomRepository is the persistence contract for room metadata.
 type RoomRepository interface {
 	CreateRoom(ctx context.Context, r *room.Room) error
-	GetRoom(ctx context.Context, id string) (*room.Room, error)
+	GetRoom(ctx context.Context, id int64) (*room.Room, error)
 	ListRooms(ctx context.Context, opts ListOpts) ([]room.Room, error)
 	UpdateRoom(ctx context.Context, r *room.Room) error
-	DeleteRoom(ctx context.Context, id string) error
+	DeleteRoom(ctx context.Context, id int64) error
 }
 
 // MessageRepository is the persistence contract for room messages and
 // per-agent compaction state.
 type MessageRepository interface {
-	AppendMessage(ctx context.Context, roomID string, msg room.Message) error
-	GetMessages(ctx context.Context, roomID string, opts ReadOpts) ([]room.Message, error)
-	GetCompactionOffset(ctx context.Context, agentName, roomID string) (int, error)
-	SetCompactionOffset(ctx context.Context, agentName, roomID string, offset int) error
+	AppendMessage(ctx context.Context, roomID int64, msg room.Message) (int64, error)
+	GetMessages(ctx context.Context, roomID int64, opts ReadOpts) ([]room.Message, error)
+	GetCompactionOffset(ctx context.Context, agentName string, roomID int64) (int, error)
+	SetCompactionOffset(ctx context.Context, agentName string, roomID int64, offset int) error
 }

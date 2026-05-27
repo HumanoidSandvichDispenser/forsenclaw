@@ -158,7 +158,7 @@ func resolvePaths(configOverride string) *paths.Paths {
 
 func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 	// 1. Open rooms DB
-	store, err := storedb.NewSQLiteStore(p.RoomsDBPath(), p.RoomsDir())
+	store, err := storedb.NewSQLiteStore(p.RoomsDBPath())
 	if err != nil {
 		log.Fatalf("failed to open rooms DB: %v", err)
 	}

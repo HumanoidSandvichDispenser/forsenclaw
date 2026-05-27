@@ -61,10 +61,6 @@ func (p *Paths) AgentsDataDir() string {
 	return filepath.Join(p.DataRoot, "agents")
 }
 
-func (p *Paths) RoomsDir() string {
-	return filepath.Join(p.DataRoot, "rooms")
-}
-
 func (p *Paths) StagingDir() string {
 	return filepath.Join(p.DataRoot, "staging")
 }
@@ -101,7 +97,6 @@ func (p *Paths) AllDirs() []string {
 	return []string{
 		p.AgentsConfigDir(),
 		p.AgentsDataDir(),
-		p.RoomsDir(),
 		p.StagingAgentsDir(),
 		p.DBDir(),
 		p.CacheRoot,

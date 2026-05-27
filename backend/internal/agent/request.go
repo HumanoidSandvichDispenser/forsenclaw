@@ -32,8 +32,8 @@ const (
 
 // RequestPayload is the content of a request.
 type RequestPayload struct {
-	// RoomID is the room this request originates from. Empty for system/event requests.
-	RoomID string
+	// RoomID is the room this request originates from. Zero for system/event requests.
+	RoomID int64
 
 	// Messages are the messages the agent should respond to.
 	Messages []Message

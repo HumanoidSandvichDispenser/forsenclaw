@@ -200,13 +200,13 @@ persistent agents who remember things, use MCP tools, and manage rooms.
 - Cross-room feed plus bounded current-room tail in context assembly.
 - Tail reads from transcript end, keyed by per-agent, per-room compaction
   cursor.
-- Compaction Request flow and `compacted_offset` persistence.
+- Compaction Request flow and `compacted_number` persistence.
 - BLP enforcement (no read-up, no write-down) at assembly, send, spawn.
 - OPA-backed ABAC for permissions; default policy file shipped with binary.
 - MCP tool integration with static schema injection.
 - Model provider registry (Anthropic + Ollama) in `hearth.yaml`.
 - Request DAG: node/edge tracking, cycle detection, audit integration.
-- Room metadata and audit in SQLite. Transcripts as JSONL.
+- Room metadata, messages, and audit in SQLite.
 - Web frontend: room list, room view, DMs, agent config viewer, settings,
   clearance ceiling filter, room clearance shift control.
 - Audit log with DAG traversal view.
@@ -246,7 +246,7 @@ persistent agents who remember things, use MCP tools, and manage rooms.
   per clearance level, search index. Test with a single agent reading and
   writing its own memory.
 + *Rooms + FreeForm protocol + Request dispatcher.* The messaging backbone.
-  Room metadata in SQLite, transcripts as JSONL. User can chat with an agent.
+  Room metadata in SQLite, messages and compaction cursors in SQLite. User can chat with an agent.
 + *BLP enforcement + OPA permission evaluation.* Enforce at the three boundary
   points. Add audit logging. Implement config proposal and approval flow.
 + *MCP integration.* Register MCP servers, inject tool schemas, route calls.
@@ -309,9 +309,9 @@ structured marker in their response.
 
 === Transcript Growth
 
-Resolved by compaction and cursor-based tail reads. JSONL transcript files still
+Resolved by compaction and cursor-based tail reads. SQLite message table still
 grow on disk, but older messages are compacted into daily notes and excluded from
-later assemblies via the per-agent, per-room `compacted_offset` cursor.
+later assemblies via the per-agent, per-room `compacted_number` cursor.
 
 === Cost Accounting
 
@@ -376,7 +376,7 @@ as a file so the user can inspect and customize it immediately.
 / Explicit cross-clearance handoff: Deliberate declassification of content for
   a lower-clearance recipient. User-confirmed.
 / Compaction: Summarizing old room transcript messages into daily notes and
-  advancing the `compacted_offset` cursor.
+  advancing the `compacted_number` cursor.
 / Request DAG: Dependency graph of in-flight Requests. Edges model blocking
   relationships; enables concurrent non-blocked Request processing.
 / DLP (Data Loss Prevention): Structural guarantee that agents cannot exfiltrate

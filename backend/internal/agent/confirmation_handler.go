@@ -15,7 +15,7 @@ type ConfirmationHandler struct {
 	call      inference.ToolCallWire
 	nodeID    string
 	agentName string
-	roomID    string
+	roomID    int64
 	registry  *ConfirmationRegistry
 	notifier  ConfirmationNotifier
 
@@ -25,7 +25,8 @@ type ConfirmationHandler struct {
 // NewConfirmationHandler creates a ConfirmationHandler for the given tool call.
 func NewConfirmationHandler(
 	call inference.ToolCallWire,
-	nodeID, agentName, roomID string,
+	nodeID, agentName string,
+	roomID int64,
 	registry *ConfirmationRegistry,
 	notifier ConfirmationNotifier,
 ) *ConfirmationHandler {

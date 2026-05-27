@@ -61,7 +61,7 @@ Triggers: task completion, timeout, room closure, revocation by parent or user.
 
 On teardown:
 
-- Room transcript already has the full conversation (JSONL file).
+- Room transcript already has the full conversation (SQLite messages table).
 - Definition snapshot already in audit log (from spawn).
 - In-memory agent state is discarded.
 - Audit entry records termination cause.
@@ -72,7 +72,7 @@ A persistent agent (typically housewife) may trigger compaction of another
 persistent agent, subject to `agent:compact[<target>]`. Compaction is a
 housekeeping pass that summarizes old room transcript messages into the agent's
 daily note at the appropriate clearance level, then advances the per-agent,
-per-room `compacted_offset` cursor in SQLite.
+per-room `compacted_number` cursor in SQLite.
 
 Compaction is triggered when either of these happens:
 
@@ -82,7 +82,7 @@ Compaction is triggered when either of these happens:
 === Batch Sizing
 
 The batch size is dynamic. On a byte-threshold trigger, forsenClaw walks
-forward from `compacted_offset`, accumulating message sizes until the removed
+forward from `compacted_number`, accumulating message sizes until the removed
 bytes are enough to bring the assembled context down toward
 `context.compaction_target`. That batch is capped so compaction never crosses
 the guaranteed tail window (`context.minimum_guaranteed`). If the remaining

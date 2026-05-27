@@ -38,15 +38,12 @@ $XDG_DATA_HOME/forsenClaw/               # Data — large, persistent
 │       └── memory/
 │           └── clearance-2/
 │               └── 2026-05-23.md
-├── rooms/
-│   ├── <room-id>.jsonl                  # Room transcripts
-│   └── ...
 ├── staging/                             # Pending config and policy proposals
 │   └── agents/
 │       └── housewife/
 │           └── agent.yaml.proposed
 └── db/
-    ├── rooms.db                         # Room metadata, protocol state, compaction cursors
+    ├── rooms.db                         # Room metadata, messages, compaction cursors
     └── audit.db                         # Audit log
 
 $XDG_CACHE_HOME/forsenClaw/             # Cache — rebuildable
@@ -143,14 +140,14 @@ split into multiple instances with different clearance levels (see @mcp).
   [Agent-written, grows over time, persistent.],
   [Daily notes], [Data],
   [Clearance-stratified; grows over time.],
-  [Room transcripts], [Data],
+  [Room transcripts], [Data (SQLite)],
   [Append-only conversation records.],
   [Config proposals], [Data],
   [Staging area for pending changes. Not yet config.],
   [Room metadata], [Data (SQLite)],
   [Dynamic, queryable (list rooms, filter by participant).],
   [Compaction cursors], [Data (SQLite)],
-  [Per-agent, per-room `compacted_offset`.],
+  [Per-agent, per-room `compacted_number`.],
   [Request DAG], [Data (SQLite)],
   [Node and edge state for in-flight Requests.],
   [Audit log], [Data (SQLite)],
@@ -163,14 +160,47 @@ split into multiple instances with different clearance levels (see @mcp).
 
 == SQLite Schemas
 
+=== Rooms (rooms.db)
+
+```sql
+CREATE TABLE IF NOT EXISTS rooms (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  name         TEXT DEFAULT '',
+  participants TEXT NOT NULL,
+  clearance    INTEGER NOT NULL DEFAULT 5,
+  created_at   DATETIME NOT NULL,
+  updated_at   DATETIME NOT NULL
+);
+```
+
+=== Messages (rooms.db)
+
+```sql
+CREATE TABLE IF NOT EXISTS messages (
+  room_id             INTEGER NOT NULL,
+  number              INTEGER NOT NULL,
+  timestamp           DATETIME NOT NULL,
+  sender              TEXT NOT NULL,
+  clearance_tag       INTEGER NOT NULL DEFAULT 0,
+  type                TEXT NOT NULL,
+  content             TEXT NOT NULL,
+  usage_input_tokens  INTEGER DEFAULT 0,
+  usage_output_tokens INTEGER DEFAULT 0,
+  tool_calls          TEXT,
+  tool_call_id        TEXT DEFAULT '',
+  tool_name           TEXT DEFAULT '',
+  PRIMARY KEY (room_id, number)
+);
+```
+
 === Compaction Cursors (rooms.db)
 
 ```sql
 CREATE TABLE IF NOT EXISTS compaction_cursors (
-  agent_name TEXT NOT NULL,
-  room_id    TEXT NOT NULL,
-  compacted_offset INTEGER NOT NULL DEFAULT 0,
-  updated_at DATETIME NOT NULL,
+  agent_name       TEXT NOT NULL,
+  room_id          INTEGER NOT NULL,
+  compacted_number INTEGER NOT NULL DEFAULT 0,
+  updated_at       DATETIME NOT NULL,
   PRIMARY KEY (agent_name, room_id)
 );
 ```
@@ -180,7 +210,7 @@ CREATE TABLE IF NOT EXISTS compaction_cursors (
 ```sql
 CREATE TABLE IF NOT EXISTS request_nodes (
   id        TEXT PRIMARY KEY,
-  room_id   TEXT,
+  room_id   INTEGER,
   target    TEXT NOT NULL,
   source    TEXT NOT NULL,  -- room | system | event
   state     TEXT NOT NULL,  -- pending | in_progress | blocked | resolved | failed

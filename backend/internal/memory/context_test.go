@@ -2,7 +2,6 @@ package memory
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,7 +22,7 @@ func newTestAssembler(t *testing.T) (*Assembler, *storedb.SQLiteStore, *paths.Pa
 	dir := t.TempDir()
 	p := paths.NewPathsFromRoots(dir, dir, dir)
 
-	store, err := storedb.NewSQLiteStore(filepath.Join(dir, "rooms.db"), p.RoomsDir())
+	store, err := storedb.NewSQLiteStore(filepath.Join(dir, "rooms.db"))
 	if err != nil {
 		t.Fatalf("NewSQLiteStore: %v", err)
 	}
@@ -62,11 +61,10 @@ func newTestAgent(t *testing.T, p *paths.Paths, name string, clearance int) *age
 func newTestRoom(t *testing.T, store *storedb.SQLiteStore, ceiling int, participants ...room.Actor) room.Room {
 	t.Helper()
 	r := room.Room{
-		ID:               "room-test-" + t.Name(),
-		Clearance: ceiling,
-		Participants:     participants,
-		CreatedAt:        time.Now().UTC(),
-		UpdatedAt:        time.Now().UTC(),
+		Clearance:    ceiling,
+		Participants: participants,
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
 	}
 	if err := store.CreateRoom(context.Background(), &r); err != nil {
 		t.Fatalf("CreateRoom: %v", err)
@@ -83,8 +81,8 @@ func TestAssembler_Assemble_BasicContext(t *testing.T) {
 	r := newTestRoom(t, store, 5, alice, housewife)
 
 	ctx := context.Background()
-	if err := store.AppendMessage(ctx, r.ID, room.Message{
-		ID: "msg-1", Timestamp: time.Now(), RoomID: r.ID,
+	if _, err := store.AppendMessage(ctx, r.ID, room.Message{
+		Timestamp: time.Now(), RoomID: r.ID,
 		Sender: alice, ClearanceTag: 5, Type: room.MessageText, Content: "Hello",
 	}); err != nil {
 		t.Fatalf("AppendMessage: %v", err)
@@ -123,22 +121,22 @@ func TestAssembler_Assemble_ClearanceFilter(t *testing.T) {
 
 	ctx := context.Background()
 	// Message at clearance 2 — within ceiling, should appear
-	if err := store.AppendMessage(ctx, r.ID, room.Message{
-		ID: "msg-1", Timestamp: time.Now(), RoomID: r.ID,
-		Sender: alice, ClearanceTag: 2, Type: room.MessageText, Content: "Public info",
+	if _, err := store.AppendMessage(ctx, r.ID, room.Message{
+		Timestamp: time.Now(), RoomID: r.ID,
+		Sender: alice, ClearanceTag: 5, Type: room.MessageText, Content: "Hello",
 	}); err != nil {
 		t.Fatalf("AppendMessage: %v", err)
 	}
 	// Message at clearance 4 — above ceiling, should be filtered out
-	if err := store.AppendMessage(ctx, r.ID, room.Message{
-		ID: "msg-2", Timestamp: time.Now(), RoomID: r.ID,
+	if _, err := store.AppendMessage(ctx, r.ID, room.Message{
+		Timestamp: time.Now(), RoomID: r.ID,
 		Sender: alice, ClearanceTag: 4, Type: room.MessageText, Content: "Secret info",
 	}); err != nil {
 		t.Fatalf("AppendMessage: %v", err)
 	}
 	// Final message to trigger the request
-	if err := store.AppendMessage(ctx, r.ID, room.Message{
-		ID: "msg-3", Timestamp: time.Now(), RoomID: r.ID,
+	if _, err := store.AppendMessage(ctx, r.ID, room.Message{
+		Timestamp: time.Now(), RoomID: r.ID,
 		Sender: alice, ClearanceTag: 2, Type: room.MessageText, Content: "Final question",
 	}); err != nil {
 		t.Fatalf("AppendMessage: %v", err)
@@ -169,15 +167,15 @@ func TestAssembler_Assemble_SoftBiba(t *testing.T) {
 
 	ctx := context.Background()
 	// Message at clearance 2 in a clearance-5 room → should get Biba annotation
-	if err := store.AppendMessage(ctx, r.ID, room.Message{
-		ID: "msg-1", Timestamp: time.Now(), RoomID: r.ID,
+	if _, err := store.AppendMessage(ctx, r.ID, room.Message{
+		Timestamp: time.Now(), RoomID: r.ID,
 		Sender: alice, ClearanceTag: 2, Type: room.MessageText, Content: "External source",
 	}); err != nil {
 		t.Fatalf("AppendMessage: %v", err)
 	}
 	// Final message (becomes RFC, also clearance 2)
-	if err := store.AppendMessage(ctx, r.ID, room.Message{
-		ID: "msg-2", Timestamp: time.Now(), RoomID: r.ID,
+	if _, err := store.AppendMessage(ctx, r.ID, room.Message{
+		Timestamp: time.Now(), RoomID: r.ID,
 		Sender: alice, ClearanceTag: 2, Type: room.MessageText, Content: "Follow-up",
 	}); err != nil {
 		t.Fatalf("AppendMessage: %v", err)
@@ -210,12 +208,12 @@ func TestAssembler_Assemble_RoomHistoryRoles(t *testing.T) {
 
 	ctx := context.Background()
 	msgs := []room.Message{
-		{ID: "msg-1", Timestamp: time.Now(), RoomID: r.ID, Sender: alice, ClearanceTag: 5, Type: room.MessageText, Content: "Hello"},
-		{ID: "msg-2", Timestamp: time.Now(), RoomID: r.ID, Sender: housewife, ClearanceTag: 5, Type: room.MessageText, Content: "Hi there"},
-		{ID: "msg-3", Timestamp: time.Now(), RoomID: r.ID, Sender: alice, ClearanceTag: 5, Type: room.MessageText, Content: "How are you?"},
+		{Timestamp: time.Now(), RoomID: r.ID, Sender: alice, ClearanceTag: 5, Type: room.MessageText, Content: "Hello"},
+		{Timestamp: time.Now(), RoomID: r.ID, Sender: housewife, ClearanceTag: 5, Type: room.MessageText, Content: "Hi there"},
+		{Timestamp: time.Now(), RoomID: r.ID, Sender: alice, ClearanceTag: 5, Type: room.MessageText, Content: "How are you?"},
 	}
 	for _, m := range msgs {
-		if err := store.AppendMessage(ctx, r.ID, m); err != nil {
+		if _, err := store.AppendMessage(ctx, r.ID, m); err != nil {
 			t.Fatalf("AppendMessage: %v", err)
 		}
 	}
@@ -271,8 +269,8 @@ func TestAssembler_Assemble_DailyNotes(t *testing.T) {
 	r := newTestRoom(t, store, 5, alice)
 
 	ctx := context.Background()
-	if err := store.AppendMessage(ctx, r.ID, room.Message{
-		ID: "msg-1", Timestamp: time.Now(), RoomID: r.ID,
+	if _, err := store.AppendMessage(ctx, r.ID, room.Message{
+		Timestamp: time.Now(), RoomID: r.ID,
 		Sender: alice, ClearanceTag: 5, Type: room.MessageText, Content: "Hello",
 	}); err != nil {
 		t.Fatalf("AppendMessage: %v", err)
@@ -298,7 +296,7 @@ func TestAssembler_Assemble_MemoryTruncation(t *testing.T) {
 	dir := t.TempDir()
 	p := paths.NewPathsFromRoots(dir, dir, dir)
 
-	store, err := storedb.NewSQLiteStore(filepath.Join(dir, "rooms.db"), p.RoomsDir())
+	store, err := storedb.NewSQLiteStore(filepath.Join(dir, "rooms.db"))
 	if err != nil {
 		t.Fatalf("NewSQLiteStore: %v", err)
 	}
@@ -329,8 +327,8 @@ func TestAssembler_Assemble_MemoryTruncation(t *testing.T) {
 	r := newTestRoom(t, store, 5, alice)
 
 	ctx := context.Background()
-	if err := store.AppendMessage(ctx, r.ID, room.Message{
-		ID: "msg-1", Timestamp: time.Now(), RoomID: r.ID,
+	if _, err := store.AppendMessage(ctx, r.ID, room.Message{
+		Timestamp: time.Now(), RoomID: r.ID,
 		Sender: alice, ClearanceTag: 5, Type: room.MessageText, Content: "Hello",
 	}); err != nil {
 		t.Fatalf("AppendMessage: %v", err)
@@ -359,9 +357,10 @@ func TestAssembler_Assemble_CompactionOffset(t *testing.T) {
 
 	ctx := context.Background()
 	// Append 3 messages; set compaction offset to 2 so only msg-3 is visible.
-	for i, content := range []string{"Compacted msg 1", "Compacted msg 2", "Visible msg 3"} {
-		if err := store.AppendMessage(ctx, r.ID, room.Message{
-			ID:           fmt.Sprintf("msg-%d", i+1),
+	for _, content := range []string{"Compacted msg 1", "Compacted msg 2", "Visible msg 3"} {
+		if _, err := store.AppendMessage(ctx, r.ID, room.Message{
+			// number auto-assigned by DB
+
 			Timestamp:    time.Now(),
 			RoomID:       r.ID,
 			Sender:       alice,

@@ -12,7 +12,7 @@ import (
 // roomKey identifies a (agent, room) pair for batching.
 type roomKey struct {
 	agentName string
-	roomID    string
+	roomID    int64
 }
 
 // Dispatcher routes incoming requests to the appropriate AgentRuntime.

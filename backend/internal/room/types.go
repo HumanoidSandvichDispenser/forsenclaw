@@ -7,6 +7,10 @@ import (
 	"time"
 )
 
+// ---------------------------------------------------------------------------
+// Actor
+// ---------------------------------------------------------------------------
+
 // ActorType distinguishes between human users and agents.
 type ActorType string
 
@@ -58,6 +62,10 @@ func (a Actor) IsUser() bool { return a.Type == ActorUser }
 // IsAgent returns true if this actor is an agent.
 func (a Actor) IsAgent() bool { return a.Type == ActorAgent }
 
+// ---------------------------------------------------------------------------
+// Message
+// ---------------------------------------------------------------------------
+
 // MessageType categorises messages in a room transcript.
 type MessageType string
 
@@ -94,19 +102,21 @@ type Usage struct {
 }
 
 // Message is a single record in a room transcript. Messages are immutable
-// once written to the JSONL file.
+// once written to the database.
 type Message struct {
-	// ID is a unique message identifier (UUID).
-	ID string `json:"id"`
+	// RoomID identifies the room this message belongs to.
+	RoomID int64 `json:"room_id" gorm:"primaryKey"`
+
+	// Number is the per-room monotonic sequence number. Together with RoomID
+	// it forms the composite primary key. Number is assigned by the database
+	// at append time.
+	Number int64 `json:"number" gorm:"primaryKey"`
 
 	// Timestamp is when the message was created.
 	Timestamp time.Time `json:"timestamp"`
 
-	// RoomID identifies the room this message belongs to.
-	RoomID string `json:"room_id"`
-
 	// Sender is the actor who produced this message.
-	Sender Actor `json:"sender"`
+	Sender Actor `json:"sender" gorm:"serializer:json"`
 
 	// ClearanceTag is the data classification of this message. It defaults to
 	// min(sender.Clearance, room.Clearance) at write time.
@@ -118,27 +128,38 @@ type Message struct {
 	// Content is the message body.
 	Content string `json:"content"`
 
-	// Usage records token consumption for agent responses.
-	Usage *Usage `json:"usage,omitempty"`
+	// UsageInputTokens records input token consumption for agent responses.
+	UsageInputTokens int `json:"usage_input_tokens" gorm:"default:0"`
+
+	// UsageOutputTokens records output token consumption for agent responses.
+	UsageOutputTokens int `json:"usage_output_tokens" gorm:"default:0"`
 
 	// ToolCalls carries structured tool call records for MessageToolCall messages
 	// in native tool-calling mode. Empty for XML-mode tool call messages.
-	ToolCalls []ToolCallRecord `json:"tool_calls,omitempty"`
+	ToolCalls []ToolCallRecord `json:"tool_calls,omitempty" gorm:"serializer:json"`
 
 	// ToolCallID correlates a MessageToolResult with its MessageToolCall (native mode).
-	ToolCallID string `json:"tool_call_id,omitempty"`
+	ToolCallID string `json:"tool_call_id,omitempty" gorm:"default:''"`
 
 	// ToolName is the tool identifier for MessageToolResult messages.
-	ToolName string `json:"tool_name,omitempty"`
+	ToolName string `json:"tool_name,omitempty" gorm:"default:''"`
+}
+
+// Usage returns the token usage as a pointer, or nil if both counts are zero.
+func (m Message) Usage() *Usage {
+	if m.UsageInputTokens == 0 && m.UsageOutputTokens == 0 {
+		return nil
+	}
+	return &Usage{
+		InputTokens:  m.UsageInputTokens,
+		OutputTokens: m.UsageOutputTokens,
+	}
 }
 
 // Validate checks that the message is well-formed.
 func (m Message) Validate() error {
-	if m.ID == "" {
-		return fmt.Errorf("message ID is required")
-	}
-	if m.RoomID == "" {
-		return fmt.Errorf("message room_id is required")
+	if m.RoomID <= 0 {
+		return fmt.Errorf("message room_id must be positive, got %d", m.RoomID)
 	}
 	if err := m.Sender.Validate(); err != nil {
 		return fmt.Errorf("sender: %w", err)
@@ -154,20 +175,24 @@ func (m Message) Validate() error {
 	return nil
 }
 
+// ---------------------------------------------------------------------------
+// Room
+// ---------------------------------------------------------------------------
+
 // Room is a clearance-bounded conversation space. Clearance is the
 // primary structural boundary: it determines which memory strata agents
 // assemble, how messages are classified at write time, and what information
 // can flow in or out of the room. Rooms are context isolation units, not
 // protocol containers.
 type Room struct {
-	// ID is a unique room identifier (UUID).
-	ID string `json:"id"`
+	// ID is a unique room identifier (auto-incremented integer).
+	ID int64 `json:"id" gorm:"primaryKey;autoIncrement"`
 
 	// Name is a human-readable name for the room (optional).
 	Name string `json:"name"`
 
 	// Participants are the actors currently in the room.
-	Participants []Actor `json:"participants"`
+	Participants []Actor `json:"participants" gorm:"-"`
 
 	// Clearance is the room's data classification tier. It determines which
 	// memory strata agents assemble and how messages are classified at write
@@ -183,8 +208,8 @@ type Room struct {
 
 // Validate checks that the room is well-formed.
 func (r Room) Validate() error {
-	if r.ID == "" {
-		return fmt.Errorf("room ID is required")
+	if r.ID < 0 {
+		return fmt.Errorf("room ID must be non-negative")
 	}
 	if len(r.Participants) == 0 {
 		return fmt.Errorf("room must have at least one participant")
@@ -233,4 +258,3 @@ func (r Room) ParticipantByID(id string) *Actor {
 	}
 	return nil
 }
-

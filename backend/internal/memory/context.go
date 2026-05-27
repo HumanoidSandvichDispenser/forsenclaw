@@ -42,7 +42,7 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req agent.Req
 	var history []room.Message
 	effectiveClearance := 5 // default: full clearance when no room context
 
-	if req.Payload.RoomID != "" && a.rooms != nil && a.messages != nil {
+	if req.Payload.RoomID != 0 && a.rooms != nil && a.messages != nil {
 		r, err := a.rooms.GetRoom(ctx, req.Payload.RoomID)
 		if err != nil {
 			return inference.ContextPayload{}, fmt.Errorf("get room: %w", err)
@@ -88,7 +88,7 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req agent.Req
 	}
 
 	// Inject clearance notice at the top of the system prompt.
-	if req.Payload.RoomID != "" {
+	if req.Payload.RoomID != 0 {
 		notice := fmt.Sprintf(
 			"You are operating at clearance level %d. Higher-clearance context exists but is not available in this context. If a question requires deeper personal context, say so rather than guessing.",
 			effectiveClearance,
@@ -100,10 +100,10 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req agent.Req
 }
 
 // EffectiveClearance returns min(agent.Clearance, room.Clearance) for the
-// given agent and room. If roomID is empty, returns the agent's clearance.
+// given agent and room. If roomID is zero, returns the agent's clearance.
 // This is used for BLP tool filtering before assembly.
-func (a *Assembler) EffectiveClearance(ctx context.Context, ag *agent.Agent, roomID string) (int, error) {
-	if roomID == "" || a.rooms == nil {
+func (a *Assembler) EffectiveClearance(ctx context.Context, ag *agent.Agent, roomID int64) (int, error) {
+	if roomID == 0 || a.rooms == nil {
 		return ag.Definition.Clearance, nil
 	}
 	r, err := a.rooms.GetRoom(ctx, roomID)
@@ -116,13 +116,13 @@ func (a *Assembler) EffectiveClearance(ctx context.Context, ag *agent.Agent, roo
 // crossRoomMessage is a message from another room, labeled with its room ID.
 type crossRoomMessage struct {
 	Message room.Message
-	RoomID  string
+	RoomID  int64
 }
 
 // assembleRequest captures the inputs needed for internal context assembly.
 type assembleRequest struct {
 	// RoomID is the target room for this invocation.
-	RoomID string
+	RoomID int64
 
 	// CrossRoomFeed is recent messages from other rooms the agent participates in.
 	CrossRoomFeed []crossRoomMessage
@@ -250,7 +250,7 @@ func (a *Assembler) assemble(ctx context.Context, ag *agent.Agent, req assembleR
 	// 3. Cross-room feed → formatted strings with relative timestamps
 	for _, crm := range req.CrossRoomFeed {
 		relTime := formatRelativeTime(crm.Message.Timestamp)
-		result.CrossRoomFeed = append(result.CrossRoomFeed, fmt.Sprintf("[#%s %s][%s] %s", crm.RoomID, relTime, crm.Message.Sender.Name, crm.Message.Content))
+		result.CrossRoomFeed = append(result.CrossRoomFeed, fmt.Sprintf("[#%d %s][%s] %s", crm.RoomID, relTime, crm.Message.Sender.Name, crm.Message.Content))
 	}
 
 	// 4. Current room history → formatted strings for size tracking.

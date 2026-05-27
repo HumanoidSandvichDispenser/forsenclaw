@@ -13,9 +13,9 @@ import (
 // CreateRoomRequest is the input for POST /api/rooms.
 type CreateRoomRequest struct {
 	Body struct {
-		ParticipantIDs   []string `json:"participant_ids"   validate:"required,min=1" doc:"Actor IDs (user:<name> or agent:<name>)"`
-		Name             string   `json:"name,omitempty"    doc:"Human-readable room name" example:"Alice's Kitchen"`
-		Clearance int      `json:"clearance" validate:"min=1"         doc:"Room clearance tier (default 5)" example:"5"`
+		ParticipantIDs []string `json:"participant_ids" validate:"required,min=1" doc:"Actor IDs (user:<name> or agent:<name>)"`
+		Name           string   `json:"name,omitempty"    doc:"Human-readable room name" example:"Alice's Kitchen"`
+		Clearance      int      `json:"clearance"         validate:"min=1"         doc:"Room clearance tier (default 5)" example:"5"`
 	}
 }
 
@@ -26,7 +26,7 @@ type CreateRoomResponse struct {
 
 // GetRoomRequest is the input for GET /api/rooms/{room_id}.
 type GetRoomRequest struct {
-	RoomID string `path:"room_id" validate:"required" doc:"Room ID"`
+	RoomID int64 `path:"room_id" validate:"required" doc:"Room ID"`
 }
 
 // GetRoomResponse is the output for GET /api/rooms/{room_id}.
@@ -37,8 +37,8 @@ type GetRoomResponse struct {
 // ListRoomsRequest is the input for GET /api/rooms.
 type ListRoomsRequest struct {
 	Participant string `query:"participant" doc:"Filter by participant actor ID" example:"user:alice"`
-	Limit       int    `query:"limit"  default:"50" validate:"min=1,max=200" doc:"Max rooms to return"`
-	Offset      int    `query:"offset" default:"0"  validate:"min=0"         doc:"Offset for pagination"`
+	Limit       int    `query:"limit"       default:"50" validate:"min=1,max=200" doc:"Max rooms to return"`
+	Offset      int    `query:"offset"      default:"0"  validate:"min=0"         doc:"Offset for pagination"`
 }
 
 // ListRoomsResponse is the output for GET /api/rooms.
@@ -54,7 +54,7 @@ type ListRoomsResponse struct {
 
 // SendMessageRequest is the input for POST /api/rooms/{room_id}/messages.
 type SendMessageRequest struct {
-	RoomID string `path:"room_id" validate:"required" doc:"Room ID"`
+	RoomID int64 `path:"room_id" validate:"required" doc:"Room ID"`
 	Body   struct {
 		Sender  string `json:"sender"  validate:"required" doc:"Actor ID of the sender" example:"user:alice"`
 		Content string `json:"content" validate:"required" doc:"Message body"`
@@ -68,7 +68,7 @@ type SendMessageResponse struct {
 
 // ListMessagesRequest is the input for GET /api/rooms/{room_id}/messages.
 type ListMessagesRequest struct {
-	RoomID string `path:"room_id" validate:"required" doc:"Room ID"`
+	RoomID int64  `path:"room_id" validate:"required" doc:"Room ID"`
 	Limit  int    `query:"limit"  default:"50" validate:"min=1,max=200" doc:"Max messages to return"`
 	Before string `query:"before" doc:"Cursor: only messages before this RFC3339 timestamp"`
 }
@@ -86,9 +86,9 @@ type ListMessagesResponse struct {
 
 // GetContextPreviewRequest is the input for GET /api/rooms/{room_id}/agents/{agent_name}/context-preview.
 type GetContextPreviewRequest struct {
-	RoomID               string `path:"room_id" validate:"required" doc:"Room ID"`
-	AgentName            string `path:"agent_name" validate:"required" doc:"Agent name"`
-	IncludeCrossRoom     bool   `query:"include_cross_room" default:"true" doc:"Include cross-room feed"`
+	RoomID               int64 `path:"room_id"               validate:"required" doc:"Room ID"`
+	AgentName            string `path:"agent_name"            validate:"required" doc:"Agent name"`
+	IncludeCrossRoom     bool   `query:"include_cross_room"     default:"true" doc:"Include cross-room feed"`
 	IncludeInterjections bool   `query:"include_interjections" default:"false" doc:"Include queued interjections"`
 }
 
@@ -140,19 +140,19 @@ type GetMeResponse struct {
 
 // RoomResponse is the API representation of a room.
 type RoomResponse struct {
-	ID               string          `json:"id"                doc:"Unique room ID" example:"room_abc123"`
-	Name             string          `json:"name"              doc:"Human-readable room name" example:"Alice's Kitchen"`
-	Participants     []ActorResponse `json:"participants"      doc:"Room participants"`
-	Clearance int             `json:"clearance" doc:"Room clearance tier" example:"5"`
-	CreatedAt        time.Time       `json:"created_at"        doc:"Room creation time"`
-	UpdatedAt        time.Time       `json:"updated_at"        doc:"Last update time"`
+	ID           int64           `json:"id"                doc:"Unique room ID" example:"1"`
+	Name         string          `json:"name"              doc:"Human-readable room name" example:"Alice's Kitchen"`
+	Participants []ActorResponse `json:"participants"      doc:"Room participants"`
+	Clearance    int             `json:"clearance"         doc:"Room clearance tier" example:"5"`
+	CreatedAt    time.Time       `json:"created_at"        doc:"Room creation time"`
+	UpdatedAt    time.Time       `json:"updated_at"        doc:"Last update time"`
 }
 
 // MessageResponse is the API representation of a message.
 type MessageResponse struct {
-	ID           string              `json:"id"             doc:"Unique message ID"`
+	Number       int64               `json:"number"         doc:"Per-room message number"`
 	Timestamp    time.Time           `json:"timestamp"      doc:"Message timestamp"`
-	RoomID       string              `json:"room_id"        doc:"Room this message belongs to"`
+	RoomID       int64               `json:"room_id"        doc:"Room this message belongs to"`
 	Sender       ActorResponse       `json:"sender"         doc:"Actor who sent this message"`
 	ClearanceTag int                 `json:"clearance_tag"  doc:"Classification tier"`
 	Type         string              `json:"type"           doc:"Message type" example:"message"`
@@ -195,7 +195,7 @@ type AgentResponse struct {
 
 // ListConfirmationsRequest is the input for GET /api/rooms/{room_id}/confirmations.
 type ListConfirmationsRequest struct {
-	RoomID string `path:"room_id" validate:"required" doc:"Room ID"`
+	RoomID int64 `path:"room_id" validate:"required" doc:"Room ID"`
 }
 
 // ListConfirmationsResponse is the output for GET /api/rooms/{room_id}/confirmations.
@@ -207,7 +207,7 @@ type ListConfirmationsResponse struct {
 
 // RespondConfirmationRequest is the input for POST /api/rooms/{room_id}/confirmations/{node_id}.
 type RespondConfirmationRequest struct {
-	RoomID string `path:"room_id" validate:"required" doc:"Room ID"`
+	RoomID int64 `path:"room_id" validate:"required" doc:"Room ID"`
 	NodeID string `path:"node_id" validate:"required" doc:"Confirmation node ID"`
 	Body   struct {
 		// Action is one of: "allow", "deny", "revise".
@@ -226,7 +226,7 @@ type RespondConfirmationResponse struct{}
 type ConfirmationResponse struct {
 	NodeID    string `json:"node_id"    doc:"Unique node ID — used in the respond endpoint"`
 	AgentName string `json:"agent_name" doc:"Name of the agent waiting for confirmation"`
-	RoomID    string `json:"room_id"    doc:"Room the confirmation belongs to"`
+	RoomID    int64  `json:"room_id"    doc:"Room the confirmation belongs to"`
 	ToolName  string `json:"tool_name"  doc:"Tool the agent wants to call"`
 	Args      string `json:"args"       doc:"JSON-encoded tool arguments"`
 }

@@ -13,9 +13,9 @@ import (
 type Assembler interface {
 	Assemble(ctx context.Context, agent *Agent, req Request, tools []inference.ToolDefinition) (inference.ContextPayload, error)
 	// EffectiveClearance returns the effective clearance for the given agent
-	// and room ID: min(agent.Clearance, room.Clearance). If roomID is empty,
+	// and room ID: min(agent.Clearance, room.Clearance). If roomID is zero,
 	// returns the agent's clearance. This is used for BLP tool filtering.
-	EffectiveClearance(ctx context.Context, agent *Agent, roomID string) (int, error)
+	EffectiveClearance(ctx context.Context, agent *Agent, roomID int64) (int, error)
 }
 
 // ToolExecutor executes tool calls and supplies tool definitions.

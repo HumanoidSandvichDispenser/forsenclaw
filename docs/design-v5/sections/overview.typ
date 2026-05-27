@@ -98,7 +98,7 @@ primitive, controlled by per-agent feature flags.
   - Agent definitions: YAML files on disk.
   - Agent memory: clearance-stratified Markdown files on disk
     (`MEMORY-k.md`, `memory/clearance-k/YYYY-MM-DD.md`).
-  - Room transcripts: JSONL files on disk.
+  - Room transcripts: SQLite `messages` table (composite PK: `room_id, number`).
   - Room metadata, protocol state, request DAG, audit log: SQLite.
   - Search index: SQLite (cache-tier, rebuildable).
 

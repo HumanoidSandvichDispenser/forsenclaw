@@ -21,7 +21,7 @@ func (svc *Service) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := NewClient(svc.hub, conn)
-	client.onSubscribe = func(roomID string) {
+	client.onSubscribe = func(roomID int64) {
 		pending := svc.agentMgr.ConfirmationRegistry().List(roomID)
 		for _, pc := range pending {
 			data, err := json.Marshal(dispatch.StreamEvent{
@@ -34,7 +34,7 @@ func (svc *Service) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			select {
 			case client.send <- data:
 			default:
-				log.Printf("ws: send buffer full, dropping confirmation.pending replay for room %s node %s", roomID, pc.NodeID)
+				log.Printf("ws: send buffer full, dropping confirmation.pending replay for room %d node %s", roomID, pc.NodeID)
 			}
 		}
 	}

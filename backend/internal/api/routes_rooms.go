@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/google/uuid"
 
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/store"
@@ -67,15 +66,14 @@ func (svc *Service) createRoom(ctx context.Context, input *CreateRoomRequest) (*
 	}
 
 	r := room.Room{
-		ID:               uuid.New().String(),
-		Name:             input.Body.Name,
-		Participants:     participants,
-		Clearance:        clearance,
-		CreatedAt:        time.Now().UTC(),
-		UpdatedAt:        time.Now().UTC(),
+		Name:         input.Body.Name,
+		Participants: participants,
+		Clearance:    clearance,
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
 	}
 
-	// Persist room
+	// Persist room (ID assigned by DB autoincrement)
 	if err := svc.rooms.CreateRoom(ctx, &r); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create room: " + err.Error())
 	}
@@ -175,12 +173,12 @@ func toRoomResponse(r room.Room) RoomResponse {
 	}
 
 	return RoomResponse{
-		ID:               r.ID,
-		Name:             r.Name,
-		Participants:     participants,
-		Clearance: r.Clearance,
-		CreatedAt:        r.CreatedAt,
-		UpdatedAt:        r.UpdatedAt,
+		ID:           r.ID,
+		Name:         r.Name,
+		Participants: participants,
+		Clearance:    r.Clearance,
+		CreatedAt:    r.CreatedAt,
+		UpdatedAt:    r.UpdatedAt,
 	}
 }
 
@@ -197,14 +195,14 @@ func toActorResponse(a room.Actor) ActorResponse {
 // toMessageResponse converts an internal room.Message to the API response type.
 func toMessageResponse(m room.Message) MessageResponse {
 	return MessageResponse{
-		ID:           m.ID,
+		Number:       m.Number,
 		Timestamp:    m.Timestamp,
 		RoomID:       m.RoomID,
 		Sender:       toActorResponse(m.Sender),
 		ClearanceTag: m.ClearanceTag,
 		Type:         string(m.Type),
 		Content:      m.Content,
-		Usage:        m.Usage,
+		Usage:        m.Usage(),
 		ToolCalls:    m.ToolCalls,
 		ToolCallID:   m.ToolCallID,
 		ToolName:     m.ToolName,

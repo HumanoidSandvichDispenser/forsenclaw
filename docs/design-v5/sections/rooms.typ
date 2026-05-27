@@ -9,13 +9,12 @@ A room is a context isolation unit.
 A room has:
 
 - A *participant list* (actors — users and/or agents).
-- A *transcript file* (JSONL on disk).
+- A *message log* (SQLite table keyed by `(room_id, number)`).
 - A *clearance ceiling* — the highest clearance level any message may carry,
   and the scope at which agents assemble context when operating here.
 - A *parent* (optional) — for structural grouping under a project.
 
-Room metadata (participant list, clearance ceiling) is stored in SQLite. The
-transcript itself is the JSONL file.
+Room metadata and transcripts are both stored in SQLite.
 
 == Clearance Ceiling as Confidentiality Boundary
 

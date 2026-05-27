@@ -2,26 +2,20 @@ package store
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
+
+	"gorm.io/gorm"
 
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
 )
 
-// CreateRoom persists a new room. The room ID must be set by the caller.
+// CreateRoom persists a new room. The room ID is assigned by the database
+// via autoincrement and populated on the passed-in room struct.
 func (s *SQLiteStore) CreateRoom(ctx context.Context, r *room.Room) error {
-	if r.ID == "" {
-		return fmt.Errorf("room ID is required")
-	}
 	if err := r.Validate(); err != nil {
 		return fmt.Errorf("invalid room: %w", err)
-	}
-
-	participantsJSON, err := json.Marshal(r.Participants)
-	if err != nil {
-		return fmt.Errorf("marshal participants: %w", err)
 	}
 
 	now := time.Now().UTC()
@@ -32,40 +26,32 @@ func (s *SQLiteStore) CreateRoom(ctx context.Context, r *room.Room) error {
 		r.UpdatedAt = now
 	}
 
-	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO rooms (id, name, participants, clearance, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`,
-		r.ID, r.Name, participantsJSON, r.Clearance,
-		r.CreatedAt.Format(time.RFC3339Nano),
-		r.UpdatedAt.Format(time.RFC3339Nano),
-	)
-	if err != nil {
-		return fmt.Errorf("insert room: %w", err)
-	}
-	return nil
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(r).Error; err != nil {
+			return fmt.Errorf("insert room: %w", err)
+		}
+		return saveParticipants(ctx, tx, r.ID, r.Participants)
+	})
 }
 
 // GetRoom retrieves a room by ID. Returns an error if the room does not exist.
-func (s *SQLiteStore) GetRoom(ctx context.Context, id string) (*room.Room, error) {
-	row := s.db.QueryRowContext(ctx, `
-		SELECT id, name, participants, clearance, created_at, updated_at
-		FROM rooms WHERE id = ?
-	`, id)
-
-	r, err := s.scanRoom(row)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("room %q not found", id)
+func (s *SQLiteStore) GetRoom(ctx context.Context, id int64) (*room.Room, error) {
+	var r room.Room
+	if err := s.db.WithContext(ctx).First(&r, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("room %d not found", id)
 		}
 		return nil, fmt.Errorf("get room: %w", err)
 	}
-	return r, nil
+	var err error
+	r.Participants, err = loadParticipants(ctx, s.db, r.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
 }
 
 // ListRooms returns rooms matching the given options, ordered by updated_at DESC.
-// Participant filtering is done in Go rather than SQL for correctness with JSON
-// serialization; the expected room count (hundreds) makes this acceptable.
 func (s *SQLiteStore) ListRooms(ctx context.Context, opts ListOpts) ([]room.Room, error) {
 	if opts.Limit <= 0 {
 		opts.Limit = 50
@@ -77,104 +63,62 @@ func (s *SQLiteStore) ListRooms(ctx context.Context, opts ListOpts) ([]room.Room
 		opts.Offset = 0
 	}
 
-	query := `
-		SELECT id, name, participants, clearance, created_at, updated_at
-		FROM rooms ORDER BY updated_at DESC
-	`
-	args := []any{}
-
-	// When participant filtering is active, omit LIMIT/OFFSET from SQL so
-	// Go-side filtering sees all candidates before pagination is applied.
-	if opts.Participant == "" {
-		query += ` LIMIT ? OFFSET ?`
-		args = append(args, opts.Limit, opts.Offset)
+	query := s.db.WithContext(ctx).Order("updated_at DESC").Limit(opts.Limit).Offset(opts.Offset)
+	if opts.Participant != "" {
+		sub := s.db.Model(&RoomParticipant{}).Select("room_id").Where("actor_id = ?", opts.Participant)
+		query = query.Where("id IN (?)", sub)
 	}
-
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list rooms: %w", err)
-	}
-	defer rows.Close()
 
 	var rooms []room.Room
-	for rows.Next() {
-		r, err := s.scanRoom(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan room: %w", err)
-		}
-		if opts.Participant != "" && r.ParticipantByID(opts.Participant) == nil {
-			continue
-		}
-		rooms = append(rooms, *r)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("rows: %w", err)
+	if err := query.Find(&rooms).Error; err != nil {
+		return nil, fmt.Errorf("list rooms: %w", err)
 	}
 
-	if opts.Participant != "" {
-		if opts.Offset >= len(rooms) {
-			return []room.Room{}, nil
-		}
-		rooms = rooms[opts.Offset:]
-		if len(rooms) > opts.Limit {
-			rooms = rooms[:opts.Limit]
-		}
+	if err := loadParticipantsForRooms(ctx, s.db, rooms); err != nil {
+		return nil, err
 	}
-
 	return rooms, nil
 }
 
 // UpdateRoom updates the mutable fields of an existing room.
 func (s *SQLiteStore) UpdateRoom(ctx context.Context, r *room.Room) error {
-	if r.ID == "" {
+	if r.ID <= 0 {
 		return fmt.Errorf("room ID is required")
 	}
 	if err := r.Validate(); err != nil {
 		return fmt.Errorf("invalid room: %w", err)
 	}
 
-	participantsJSON, err := json.Marshal(r.Participants)
-	if err != nil {
-		return fmt.Errorf("marshal participants: %w", err)
-	}
-
 	r.UpdatedAt = time.Now().UTC()
 
-	result, err := s.db.ExecContext(ctx, `
-		UPDATE rooms SET name = ?, participants = ?, clearance = ?, updated_at = ?
-		WHERE id = ?
-	`,
-		r.Name, participantsJSON, r.Clearance,
-		r.UpdatedAt.Format(time.RFC3339Nano), r.ID,
-	)
-	if err != nil {
-		return fmt.Errorf("update room: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("rows affected: %w", err)
-	}
-	if rowsAffected == 0 {
-		return fmt.Errorf("room %q not found", r.ID)
-	}
-	return nil
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Select("name", "clearance", "updated_at").Updates(r)
+		if result.Error != nil {
+			return fmt.Errorf("update room: %w", result.Error)
+		}
+		if result.RowsAffected == 0 {
+			return fmt.Errorf("room %d not found", r.ID)
+		}
+		if err := deleteParticipants(ctx, tx, r.ID); err != nil {
+			return err
+		}
+		return saveParticipants(ctx, tx, r.ID, r.Participants)
+	})
 }
 
-// DeleteRoom removes a room's metadata from the database. The JSONL transcript
-// file is NOT deleted; callers must handle that separately.
-func (s *SQLiteStore) DeleteRoom(ctx context.Context, id string) error {
-	result, err := s.db.ExecContext(ctx, `DELETE FROM rooms WHERE id = ?`, id)
-	if err != nil {
-		return fmt.Errorf("delete room: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("rows affected: %w", err)
-	}
-	if rowsAffected == 0 {
-		return fmt.Errorf("room %q not found", id)
-	}
-	return nil
+// DeleteRoom removes a room and its participants from the database.
+func (s *SQLiteStore) DeleteRoom(ctx context.Context, id int64) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := deleteParticipants(ctx, tx, id); err != nil {
+			return err
+		}
+		result := tx.Delete(&room.Room{}, id)
+		if result.Error != nil {
+			return fmt.Errorf("delete room: %w", result.Error)
+		}
+		if result.RowsAffected == 0 {
+			return fmt.Errorf("room %d not found", id)
+		}
+		return nil
+	})
 }

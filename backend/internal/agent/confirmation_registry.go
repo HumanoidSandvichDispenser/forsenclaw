@@ -6,7 +6,7 @@ import "sync"
 type PendingConfirmation struct {
 	NodeID    string `json:"node_id"`
 	AgentName string `json:"agent_name"`
-	RoomID    string `json:"room_id"`
+	RoomID    int64  `json:"room_id"`
 	ToolName  string `json:"tool_name"`
 	Args      string `json:"args"` // JSON-encoded arguments
 }
@@ -15,7 +15,7 @@ type PendingConfirmation struct {
 // confirmation events to WebSocket clients. Defined here to avoid an import
 // cycle (api imports agent, not the other way around).
 type ConfirmationNotifier interface {
-	NotifyConfirmationPending(roomID string, c PendingConfirmation)
+	NotifyConfirmationPending(roomID int64, c PendingConfirmation)
 }
 
 // ConfirmationRegistry tracks all currently pending confirmations in memory,
@@ -23,12 +23,12 @@ type ConfirmationNotifier interface {
 // (on-load) and the WebSocket subscribe replay (real-time catch-up).
 type ConfirmationRegistry struct {
 	mu      sync.RWMutex
-	pending map[string][]PendingConfirmation // roomID → confirmations
+	pending map[int64][]PendingConfirmation // roomID → confirmations
 }
 
 // NewConfirmationRegistry creates an empty registry.
 func NewConfirmationRegistry() *ConfirmationRegistry {
-	return &ConfirmationRegistry{pending: make(map[string][]PendingConfirmation)}
+	return &ConfirmationRegistry{pending: make(map[int64][]PendingConfirmation)}
 }
 
 // Register adds a pending confirmation. Called by ConfirmationHandler.Handle.
@@ -39,7 +39,7 @@ func (r *ConfirmationRegistry) Register(c PendingConfirmation) {
 }
 
 // Deregister removes a confirmation by node ID once it has been resolved or cancelled.
-func (r *ConfirmationRegistry) Deregister(roomID, nodeID string) {
+func (r *ConfirmationRegistry) Deregister(roomID int64, nodeID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	confs := r.pending[roomID]
@@ -55,7 +55,7 @@ func (r *ConfirmationRegistry) Deregister(roomID, nodeID string) {
 }
 
 // List returns a snapshot of all pending confirmations for a room.
-func (r *ConfirmationRegistry) List(roomID string) []PendingConfirmation {
+func (r *ConfirmationRegistry) List(roomID int64) []PendingConfirmation {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	confs := r.pending[roomID]
@@ -68,7 +68,7 @@ func (r *ConfirmationRegistry) List(roomID string) []PendingConfirmation {
 }
 
 // Get returns the pending confirmation with the given node ID within a room, or nil.
-func (r *ConfirmationRegistry) Get(roomID, nodeID string) *PendingConfirmation {
+func (r *ConfirmationRegistry) Get(roomID int64, nodeID string) *PendingConfirmation {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, c := range r.pending[roomID] {
@@ -83,7 +83,7 @@ func (r *ConfirmationRegistry) Get(roomID, nodeID string) *PendingConfirmation {
 // Take atomically gets and removes a pending confirmation. Returns nil if not found.
 // Use this in the respond endpoint instead of Get+Deregister to prevent two concurrent
 // requests from both resolving the same confirmation.
-func (r *ConfirmationRegistry) Take(roomID, nodeID string) *PendingConfirmation {
+func (r *ConfirmationRegistry) Take(roomID int64, nodeID string) *PendingConfirmation {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	confs := r.pending[roomID]
