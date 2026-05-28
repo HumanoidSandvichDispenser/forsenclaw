@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -83,9 +84,12 @@ func (s *SQLiteStore) GetCompactionOffset(ctx context.Context, agentName string,
 		Where("agent_name = ? AND room_id = ?", agentName, roomID).
 		First(&cursor).Error
 	if err != nil {
-		// gorm.ErrRecordNotFound is expected for new pairs
-		return 0, nil
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, nil
+		}
+		return 0, err
 	}
+
 	return cursor.CompactedNumber, nil
 }
 
