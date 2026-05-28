@@ -279,9 +279,7 @@ permissions:
 	}
 
 	// Dispatcher
-	ctx, cancel := context.WithCancel(context.Background())
 	dispatcher := dispatch.NewDispatcher(agentMgr)
-	go dispatcher.Run(ctx)
 
 	// API service + router + real HTTP server
 	svc := api.NewService(dispatcher, sqliteStore, sqliteStore, agentMgr, hub)
@@ -293,7 +291,6 @@ permissions:
 
 	t.Cleanup(func() {
 		srv.Close()
-		cancel()
 		agentMgr.Close()
 		sqliteStore.Close()
 	})

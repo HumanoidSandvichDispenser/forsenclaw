@@ -157,9 +157,6 @@ func resolvePaths(configOverride string) *paths.Paths {
 }
 
 func startServer(cfg *config.ServerConfig, p *paths.Paths) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	// 1. Open rooms DB
 	store, err := storedb.NewSQLiteStore(p.RoomsDBPath())
 	if err != nil {
@@ -202,7 +199,6 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 
 	// 7. Create dispatcher and start its run loop
 	dispatcher := dispatch.NewDispatcher(agentMgr)
-	go dispatcher.Run(ctx)
 
 	// 8. Create service and API
 	svc := api.NewService(dispatcher, store, store, agentMgr, hub)
