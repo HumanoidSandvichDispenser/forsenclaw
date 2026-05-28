@@ -246,7 +246,6 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 	log.Println("server stopped")
 }
 
-
 func buildMCPRegistry(cfg *config.ServerConfig) (mcp.Registry, error) {
 	// TODO: read systemMax from clearance_levels config when implemented.
 	const systemMax = 5
