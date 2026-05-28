@@ -15,7 +15,7 @@ func TestNewAgent(t *testing.T) {
 		Name:            "test",
 		RoleDescription: "test agent",
 		Clearance:       3,
-		RawPermissions:  []string{"room:create"},
+		Permissions:     []config.Statement{{Actions: []string{"room:create"}, Resources: []string{"**"}, Effect: "allow"}},
 	}
 
 	agent, err := NewAgent(def)
@@ -39,7 +39,7 @@ func TestAgentUpdateDefinition(t *testing.T) {
 		Name:            "test",
 		RoleDescription: "test agent",
 		Clearance:       3,
-		RawPermissions:  []string{"room:create"},
+		Permissions:     []config.Statement{{Actions: []string{"room:create"}, Resources: []string{"**"}, Effect: "allow"}},
 	}
 
 	agent, _ := NewAgent(def)
@@ -50,7 +50,10 @@ func TestAgentUpdateDefinition(t *testing.T) {
 		Name:            "test",
 		RoleDescription: "updated agent",
 		Clearance:       5,
-		RawPermissions:  []string{"room:create", "memory:write[*]"},
+		Permissions: []config.Statement{
+			{Actions: []string{"room:create"}, Resources: []string{"**"}, Effect: "allow"},
+			{Actions: []string{"memory:write"}, Resources: []string{"**"}, Effect: "allow"},
+		},
 	}
 
 	if err := agent.UpdateDefinition(newDef); err != nil {

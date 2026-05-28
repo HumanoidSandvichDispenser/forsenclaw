@@ -92,7 +92,7 @@ func TestFilterToolsByClearance_Mixed(t *testing.T) {
 }
 
 func TestToolEffect_BLPReadUp(t *testing.T) {
-	ag, _ := NewAgent(&config.AgentDefinition{Name: "test", RawPermissions: []string{}})
+	ag, _ := NewAgent(&config.AgentDefinition{Name: "test"})
 	h := &InferenceHandler{
 		effectiveClearance: 3,
 		toolClearances:     map[string]int{"finances_read": 5},
@@ -104,7 +104,7 @@ func TestToolEffect_BLPReadUp(t *testing.T) {
 }
 
 func TestToolEffect_BLPWriteDown(t *testing.T) {
-	ag, _ := NewAgent(&config.AgentDefinition{Name: "test", RawPermissions: []string{"tool:invoke[email_send]"}})
+	ag, _ := NewAgent(&config.AgentDefinition{Name: "test"})
 	h := &InferenceHandler{
 		effectiveClearance: 4,
 		toolClearances:     map[string]int{"email_send": 2},
@@ -116,10 +116,16 @@ func TestToolEffect_BLPWriteDown(t *testing.T) {
 }
 
 func TestToolEffect_BLPEqualClearance(t *testing.T) {
-	ag, _ := NewAgent(&config.AgentDefinition{Name: "test", RawPermissions: []string{"tool:invoke[*]"}})
+	ag, _ := NewAgent(&config.AgentDefinition{
+		Name: "test",
+		Permissions: []config.Statement{
+			{Actions: []string{"tool:invoke"}, Resources: []string{"builtin/*"}, Effect: "allow"},
+		},
+	})
 	h := &InferenceHandler{
 		effectiveClearance: 3,
 		toolClearances:     map[string]int{"calendar_read": 3},
+		toolResources:      map[string]string{"calendar_read": "builtin/calendar_read"},
 		agent:              ag,
 	}
 	if got := h.toolEffect("calendar_read"); got != "allow" {
@@ -128,10 +134,11 @@ func TestToolEffect_BLPEqualClearance(t *testing.T) {
 }
 
 func TestToolEffect_BLPEqualClearanceNoPermission(t *testing.T) {
-	ag, _ := NewAgent(&config.AgentDefinition{Name: "test", RawPermissions: []string{}})
+	ag, _ := NewAgent(&config.AgentDefinition{Name: "test"})
 	h := &InferenceHandler{
 		effectiveClearance: 3,
 		toolClearances:     map[string]int{"calendar_read": 3},
+		toolResources:      map[string]string{"calendar_read": "builtin/calendar_read"},
 		agent:              ag,
 	}
 	if got := h.toolEffect("calendar_read"); got != "deny" {
@@ -140,10 +147,16 @@ func TestToolEffect_BLPEqualClearanceNoPermission(t *testing.T) {
 }
 
 func TestToolEffect_WildcardPermission(t *testing.T) {
-	ag, _ := NewAgent(&config.AgentDefinition{Name: "test", RawPermissions: []string{"tool:invoke[*]"}})
+	ag, _ := NewAgent(&config.AgentDefinition{
+		Name: "test",
+		Permissions: []config.Statement{
+			{Actions: []string{"tool:invoke"}, Resources: []string{"**"}, Effect: "allow"},
+		},
+	})
 	h := &InferenceHandler{
 		effectiveClearance: 3,
 		toolClearances:     map[string]int{"calendar_read": 3},
+		toolResources:      map[string]string{"calendar_read": "builtin/calendar_read"},
 		agent:              ag,
 	}
 	if got := h.toolEffect("calendar_read"); got != "allow" {
@@ -152,10 +165,11 @@ func TestToolEffect_WildcardPermission(t *testing.T) {
 }
 
 func TestToolEffect_BLPMissingFromMap(t *testing.T) {
-	ag, _ := NewAgent(&config.AgentDefinition{Name: "test", RawPermissions: []string{"tool:invoke[unknown]"}})
+	ag, _ := NewAgent(&config.AgentDefinition{Name: "test"})
 	h := &InferenceHandler{
 		effectiveClearance: 3,
 		toolClearances:     map[string]int{},
+		toolResources:      map[string]string{"unknown": "builtin/unknown"},
 		agent:              ag,
 	}
 	// Missing tool defaults to 0 clearance, which is < effectiveClearance (3)
@@ -167,12 +181,15 @@ func TestToolEffect_BLPMissingFromMap(t *testing.T) {
 
 func TestToolEffect_BLPEqualClearanceSpecificPermission(t *testing.T) {
 	ag, _ := NewAgent(&config.AgentDefinition{
-		Name:           "test",
-		RawPermissions: []string{"tool:invoke[email_send]"},
+		Name: "test",
+		Permissions: []config.Statement{
+			{Actions: []string{"tool:invoke"}, Resources: []string{"builtin/email_send"}, Effect: "allow"},
+		},
 	})
 	h := &InferenceHandler{
 		effectiveClearance: 3,
 		toolClearances:     map[string]int{"email_send": 3},
+		toolResources:      map[string]string{"email_send": "builtin/email_send"},
 		agent:              ag,
 	}
 	if got := h.toolEffect("email_send"); got != "allow" {

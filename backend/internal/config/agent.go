@@ -2,7 +2,10 @@ package config
 
 import (
 	"fmt"
+	"path"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 type AgentDefinition struct {
@@ -12,8 +15,7 @@ type AgentDefinition struct {
 	FeatureFlags    FeatureFlags `yaml:"feature_flags"`
 	Clearance       int          `yaml:"clearance"`
 	MemoryBudget    int          `yaml:"memory_budget,omitempty"`
-	Permissions     []Permission `yaml:"-"`
-	RawPermissions  []string     `yaml:"permissions"`
+	Permissions     []Statement  `yaml:"permissions"`
 	Timeout         string       `yaml:"timeout,omitempty"`
 	MaxTokens       int          `yaml:"max_tokens,omitempty"`
 	Temperature     *float64     `yaml:"temperature,omitempty"`
@@ -33,53 +35,109 @@ type FeatureFlags struct {
 	Dreaming           bool `yaml:"dreaming"`
 }
 
-type Permission struct {
-	Action string
-	Scope  string
-	Effect string
+// Statement is a single permission entry (IAM-style).
+// It may appear in YAML as a shorthand string or a structured mapping.
+//
+// Shorthand:  "tool:invoke/builtin/*"
+//             "tool:invoke/daemon/homeserver/*:require_confirmation"
+//
+// Structured: effect: allow
+//             actions: [tool:invoke]
+//             resources: [builtin/*, mcp/filesystem/*]
+type Statement struct {
+	Effect    string   `yaml:"effect"`    // "allow" (default), "deny", "require_confirmation"
+	Actions   []string `yaml:"actions"`   // e.g. ["tool:invoke"]
+	Resources []string `yaml:"resources"` // e.g. ["builtin/*"], "**" = any
 }
 
-func ParsePermission(raw string) (Permission, error) {
-	effect := "allow"
-	actionScope := raw
+// ParseStatement parses the shorthand string permission format:
+//
+//	action/resource[:effect]
+//
+// The resource portion supports glob patterns. "**" matches any resource path.
+// Effect defaults to "allow" if omitted.
+func ParseStatement(raw string) (Statement, error) {
+	if raw == "" {
+		return Statement{}, fmt.Errorf("empty permission string")
+	}
 
-	if idx := strings.LastIndex(raw, ":"); idx != -1 {
-		candidate := raw[idx+1:]
+	effect := "allow"
+	s := raw
+
+	// Detect optional :effect suffix (last colon-separated segment).
+	if idx := strings.LastIndex(s, ":"); idx != -1 {
+		candidate := s[idx+1:]
 		if candidate == "allow" || candidate == "require_confirmation" || candidate == "deny" {
 			effect = candidate
-			actionScope = raw[:idx]
+			s = s[:idx]
 		}
 	}
 
-	action := actionScope
-	scope := ""
-
-	if start := strings.Index(actionScope, "["); start != -1 {
-		if end := strings.Index(actionScope, "]"); end != -1 && end > start {
-			action = actionScope[:start]
-			scope = actionScope[start+1 : end]
-		}
+	// Split action / resource on the first "/".
+	action := s
+	resource := "**"
+	if idx := strings.Index(s, "/"); idx != -1 {
+		action = s[:idx]
+		resource = s[idx+1:]
 	}
 
 	if action == "" {
-		return Permission{}, fmt.Errorf("empty action in permission %q", raw)
+		return Statement{}, fmt.Errorf("empty action in permission %q", raw)
 	}
 
-	return Permission{
-		Action: action,
-		Scope:  scope,
-		Effect: effect,
+	return Statement{
+		Effect:    effect,
+		Actions:   []string{action},
+		Resources: []string{resource},
 	}, nil
 }
 
-func (a *AgentDefinition) ParsedPermissions() ([]Permission, error) {
-	perms := make([]Permission, 0, len(a.RawPermissions))
-	for _, raw := range a.RawPermissions {
-		p, err := ParsePermission(raw)
-		if err != nil {
-			return nil, fmt.Errorf("parsing permission %q for agent %q: %w", raw, a.Name, err)
+// Matches reports whether this statement applies to the given action and resource.
+// "**" in a resource pattern matches any path. Other patterns use path.Match semantics.
+func (s Statement) Matches(action, resource string) bool {
+	actionMatched := false
+	for _, a := range s.Actions {
+		if matched, _ := path.Match(a, action); matched {
+			actionMatched = true
+			break
 		}
-		perms = append(perms, p)
 	}
-	return perms, nil
+	if !actionMatched {
+		return false
+	}
+	for _, r := range s.Resources {
+		if r == "**" {
+			return true
+		}
+		if matched, _ := path.Match(r, resource); matched {
+			return true
+		}
+	}
+	return false
+}
+
+// UnmarshalYAML handles both shorthand string and structured mapping forms.
+func (s *Statement) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		stmt, err := ParseStatement(value.Value)
+		if err != nil {
+			return err
+		}
+		*s = stmt
+		return nil
+	case yaml.MappingNode:
+		type statementAlias Statement
+		var alias statementAlias
+		if err := value.Decode(&alias); err != nil {
+			return err
+		}
+		if alias.Effect == "" {
+			alias.Effect = "allow"
+		}
+		*s = Statement(alias)
+		return nil
+	default:
+		return fmt.Errorf("unexpected YAML node type for permission statement")
+	}
 }

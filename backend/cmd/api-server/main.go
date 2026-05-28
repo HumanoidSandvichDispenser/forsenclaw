@@ -70,8 +70,7 @@ func runServer(args []string) {
 
 	log.Printf("loaded %d agent(s)", len(agents))
 	for name, agent := range agents {
-		perms, _ := agent.ParsedPermissions()
-		log.Printf("  %s: clearance=%d, permissions=%d", name, agent.Clearance, len(perms))
+		log.Printf("  %s: clearance=%d, permissions=%d", name, agent.Clearance, len(agent.Permissions))
 	}
 
 	if *validateOnly {
@@ -249,7 +248,9 @@ func buildMCPRegistry(cfg *config.ServerConfig) (mcp.Registry, error) {
 	clearances := make(map[string]int)
 
 	webfetchClearance := cfg.ResolveToolClearance(cfg.Tools.WebFetch.Clearance, systemMax)
-	clients := []mcp.MCPClient{mcpTools.NewWebFetch(webfetchClearance)}
+	clients := []mcp.NamedMCPClient{
+		{Name: "builtin", Client: mcpTools.NewWebFetch(webfetchClearance)},
+	}
 	clearances["webfetch"] = webfetchClearance
 
 	if apiKey := cfg.Tools.BraveSearch.APIKey.Resolve(); apiKey != "" {
@@ -258,7 +259,7 @@ func buildMCPRegistry(cfg *config.ServerConfig) (mcp.Registry, error) {
 		if err != nil {
 			return nil, err
 		}
-		clients = append(clients, client)
+		clients = append(clients, mcp.NamedMCPClient{Name: "builtin", Client: client})
 		clearances["web_search"] = braveClearance
 	}
 

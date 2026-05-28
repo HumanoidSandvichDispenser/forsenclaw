@@ -35,6 +35,7 @@ type InferenceHandler struct {
 	// BLP state — computed at the start of each inference loop turn.
 	effectiveClearance int
 	toolClearances     map[string]int
+	toolResources      map[string]string
 }
 
 func (h *InferenceHandler) Handle(ctx context.Context, childResults map[string]dag.Result) ([]dag.Dep, *dag.Result, error) {
@@ -105,10 +106,14 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 			return nil, nil, fmt.Errorf("effective clearance: %w", err)
 		}
 
-		// Build tool clearance map and filter/annotate tools for BLP.
+		// Build tool clearance/resource maps and filter/annotate tools for BLP.
 		allTools := h.executor.AllDefinitions()
 		var tools []inference.ToolDefinition
 		tools, h.toolClearances = filterToolsByClearance(allTools, h.effectiveClearance)
+		h.toolResources = make(map[string]string, len(allTools))
+		for _, t := range allTools {
+			h.toolResources[t.Name] = h.executor.ToolResource(t.Name)
+		}
 
 		payload, err := h.assembler.Assemble(ctx, h.agent, h.req, tools)
 		if err != nil {
@@ -198,29 +203,46 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 
 // toolEffect returns the combined BLP + permission effect for a tool name.
 // BLP is checked first (structural, not overridable by permissions), then
-// the agent's permission grant is evaluated. Falls back to "deny".
+// the agent's permission statements are evaluated with deny > require_confirmation > allow
+// precedence. Falls back to "deny" if no statement matches.
 func (h *InferenceHandler) toolEffect(toolName string) string {
 	// BLP pre-check: skip when effectiveClearance has not been computed yet.
 	if h.effectiveClearance > 0 {
 		tc := h.toolClearances[toolName]
 		if tc > h.effectiveClearance {
-			return "deny" // no read-up (defense in depth)
+			return "deny" // no read-up
 		}
 		if tc < h.effectiveClearance {
-			return "require_confirmation" // no write-down, mandatory
+			return "require_confirmation" // no write-down without approval
 		}
 	}
-	// Permission check: fall through when clearance matches.
-	for _, perm := range h.agent.Permissions() {
-		if perm.Action != "tool:invoke" {
+
+	resource := h.toolResources[toolName]
+
+	// Collect the highest-priority effect across all matching statements.
+	// Priority: deny > require_confirmation > allow.
+	effect := ""
+	for _, stmt := range h.agent.Permissions() {
+		if !stmt.Matches("tool:invoke", resource) {
 			continue
 		}
-		if perm.Scope == toolName || perm.Scope == "*" {
-			return perm.Effect
+		switch stmt.Effect {
+		case "deny":
+			return "deny" // explicit deny short-circuits
+		case "require_confirmation":
+			effect = "require_confirmation"
+		case "allow":
+			if effect == "" {
+				effect = "allow"
+			}
 		}
 	}
-	return "deny"
+	if effect == "" {
+		return "deny" // default deny
+	}
+	return effect
 }
+
 
 // filterToolsByClearance applies BLP rules to a set of tool definitions.
 // Tools with clearance > effectiveClearance are dropped (no read-up).

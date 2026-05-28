@@ -176,7 +176,7 @@ type e2eEnv struct {
 	infer     *mockInferenceServer
 }
 
-func newE2EEnv(t *testing.T, mcpClients []mcp.MCPClient, mcpClearances map[string]int) *e2eEnv {
+func newE2EEnv(t *testing.T, mcpClients []mcp.NamedMCPClient, mcpClearances map[string]int) *e2eEnv {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -206,7 +206,7 @@ feature_flags:
   dreaming: false
 clearance: 5
 permissions:
-  - "tool:invoke[*]"
+  - "tool:invoke/**"
 `
 	if err := os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte(agentYAML), 0o644); err != nil {
 		t.Fatalf("write agent.yaml: %v", err)
@@ -437,7 +437,7 @@ func TestE2E_ToolCallRoundTrip(t *testing.T) {
 		clearance: 5,
 		result:    "echoed: hello",
 	}
-	env := newE2EEnv(t, []mcp.MCPClient{echoTool}, map[string]int{"echo": 5})
+	env := newE2EEnv(t, []mcp.NamedMCPClient{{Name: "test", Client: echoTool}}, map[string]int{"echo": 5})
 
 	roomID := createRoom(t, env.serverURL)
 

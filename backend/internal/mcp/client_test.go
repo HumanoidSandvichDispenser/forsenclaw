@@ -222,7 +222,7 @@ func TestExecutor_CallsMCP(t *testing.T) {
 		toolIDs:  []string{"web_search"},
 		response: "search results",
 	}
-	reg := NewRegistry([]MCPClient{client}, nil)
+	reg := NewRegistry([]NamedMCPClient{{Name: "test", Client: client}}, nil)
 	exec := NewExecutor(reg, audit.Nop())
 
 	result, err := exec.Execute(context.Background(), wireCall("web_search", `{"q":"golang"}`))
@@ -243,7 +243,7 @@ func TestExecutor_CallsMCP(t *testing.T) {
 // --- AC-6: Executor — unknown tool returns error ---
 
 func TestExecutor_UnknownTool_ReturnsError(t *testing.T) {
-	reg := NewRegistry([]MCPClient{}, nil)
+	reg := NewRegistry([]NamedMCPClient{}, nil)
 	exec := NewExecutor(reg, audit.Nop())
 
 	_, err := exec.Execute(context.Background(), wireCall("nonexistent", `{}`))
@@ -259,7 +259,7 @@ func TestExecutor_MCPError_Propagates(t *testing.T) {
 		toolIDs: []string{"web_search"},
 		err:     fmt.Errorf("connection refused"),
 	}
-	reg := NewRegistry([]MCPClient{client}, nil)
+	reg := NewRegistry([]NamedMCPClient{{Name: "test", Client: client}}, nil)
 	exec := NewExecutor(reg, audit.Nop())
 
 	_, err := exec.Execute(context.Background(), wireCall("web_search", `{}`))
@@ -279,7 +279,7 @@ func TestExecutor_AuditEvents(t *testing.T) {
 
 	t.Run("success logs KindToolInvoked", func(t *testing.T) {
 		client := &mockMCPClient{toolIDs: []string{"web_search"}, response: "ok"}
-		exec := NewExecutor(NewRegistry([]MCPClient{client}, nil), logger)
+		exec := NewExecutor(NewRegistry([]NamedMCPClient{{Name: "test", Client: client}}, nil), logger)
 		ctx := audit.WithAgentID(context.Background(), "agent42")
 
 		exec.Execute(ctx, wireCall("web_search", `{}`)) //nolint:errcheck
@@ -301,7 +301,7 @@ func TestExecutor_AuditEvents(t *testing.T) {
 		sink2 := &recordingSink{}
 		logger2 := audit.NewLogger([]audit.SinkConfig{{Sink: sink2, MinLevel: audit.LevelDebug}})
 		client := &mockMCPClient{toolIDs: []string{"web_search"}, err: fmt.Errorf("boom")}
-		exec := NewExecutor(NewRegistry([]MCPClient{client}, nil), logger2)
+		exec := NewExecutor(NewRegistry([]NamedMCPClient{{Name: "test", Client: client}}, nil), logger2)
 
 		exec.Execute(context.Background(), wireCall("web_search", `{}`)) //nolint:errcheck
 		logger2.Close()

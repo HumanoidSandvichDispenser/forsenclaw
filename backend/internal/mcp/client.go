@@ -20,6 +20,11 @@ type MCPClient interface {
 	Healthy() bool
 }
 
+type NamedMCPClient struct {
+	Name   string
+	Client MCPClient
+}
+
 // ToolDescriber is an optional interface that MCPClient implementations may
 // satisfy to expose their tool schemas for prompt injection and native tool
 // calling. Clients that do not implement this interface are silently skipped
@@ -44,6 +49,10 @@ type Registry interface {
 	// Returns 0 if the tool is not registered.
 	ToolClearance(toolID string) int
 
+	// ToolResource returns the resource path for the given tool ID, for
+	// permissions checking.
+	ToolResource(toolID string) string
+
 	// AllSchemas returns all tool schemas for tools the registry knows about,
 	// as pre-formatted strings suitable for injection into ContextPayload.ToolSchemas.
 	AllSchemas() []string
@@ -57,28 +66,32 @@ type Registry interface {
 type inMemoryRegistry struct {
 	tools      map[string]MCPClient
 	clearances map[string]int
+	resources  map[string]string
 	order      []MCPClient // unique clients in insertion order
 }
 
 // NewRegistry creates a new in-memory Registry populated from the given servers.
 // The clearances map provides the clearance level for each tool ID; missing
 // entries default to 0 (which callers should resolve to system max).
-func NewRegistry(servers []MCPClient, clearances map[string]int) Registry {
+func NewRegistry(servers []NamedMCPClient, clearances map[string]int) Registry {
 	r := &inMemoryRegistry{
 		tools:      make(map[string]MCPClient),
 		clearances: make(map[string]int),
+		resources:  make(map[string]string),
 	}
 	seen := make(map[MCPClient]bool)
 	for _, srv := range servers {
-		for _, id := range srv.ToolIDs() {
-			r.tools[id] = srv
+		client := srv.Client
+		for _, id := range client.ToolIDs() {
+			r.tools[id] = client
+			r.resources[id] = fmt.Sprintf("%s/%s", srv.Name, id)
 			if clearances != nil {
 				r.clearances[id] = clearances[id]
 			}
 		}
-		if !seen[srv] {
-			seen[srv] = true
-			r.order = append(r.order, srv)
+		if !seen[client] {
+			seen[client] = true
+			r.order = append(r.order, client)
 		}
 	}
 	return r
@@ -94,6 +107,10 @@ func (r *inMemoryRegistry) Resolve(toolID string) (MCPClient, error) {
 
 func (r *inMemoryRegistry) ToolClearance(toolID string) int {
 	return r.clearances[toolID]
+}
+
+func (r *inMemoryRegistry) ToolResource(toolID string) string {
+	return r.resources[toolID]
 }
 
 func (r *inMemoryRegistry) AllSchemas() []string {

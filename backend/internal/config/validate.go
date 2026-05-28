@@ -156,17 +156,6 @@ func ValidateAgentDefinition(agent *AgentDefinition, serverCfg *ServerConfig) []
 		}
 	}
 
-	for _, raw := range agent.RawPermissions {
-		if _, err := ParsePermission(raw); err != nil {
-			errs = append(errs, ConfigError{Field: "permissions", Message: err.Error()})
-		} else {
-			p, _ := ParsePermission(raw)
-			validEffects := map[string]bool{"allow": true, "require_confirmation": true, "deny": true}
-			if !validEffects[p.Effect] {
-				errs = append(errs, ConfigError{Field: "permissions", Message: fmt.Sprintf("invalid effect %q in %q", p.Effect, raw)})
-			}
-		}
-	}
 
 	if strings.Contains(agent.Name, "/") || strings.Contains(agent.Name, "..") {
 		errs = append(errs, ConfigError{Field: "name", Message: "must not contain / or .."})

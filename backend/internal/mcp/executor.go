@@ -28,6 +28,12 @@ func (e *Executor) AllDefinitions() []inference.ToolDefinition {
 	return e.registry.AllDefinitions()
 }
 
+// ToolResource returns the resource path for the given tool ID.
+// Satisfies the agent.ToolExecutor interface.
+func (e *Executor) ToolResource(toolID string) string {
+	return e.registry.ToolResource(toolID)
+}
+
 // Execute resolves the tool, converts JSON arguments, calls the MCP client,
 // and logs the outcome. Satisfies the agent.ToolExecutor interface.
 func (e *Executor) Execute(ctx context.Context, call inference.ToolCallWire) (string, error) {

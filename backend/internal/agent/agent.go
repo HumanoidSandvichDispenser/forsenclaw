@@ -20,22 +20,14 @@ type Agent struct {
 
 	// Active indicates whether the agent is currently loaded and usable.
 	Active bool
-
-	// parsedPermissions is a cached copy of the parsed permissions.
-	parsedPermissions []config.Permission
 }
 
 // NewAgent creates a runtime Agent from a loaded definition.
 func NewAgent(def *config.AgentDefinition) (*Agent, error) {
-	perms, err := def.ParsedPermissions()
-	if err != nil {
-		return nil, err
-	}
 	return &Agent{
 		Definition:        def,
 		LoadedAt:          time.Now(),
 		Active:            true,
-		parsedPermissions: perms,
 	}, nil
 }
 
@@ -47,25 +39,19 @@ func (a *Agent) Name() string {
 }
 
 // Permissions returns the parsed permissions (cached).
-func (a *Agent) Permissions() []config.Permission {
+func (a *Agent) Permissions() []config.Statement {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	return a.parsedPermissions
+	return a.Definition.Permissions
 }
 
 // UpdateDefinition atomically replaces the agent's definition and re-parses permissions.
 func (a *Agent) UpdateDefinition(def *config.AgentDefinition) error {
-	perms, err := def.ParsedPermissions()
-	if err != nil {
-		return err
-	}
-
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
 	a.Definition = def
 	a.LoadedAt = time.Now()
-	a.parsedPermissions = perms
 	return nil
 }
 
