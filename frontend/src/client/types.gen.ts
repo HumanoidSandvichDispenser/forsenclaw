@@ -196,13 +196,13 @@ export type MessageResponse = {
      */
     content: string;
     /**
-     * Unique message ID
+     * Per-room message number (primary key)
      */
-    id: string;
+    number: number;
     /**
      * Room this message belongs to
      */
-    room_id: string;
+    room_id: number;
     /**
      * Actor who sent this message
      */
@@ -216,17 +216,29 @@ export type MessageResponse = {
      */
     type: string;
     /**
-     * Structured tool calls for tool_call messages (native mode)
+     * Token usage for agent responses
      */
-    tool_calls?: Array<{ id: string; tool_name: string; arguments: string }>;
+    usage?: { input_tokens: number; output_tokens: number };
     /**
-     * Correlating tool call ID for tool_result messages (native mode)
+     * Structured tool calls for tool_call messages
+     */
+    tool_calls?: Array<{ id?: string; tool_name: string; arguments?: string }>;
+    /**
+     * Correlating tool call ID for tool_result messages
      */
     tool_call_id?: string;
     /**
      * Tool identifier for tool_result messages
      */
     tool_name?: string;
+};
+
+export type ConfirmationResponse = {
+    node_id: string;
+    agent_name: string;
+    room_id: number;
+    tool_name: string;
+    args: string;
 };
 
 export type RoomResponse = {

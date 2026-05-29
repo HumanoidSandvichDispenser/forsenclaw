@@ -3,11 +3,14 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router';
 
 import RoomComposer from '@/components/room/RoomComposer.vue';
+import ConfirmationBanner from '@/components/room/ConfirmationBanner.vue';
 import RoomHeader from '@/components/room/RoomHeader.vue';
 import RoomMembersPanel from '@/components/room/RoomMembersPanel.vue';
 import RoomMessageItem from '@/components/room/RoomMessageItem.vue';
 import type { MessageResponse } from '@/client';
+import type { MessageCreatedPayload, ConfirmationPendingPayload } from '@/composables/useWebSocket';
 import { useWebSocket } from '@/composables/useWebSocket';
+import { useConfirmationsStore } from '@/stores/confirmations';
 import { useMessagesStore } from '@/stores/messages';
 import { useRoomsStore } from '@/stores/rooms';
 import { useUserStore } from '@/stores/user';
@@ -21,6 +24,7 @@ interface MessageGroup {
 const route = useRoute();
 const roomsStore = useRoomsStore();
 const messagesStore = useMessagesStore();
+const confirmationsStore = useConfirmationsStore();
 const userStore = useUserStore();
 const ws = useWebSocket();
 
@@ -35,7 +39,7 @@ const messageGroups = computed((): MessageGroup[] => {
     if (m.type === 'tool_call' || m.type === 'tool_result') {
       toolBuffer.push(m);
     } else {
-      groups.push({ key: m.id, message: m, toolMessages: toolBuffer });
+      groups.push({ key: String(m.number), message: m, toolMessages: toolBuffer });
       toolBuffer = [];
     }
   }
@@ -103,6 +107,7 @@ async function ensureLoaded() {
   if (!userStore.user && !userStore.loading) userStore.fetchMe();
   if (!room.value) roomsStore.fetchRoom(roomId.value);
   await messagesStore.fetchMessages(roomId.value);
+  await confirmationsStore.fetch(roomId.value);
   await scrollToBottom();
 }
 
@@ -115,46 +120,37 @@ onMounted(() => {
     ws.subscribe(roomId.value);
   }
   unsubEvent = ws.onEvent((event) => {
-    if (event.room_id !== roomId.value) return;
     switch (event.type) {
-      case 'typing':
-        messagesStore.startTyping(roomId.value, agentSender.value);
+      case 'message.created': {
+        const p = event.payload as MessageCreatedPayload;
+        if (String(p.room_id) !== roomId.value) return;
+        const msg: MessageResponse = {
+          number: p.number,
+          timestamp: p.timestamp,
+          room_id: p.room_id,
+          sender: p.sender,
+          clearance_tag: p.clearance_tag,
+          type: p.type,
+          content: p.content,
+          tool_calls: p.tool_calls,
+          tool_call_id: p.tool_call_id,
+          tool_name: p.tool_name,
+        };
+        messagesStore.finalizeMessage(roomId.value, msg);
         break;
-      case 'chunk':
-        if (event.content) {
-          messagesStore.appendChunk(roomId.value, event.content);
-        }
+      }
+      case 'confirmation.pending': {
+        const p = event.payload as ConfirmationPendingPayload;
+        if (String(p.room_id) !== roomId.value) return;
+        confirmationsStore.add(roomId.value, {
+          node_id: p.node_id,
+          agent_name: p.agent_name,
+          room_id: p.room_id,
+          tool_name: p.tool_name,
+          args: p.args,
+        });
         break;
-      case 'message':
-        if (event.message) {
-          const msg = {
-            id: event.message.id,
-            timestamp: event.message.timestamp,
-            room_id: event.message.room_id,
-            sender: {
-              id: event.message.sender_id,
-              name: event.message.sender_name,
-              type: event.message.sender_type,
-              clearance: event.message.clearance_tag,
-            },
-            clearance_tag: event.message.clearance_tag,
-            type: event.message.type,
-            content: event.message.content,
-          };
-          messagesStore.finalizeMessage(roomId.value, msg);
-        }
-        break;
-      case 'agent_error':
-        messagesStore.clearStreaming(roomId.value);
-        break;
-      case 'tool_call':
-        if (event.content) {
-          messagesStore.setToolCall(roomId.value, event.content);
-        }
-        break;
-      case 'tool_result':
-        messagesStore.clearToolCall(roomId.value);
-        break;
+      }
     }
   });
 });
@@ -249,6 +245,15 @@ async function send() {
           </div>
         </div>
 
+        <div v-if="(confirmationsStore.byRoomId[roomId] ?? []).length > 0" class="confirmations">
+          <ConfirmationBanner
+            v-for="c in confirmationsStore.byRoomId[roomId]"
+            :key="c.node_id"
+            :room-id="roomId"
+            :confirmation="c"
+          />
+        </div>
+
         <RoomComposer
           v-model="messageText"
           :error="composerError"
@@ -296,6 +301,14 @@ async function send() {
   gap: 0.75rem;
   max-width: 40rem;
   margin: 0 auto;
+}
+
+.confirmations {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid var(--border, #333);
 }
 
 .muted {

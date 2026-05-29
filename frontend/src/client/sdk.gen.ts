@@ -76,3 +76,23 @@ export const sendMessage = <ThrowOnError extends boolean = false>(options: Optio
         ...options.headers
     }
 });
+
+/**
+ * List pending tool-call confirmations for a room
+ */
+export const listConfirmations = <ThrowOnError extends boolean = false>(options: Options<{ url: string; path: { room_id: number | string } }, ThrowOnError>) =>
+    (options.client ?? client).get<{ confirmations: import('./types.gen').ConfirmationResponse[] }, unknown, ThrowOnError>({ url: '/api/rooms/{room_id}/confirmations', ...options });
+
+/**
+ * Respond to a pending tool-call confirmation
+ */
+export const respondConfirmation = <ThrowOnError extends boolean = false>(options: Options<{
+    url: string;
+    path: { room_id: number | string; node_id: string };
+    body: { action: 'allow' | 'deny' | 'revise'; args?: string; feedback?: string };
+}, ThrowOnError>) =>
+    (options.client ?? client).post<void, unknown, ThrowOnError>({
+        url: '/api/rooms/{room_id}/confirmations/{node_id}',
+        ...options,
+        headers: { 'Content-Type': 'application/json', ...options.headers },
+    });

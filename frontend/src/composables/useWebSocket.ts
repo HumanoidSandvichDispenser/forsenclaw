@@ -2,26 +2,33 @@ import { onUnmounted, ref } from 'vue';
 
 import { useClientStore } from '@/stores/client';
 
-export type WSEvent = {
-  type: 'typing' | 'chunk' | 'message' | 'agent_error' | 'interjection_queued' | 'tool_call' | 'tool_result';
-  room_id: string;
-  content?: string;
-  message?: {
-    id: string;
-    timestamp: string;
-    room_id: string;
-    sender_id: string;
-    sender_name: string;
-    sender_type: string;
-    clearance_tag: number;
-    type: string;
-    content: string;
-    usage?: {
-      input_tokens: number;
-      output_tokens: number;
-    };
-  };
+export type MessageCreatedPayload = {
+  number: number;
+  timestamp: string;
+  room_id: number;
+  sender: { id: string; name: string; type: string; clearance: number };
+  clearance_tag: number;
+  type: string;
+  content: string;
+  usage_input_tokens?: number;
+  usage_output_tokens?: number;
+  tool_calls?: Array<{ id?: string; tool_name: string; arguments?: string }>;
+  tool_call_id?: string;
+  tool_name?: string;
 };
+
+export type ConfirmationPendingPayload = {
+  node_id: string;
+  agent_name: string;
+  room_id: number;
+  tool_name: string;
+  args: string;
+};
+
+export type WSEvent =
+  | { type: 'message.created'; payload: MessageCreatedPayload }
+  | { type: 'confirmation.pending'; payload: ConfirmationPendingPayload }
+  | { type: string; payload?: unknown };
 
 type Callback = (event: WSEvent) => void;
 

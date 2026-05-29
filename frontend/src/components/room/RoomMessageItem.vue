@@ -151,7 +151,7 @@ const toolDisplays = computed((): ToolDisplay[] => {
   if (nativeCalls.length > 0) {
     for (const tc of nativeCalls) {
       let args: Record<string, unknown> | null = null;
-      try { args = JSON.parse(tc.arguments); } catch { /* ignore */ }
+      try { args = JSON.parse(tc.arguments ?? ''); } catch { /* ignore */ }
       const resultMsg = resultMsgs.find((r) => r.tool_call_id === tc.id);
       displays.push({ name: tc.tool_name, args, result: resultMsg ? stripToolResponseXML(resultMsg.content) : null });
     }
