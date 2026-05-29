@@ -49,10 +49,6 @@ type Registry interface {
 	// Returns 0 if the tool is not registered.
 	ToolClearance(toolID string) int
 
-	// ToolResource returns the resource path for the given tool ID, for
-	// permissions checking.
-	ToolResource(toolID string) string
-
 	// AllSchemas returns all tool schemas for tools the registry knows about,
 	// as pre-formatted strings suitable for injection into ContextPayload.ToolSchemas.
 	AllSchemas() []string
@@ -109,10 +105,6 @@ func (r *inMemoryRegistry) ToolClearance(toolID string) int {
 	return r.clearances[toolID]
 }
 
-func (r *inMemoryRegistry) ToolResource(toolID string) string {
-	return r.resources[toolID]
-}
-
 func (r *inMemoryRegistry) AllSchemas() []string {
 	var schemas []string
 	for _, client := range r.order {
@@ -127,7 +119,10 @@ func (r *inMemoryRegistry) AllDefinitions() []inference.ToolDefinition {
 	var defs []inference.ToolDefinition
 	for _, client := range r.order {
 		if d, ok := client.(ToolDescriber); ok {
-			defs = append(defs, d.NativeDefinitions()...)
+			for _, def := range d.NativeDefinitions() {
+				def.Resource = r.resources[def.Name]
+				defs = append(defs, def)
+			}
 		}
 	}
 	return defs

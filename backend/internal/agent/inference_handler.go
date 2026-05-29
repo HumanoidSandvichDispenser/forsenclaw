@@ -112,7 +112,7 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 		tools, h.toolClearances = filterToolsByClearance(allTools, h.effectiveClearance)
 		h.toolResources = make(map[string]string, len(allTools))
 		for _, t := range allTools {
-			h.toolResources[t.Name] = h.executor.ToolResource(t.Name)
+			h.toolResources[t.Name] = t.Resource
 		}
 
 		payload, err := h.assembler.Assemble(ctx, h.agent, h.req, tools)

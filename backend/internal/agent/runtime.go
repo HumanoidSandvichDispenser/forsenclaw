@@ -30,7 +30,6 @@ type Assembler interface {
 type ToolExecutor interface {
 	AllDefinitions() []inference.ToolDefinition
 	Execute(ctx context.Context, call inference.ToolCallWire) (string, error)
-	ToolResource(toolID string) string
 }
 
 // RuntimeDeps groups optional dependencies for AgentRuntime.
