@@ -273,6 +273,60 @@ func TestSQLiteStore_DeleteRoom(t *testing.T) {
 	}
 }
 
+func TestSQLiteStore_DeleteRoom_CleansUpOrphans(t *testing.T) {
+	store, _ := newTestStore(t)
+	defer store.Close()
+
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5, Name: "Alice"}
+	housewife := room.Actor{ID: "agent:housewife", Type: room.ActorAgent, Clearance: 5, Name: "Housewife"}
+	r := newTestRoom(alice, housewife)
+
+	ctx := context.Background()
+	if err := store.CreateRoom(ctx, &r); err != nil {
+		t.Fatalf("CreateRoom: %v", err)
+	}
+
+	// Append a message.
+	_, err := store.AppendMessage(ctx, r.ID, room.Message{
+		Timestamp: time.Now().UTC(),
+		RoomID:    r.ID,
+		Sender:    alice,
+		Type:      room.MessageText,
+		Content:   "hello",
+	})
+	if err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+
+	// Set a compaction cursor.
+	if err := store.SetCompactionOffset(ctx, "housewife", r.ID, 1); err != nil {
+		t.Fatalf("SetCompactionOffset: %v", err)
+	}
+
+	// Delete the room.
+	if err := store.DeleteRoom(ctx, r.ID); err != nil {
+		t.Fatalf("DeleteRoom: %v", err)
+	}
+
+	// Messages should be gone.
+	msgs, err := store.GetMessages(ctx, r.ID, ReadOpts{})
+	if err != nil {
+		t.Fatalf("GetMessages after delete: %v", err)
+	}
+	if len(msgs) != 0 {
+		t.Errorf("expected 0 messages after room delete, got %d", len(msgs))
+	}
+
+	// Compaction cursor should be gone (returns 0 as if never set).
+	offset, err := store.GetCompactionOffset(ctx, "housewife", r.ID)
+	if err != nil {
+		t.Fatalf("GetCompactionOffset after delete: %v", err)
+	}
+	if offset != 0 {
+		t.Errorf("expected compaction offset 0 after room delete, got %d", offset)
+	}
+}
+
 func TestSQLiteStore_DeleteRoom_NotFound(t *testing.T) {
 	store, _ := newTestStore(t)
 	defer store.Close()

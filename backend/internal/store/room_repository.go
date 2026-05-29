@@ -106,11 +106,18 @@ func (s *SQLiteStore) UpdateRoom(ctx context.Context, r *room.Room) error {
 	})
 }
 
-// DeleteRoom removes a room and its participants from the database.
+// DeleteRoom removes a room and all associated data (participants, messages,
+// compaction cursors) from the database.
 func (s *SQLiteStore) DeleteRoom(ctx context.Context, id int64) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := deleteParticipants(ctx, tx, id); err != nil {
 			return err
+		}
+		if err := tx.Where("room_id = ?", id).Delete(&room.Message{}).Error; err != nil {
+			return fmt.Errorf("delete messages for room %d: %w", id, err)
+		}
+		if err := tx.Where("room_id = ?", id).Delete(&CompactionCursor{}).Error; err != nil {
+			return fmt.Errorf("delete compaction cursors for room %d: %w", id, err)
 		}
 		result := tx.Delete(&room.Room{}, id)
 		if result.Error != nil {
