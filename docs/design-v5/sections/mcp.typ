@@ -14,8 +14,8 @@ agents.
 == Tool Injection
 
 *v1: static injection.* At invocation time, MCP tool schemas the agent is
-permitted to use (per its `tool:invoke[...]` permissions, evaluated by OPA)
-and cleared to see (per BLP tool clearance, evaluated against the room ceiling)
+permitted to use (per its `tool:invoke/...` permission statements) and cleared
+to see (per BLP tool clearance, evaluated against the room ceiling)
 are resolved and injected into the API call. Tools whose clearance exceeds the
 room ceiling are not injected --- they are structurally absent, same as
 higher-clearance memory files. Tools below the room ceiling are injected with a
@@ -51,13 +51,14 @@ to OPA permission evaluation.
 
 == Permission Integration
 
-MCP tool invocation is gated by `tool:invoke[<tool_id>]` permissions evaluated
-by OPA. The OPA policy receives the full invocation context --- agent identity,
-room clearance, tool ID, arguments, time-of-day, and any other relevant
-attributes --- and returns `allow`, `require_confirmation`, or `deny`.
+MCP tool invocation is gated by `tool:invoke/<server>/<tool>` permissions
+evaluated by OPA. The OPA policy receives the full invocation context --- agent
+identity, room clearance, tool resource path, arguments, time-of-day, and any
+other relevant attributes --- and returns `allow`, `require_confirmation`, or
+`deny`.
 
-An agent permitted `tool:invoke[email:*]` with `require_confirmation` for
-`tool:invoke[email:send]` can read email freely but needs user approval to
+An agent permitted `tool:invoke/mcp/email/*` with `require_confirmation` for
+`tool:invoke/mcp/email/send` can read email freely but needs user approval to
 send. This confirmation creates a blocked node in the Request DAG (see @rooms)
 that resolves on user response.
 

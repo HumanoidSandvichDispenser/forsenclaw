@@ -2,10 +2,10 @@
 
 == Agent Configuration Examples
 
-=== The Housewife --- Most Trusted Persistent Agent
+=== forsen --- High-Trust Persistent Agent
 
 ```yaml
-name: housewife
+name: forsen
 role_description: >
   Personal agent. Manages household, calendar, meal planning, coordinates
   other agents for projects. Highest clearance, broad permissions. Acts
@@ -25,24 +25,24 @@ feature_flags:
 clearance: 5
 
 permissions:
-  - tool:invoke[*]
+  - tool:invoke/**
   - room:create
   - room:add_participant
   - room:extend_turn_limit
-  - memory:write[*]
-  - memory:search[*]
-  - agent:spawn[*]
+  - memory:write/**
+  - memory:search/**
+  - agent:spawn/**
   - agent:terminate
-  - agent:compact[*]
-  - config:read[self]
-  - config:write[self]
-  - config:read[server]
-  - config:write[server]
+  - agent:compact/**
+  - config:read/self
+  - config:write/self:require_confirmation
+  - config:read/server:require_confirmation
+  - config:write/server:require_confirmation
   - proactive:enable
-  - proactive:act[low, medium]
-  - handoff:propose[*]
-  - policy:propose
-  - permission:grant  # condition: granted <= self
+  - proactive:act/low
+  - proactive:act/medium
+  - handoff:propose/**
+  - permission:grant/**  # condition: granted <= self
 ```
 
 === Scout --- Lower-Clearance External Agent
@@ -68,11 +68,13 @@ feature_flags:
 clearance: 2
 
 permissions:
-  - tool:invoke[web:*, api:*]
+  - tool:invoke/builtin/**
+  - tool:invoke/mcp/web/**
+  - tool:invoke/mcp/api/**
   - room:create
-  - memory:write[self]
-  - memory:search[self]
-  - config:read[self]
+  - memory:write/self
+  - memory:search/self
+  - config:read/self
 ```
 
 === Ephemeral Task Agent
@@ -98,11 +100,12 @@ feature_flags:
 clearance: 3
 
 permissions:
-  - tool:invoke[code:read_file, code:review_diff]
-  - memory:search[self]
+  - tool:invoke/mcp/code/read_file
+  - tool:invoke/mcp/code/review_diff
+  - memory:search/self
 
 timeout: 600s
-parent: housewife
+parent: forsen
 ```
 
 == Network Topology
@@ -323,7 +326,7 @@ in UI; budget enforcement is v2.
 
 What is the default policy shipped with the binary? It should be conservative
 (deny-first, require_confirmation for most agent actions) while allowing the
-housewife to function without extensive manual configuration. Policy is shipped
+forsen to function without extensive manual configuration. Policy is shipped
 as a file so the user can inspect and customize it immediately.
 
 == Glossary

@@ -1,5 +1,8 @@
 = Agent Model <agents>
 
+Throughout this document, the high-trust persistent agent is named *forsen* in
+examples. This is a placeholder; users name their agents whatever they like.
+
 An *agent* is a persistent identity defined by:
 
 + A *definition file* (`agent.yaml`) --- role, system prompt, behavioral
@@ -115,6 +118,6 @@ path bounded even for large rooms.
 LLMs already have broad knowledge. The role of a persistent agent is not
 "knows about cooking" or "knows about code" --- it is defined by *what it knows
 about the user* (clearance), *what it can do* (permissions), and *what it's
-responsible for* (role). The housewife is the most trusted agent not because it
+responsible for* (role). A high-trust agent like forsen is the most trusted not because it
 knows the most about the world, but because it knows the most about *you*. A
 lower-clearance agent isn't dumber --- it has less context about your life.

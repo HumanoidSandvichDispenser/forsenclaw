@@ -60,6 +60,6 @@ Both users and agents:
 )
 
 This unification means the frontend treats DMs with agents and multi-participant
-rooms identically. A DM with the housewife is just a room with two
+rooms identically. A DM with the forsen is just a room with two
 participants. A structured debate room with three agents is the same primitive
 with a different protocol.

@@ -14,7 +14,7 @@ Instead of a single `MEMORY.md`, each agent maintains a stack of files, one
 per clearance level that has content:
 
 ```
-agents/housewife/
+agents/forsen/
   MEMORY-1.md          ← public-facing role, communication style
   MEMORY-2.md          ← external-safe preferences, timezone
   MEMORY-3.md          ← active projects, professional context
@@ -148,7 +148,7 @@ monotonic sequence:
   "room_id": 1,
   "number": 42,
   "timestamp": "2026-05-14T10:30:00Z",
-  "sender": {"id": "agent:housewife", "type": "agent", "clearance": 5, "name": "Housewife"},
+  "sender": {"id": "agent:forsen", "type": "agent", "clearance": 5, "name": "Housewife"},
   "clearance_tag": 4,
   "type": "message",
   "content": "..."

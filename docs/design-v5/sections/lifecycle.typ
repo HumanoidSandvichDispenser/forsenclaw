@@ -11,7 +11,7 @@ A persistent agent has:
   clearance-stratified `MEMORY-k.md` files and `memory/clearance-k/` daily
   note subdirectories.
 
-The housewife is the default persistent agent --- highest clearance, broadest
+The forsen is the default persistent agent --- highest clearance, broadest
 permissions, most accumulated context about the user. It is not an
 "orchestrator" architecturally --- it's the most trusted agent, and it's good
 at orchestration as a consequence of knowing the most. Users are not required
@@ -68,7 +68,7 @@ On teardown:
 
 == Compaction
 
-A persistent agent (typically housewife) may trigger compaction of another
+A persistent agent (typically forsen) may trigger compaction of another
 persistent agent, subject to `agent:compact[<target>]`. Compaction is a
 housekeeping pass that summarizes old room transcript messages into the agent's
 daily note at the appropriate clearance level, then advances the per-agent,

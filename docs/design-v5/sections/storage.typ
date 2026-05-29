@@ -9,16 +9,16 @@ environment variable overrides (`$XDG_CONFIG_HOME`, `$XDG_DATA_HOME`,
 ```
 $XDG_CONFIG_HOME/forsenClaw/              # Config — small, version-controllable
 ├── hearth.yaml                           # Server config: providers, models, listen addr
-├── policy.rego                           # OPA policy file (ABAC rules)
+├── policy.rego                           # Optional custom Rego policy (extends YAML statements)
 └── agents/
-    ├── housewife/
+    ├── forsen/
     │   └── agent.yaml                    # Role, models, flags, permissions, clearance
     └── scout/
         └── agent.yaml
 
 $XDG_DATA_HOME/forsenClaw/               # Data — large, persistent
 ├── agents/
-│   ├── housewife/
+│   ├── forsen/
 │   │   ├── MEMORY-1.md                  # Public-facing facts (clearance 1)
 │   │   ├── MEMORY-2.md                  # External-safe facts (clearance 2)
 │   │   ├── MEMORY-3.md                  # Professional context (clearance 3)
@@ -40,7 +40,7 @@ $XDG_DATA_HOME/forsenClaw/               # Data — large, persistent
 │               └── 2026-05-23.md
 ├── staging/                             # Pending config and policy proposals
 │   └── agents/
-│       └── housewife/
+│       └── forsen/
 │           └── agent.yaml.proposed
 └── db/
     ├── rooms.db                         # Room metadata, messages, compaction cursors
@@ -132,8 +132,8 @@ split into multiple instances with different clearance levels (see @mcp).
   table.header([*Data*], [*Location*], [*Rationale*]),
   [Agent definitions], [Config],
   [Identity. Version-controllable. Mountable in Docker.],
-  [OPA policy], [Config],
-  [Git-trackable, diffable, human-editable. Proposed via staging.],
+  [Custom Rego policy], [Config],
+  [Optional. Extends YAML statement evaluation with complex conditions. Git-trackable.],
   [Server config], [Config],
   [Providers, models, clearance labels, tool clearance. Rarely changes.],
   [Agent memory (MEMORY-k.md)], [Data],

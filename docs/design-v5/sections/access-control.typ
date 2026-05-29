@@ -195,7 +195,7 @@ is deferred to v2.
 === Explicit Cross-Clearance Handoff
 
 When an agent deliberately wants to pass sensitive content down --- e.g., the
-housewife passing a redacted email summary to a clearance-2 integration agent:
+forsen passing a redacted email summary to a clearance-2 integration agent:
 
 ```
 propose_handoff(
@@ -212,85 +212,101 @@ redacted content cross the boundary.
 
 == Permissions --- What an Actor Can Do
 
-Permissions are fine-grained action capabilities evaluated by embedded OPA
-using Rego policies. Policy files live on disk at
-`$XDG_CONFIG_HOME/forsenClaw/policy.rego`, are git-trackable, human-editable,
-and diffable. Agents can propose policy changes via the config staging mechanic.
+Permissions are fine-grained action capabilities defined as IAM-style
+statements in each agent's `agent.yaml`. Each statement grants or restricts an
+action over a resource path. The system evaluates all matching statements with
+*deny → require_confirmation → allow* precedence; default deny applies when no
+statement matches.
 
-=== OPA Evaluation Model
+*Current implementation:* YAML statements are evaluated directly by the
+dispatcher using glob matching.
 
-The evaluation order is: *deny → require_confirmation → allow.*
+*Intended direction:* YAML statements are syntactic sugar that compile to Rego
+facts. OPA evaluates the full policy, allowing agents to also supply raw Rego
+for complex conditions that statements cannot express (time-of-day, argument
+inspection, cross-attribute rules). The compiled form of a YAML statement like:
 
-- `deny` is unconditional and wins over all other rules. No specificity
-  ambiguity.
-- `require_confirmation` wins over `allow` when both apply (more restrictive
-  takes precedence).
-- Default deny everything not explicitly allowed.
+```yaml
+- tool:invoke/mcp/email/send:require_confirmation
+```
 
-=== Example Policy
+would produce Rego facts equivalent to:
 
 ```rego
-package hearth.authz
-
-default allow = false
-default require_confirmation = false
-
-# BLP: no write-down without approval
-deny {
-  input.action == "memory:write"
-  input.target_clearance < input.room.clearance
-}
-
-# ABAC: email send allowed during business hours at clearance 2
 allow {
+  input.subject == "forsen"
   input.action == "tool:invoke"
-  input.tool == "email:send"
-  input.room.clearance <= 2
-  input.agent.permissions[_] == "tool:invoke[email:send]"
-  is_business_hours
+  input.resource == "mcp/email/send"
 }
 
-# Require confirmation outside business hours
 require_confirmation {
+  input.subject == "forsen"
   input.action == "tool:invoke"
-  input.tool == "email:send"
-  not is_business_hours
-}
-
-is_business_hours {
-  hour := time.clock(time.now_ns())[0]
-  hour >= 9
-  hour < 17
+  input.resource == "mcp/email/send"
 }
 ```
 
+Both `allow` and `require_confirmation` must hold for confirmation to trigger;
+`allow` alone means execute freely, `require_confirmation` alone is unreachable
+(default deny blocks it).
+
+Agents that need richer logic write Rego directly. Both paths feed the same
+OPA evaluation.
+
+=== Statement Format
+
+Statements may be written in shorthand string form or as structured mappings:
+
+```yaml
+permissions:
+  # shorthand: action/resource[:effect]
+  - tool:invoke/builtin/webfetch
+  - tool:invoke/mcp/email/*:require_confirmation
+  - tool:invoke/mcp/finances/**:deny
+
+  # structured form — multiple actions or resources in one statement
+  - effect: require_confirmation
+    actions: [tool:invoke]
+    resources: [mcp/calendar/*, mcp/email/*]
+```
+
+Resource paths use glob patterns (`path.Match` semantics). `**` matches any
+resource path.
+
+=== Evaluation Order
+
++ *deny* --- unconditional, short-circuits immediately. No specificity
+  ambiguity.
++ *require_confirmation* --- wins over `allow` when both apply.
++ *allow* --- explicit grant.
++ *default deny* --- applies when no statement matches.
+
 === Permission Categories
 
-- `tool:invoke[<tool_id>]` --- MCP tool dispatch.
+- `tool:invoke/<server>/<tool>` --- MCP tool dispatch. Server is `builtin` for
+  built-in tools, or the configured server name for remote MCP servers.
 - `room:create`, `room:add_participant`, `room:close`,
   `room:extend_turn_limit`.
-- `memory:write[<layer>]`, `memory:search[<scope>]` --- write to own memory
+- `memory:write/<layer>`, `memory:search/<scope>` --- write to own memory
   files, search across agents.
-- `agent:spawn[<role>]`, `agent:terminate`, `agent:compact[<target>]`.
-- `config:read[<scope>]`, `config:write[<scope>]` --- read/write agent or
-  server configuration files. Scopes: `self`, `server`, `agent:<name>`.
-- `proactive:enable`, `proactive:act[<risk_tier>]`.
-- `handoff:propose[<target_clearance>]`.
+- `agent:spawn/<role>`, `agent:terminate`, `agent:compact/<target>`.
+- `config:read/<scope>`, `config:write/<scope>` --- read/write agent or
+  server configuration files. Scopes: `self`, `server`, `agent/<name>`.
+- `proactive:enable`, `proactive:act/<risk_tier>`.
+- `handoff:propose/<target_clearance>`.
 - `audit:read`.
-- `policy:propose` --- propose changes to the OPA policy file.
 
 === Default Effects for Config Permissions
 
 #table(
   columns: (auto, auto),
   table.header([*Permission*], [*Default Effect*]),
-  [`config:read[self]`], [`allow`],
-  [`config:write[self]`], [`require_confirmation`],
-  [`config:read[server]`], [`require_confirmation`],
-  [`config:write[server]`], [`require_confirmation`],
-  [`config:read[agent:*]`], [`deny`],
-  [`config:write[agent:*]`], [`deny`],
-  [`policy:propose`], [`require_confirmation`],
+  [`config:read/self`], [`allow`],
+  [`config:write/self`], [`require_confirmation`],
+  [`config:read/server`], [`require_confirmation`],
+  [`config:write/server`], [`require_confirmation`],
+  [`config:read/agent/*`], [`deny`],
+  [`config:write/agent/*`], [`deny`],
 )
 
 == Config Staging and Approval
