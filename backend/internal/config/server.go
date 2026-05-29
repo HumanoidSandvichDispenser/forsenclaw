@@ -46,6 +46,8 @@ type AuditConfig struct {
 type AuditSinkConfig struct {
 	// Type is "console" or "sqlite".
 	Type string `yaml:"type"`
+	// Path is the file path for the sqlite sink. Ignored for console.
+	Path string `yaml:"path,omitempty"`
 	// Kinds is a list of glob patterns (e.g. "permission.*", "*") that this sink receives.
 	// If empty, the sink receives all events.
 	Kinds []string `yaml:"kinds"`

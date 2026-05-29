@@ -175,8 +175,13 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 		log.Fatalf("failed to create MCP registry: %v", err)
 	}
 
-	// 4. Create MCP executor
-	mcpExecutor := mcp.NewExecutor(mcpRegistry, audit.Nop())
+	// 4. Create audit logger and MCP executor
+	auditLogger, auditCleanup := buildAuditLogger(cfg.Audit, p)
+	defer func() {
+		auditLogger.Close()
+		auditCleanup()
+	}()
+	mcpExecutor := mcp.NewExecutor(mcpRegistry, auditLogger)
 
 	// 5. Create WebSocket hub (before manager so we can pass the notifier adapter)
 	hub := api.NewHub()
@@ -239,6 +244,50 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 	}
 
 	log.Println("server stopped")
+}
+
+func buildAuditLogger(cfg config.AuditConfig, p *paths.Paths) (*audit.Logger, func()) {
+	var sinkConfigs []audit.SinkConfig
+	var closers []func()
+
+	for _, sc := range cfg.Sinks {
+		var sink audit.Sink
+		switch sc.Type {
+		case "console":
+			sink = audit.NewConsoleSink()
+		case "sqlite":
+			path := sc.Path
+			if path == "" {
+				path = p.DataRoot + "/audit.db"
+			}
+			s, err := audit.NewSQLiteSink(path)
+			if err != nil {
+				log.Printf("audit: failed to open sqlite sink at %q: %v", path, err)
+				continue
+			}
+			closers = append(closers, func() { s.Close() })
+			sink = s
+		default:
+			log.Printf("audit: unknown sink type %q, skipping", sc.Type)
+			continue
+		}
+		sinkConfigs = append(sinkConfigs, audit.SinkConfig{
+			Sink:     sink,
+			Kinds:    sc.Kinds,
+			MinLevel: audit.ParseLevel(sc.MinLevel),
+		})
+	}
+
+	if len(sinkConfigs) == 0 {
+		return audit.Nop(), func() {}
+	}
+
+	cleanup := func() {
+		for _, c := range closers {
+			c()
+		}
+	}
+	return audit.NewLogger(sinkConfigs), cleanup
 }
 
 func buildMCPRegistry(cfg *config.ServerConfig) (mcp.Registry, error) {
