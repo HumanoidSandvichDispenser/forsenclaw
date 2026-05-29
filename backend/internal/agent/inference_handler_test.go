@@ -196,3 +196,60 @@ func TestToolEffect_BLPEqualClearanceSpecificPermission(t *testing.T) {
 		t.Errorf("toolEffect(email_send) = %q, want allow", got)
 	}
 }
+
+func TestToolEffect_DenyOverridesRequireConfirmation(t *testing.T) {
+	ag, _ := NewAgent(&config.AgentDefinition{
+		Name: "test",
+		Permissions: []config.Statement{
+			{Actions: []string{"tool:invoke"}, Resources: []string{"builtin/*"}, Effect: "require_confirmation"},
+			{Actions: []string{"tool:invoke"}, Resources: []string{"builtin/email_send"}, Effect: "deny"},
+		},
+	})
+	h := &InferenceHandler{
+		effectiveClearance: 3,
+		toolClearances:     map[string]int{"email_send": 3},
+		toolResources:      map[string]string{"email_send": "builtin/email_send"},
+		agent:              ag,
+	}
+	if got := h.toolEffect("email_send"); got != "deny" {
+		t.Errorf("toolEffect(email_send) = %q, want deny", got)
+	}
+}
+
+func TestToolEffect_RequireConfirmationOverridesAllow(t *testing.T) {
+	ag, _ := NewAgent(&config.AgentDefinition{
+		Name: "test",
+		Permissions: []config.Statement{
+			{Actions: []string{"tool:invoke"}, Resources: []string{"builtin/*"}, Effect: "allow"},
+			{Actions: []string{"tool:invoke"}, Resources: []string{"builtin/email_send"}, Effect: "require_confirmation"},
+		},
+	})
+	h := &InferenceHandler{
+		effectiveClearance: 3,
+		toolClearances:     map[string]int{"email_send": 3},
+		toolResources:      map[string]string{"email_send": "builtin/email_send"},
+		agent:              ag,
+	}
+	if got := h.toolEffect("email_send"); got != "require_confirmation" {
+		t.Errorf("toolEffect(email_send) = %q, want require_confirmation", got)
+	}
+}
+
+func TestToolEffect_DenyOverridesAllow(t *testing.T) {
+	ag, _ := NewAgent(&config.AgentDefinition{
+		Name: "test",
+		Permissions: []config.Statement{
+			{Actions: []string{"tool:invoke"}, Resources: []string{"**"}, Effect: "allow"},
+			{Actions: []string{"tool:invoke"}, Resources: []string{"builtin/email_send"}, Effect: "deny"},
+		},
+	})
+	h := &InferenceHandler{
+		effectiveClearance: 3,
+		toolClearances:     map[string]int{"email_send": 3},
+		toolResources:      map[string]string{"email_send": "builtin/email_send"},
+		agent:              ag,
+	}
+	if got := h.toolEffect("email_send"); got != "deny" {
+		t.Errorf("toolEffect(email_send) = %q, want deny", got)
+	}
+}
