@@ -5,7 +5,7 @@ import { createClient, createConfig, type Client, type Config } from '@/client/c
 
 export const useClientStore = defineStore('client', () => {
   const baseUrl = computed(
-    () => import.meta.env.VITE_API_BASE_URL?.trim() || 'http://localhost:8000',
+    () => import.meta.env.VITE_API_BASE_URL?.trim() || window.location.origin,
   );
 
   const config = computed<Config>(() =>

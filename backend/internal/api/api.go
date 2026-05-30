@@ -7,6 +7,7 @@ import (
 
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/agent"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/dispatch"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/store"
 )
 
@@ -17,6 +18,7 @@ type Service struct {
 	messages   store.MessageRepository
 	agentMgr   *agent.Manager
 	hub        *Hub
+	user       room.Actor
 }
 
 // NewService creates a new API service with the given dependencies.
@@ -26,6 +28,7 @@ func NewService(
 	messages store.MessageRepository,
 	m *agent.Manager,
 	h *Hub,
+	user room.Actor,
 ) *Service {
 	return &Service{
 		dispatcher: d,
@@ -33,6 +36,7 @@ func NewService(
 		messages:   messages,
 		agentMgr:   m,
 		hub:        h,
+		user:       user,
 	}
 }
 

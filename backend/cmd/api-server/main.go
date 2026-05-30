@@ -25,6 +25,7 @@ import (
 	mcpTools "github.com/humanoidsandvichdispenser/hearth/backend/internal/mcp/tools"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/memory"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/paths"
+	roomPkg "github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/search"
 	storedb "github.com/humanoidsandvichdispenser/hearth/backend/internal/store"
 )
@@ -205,12 +206,22 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 	dispatcher := dispatch.NewDispatcher(agentMgr)
 
 	// 8. Create service and API
-	svc := api.NewService(dispatcher, store, store, agentMgr, hub)
+	userName := cfg.User.Name
+	if userName == "" {
+		userName = "user"
+	}
+	userActor := roomPkg.Actor{
+		ID:        "user:" + userName,
+		Type:      roomPkg.ActorUser,
+		Clearance: 5,
+		Name:      userName,
+	}
+	svc := api.NewService(dispatcher, store, store, agentMgr, hub, userActor)
 
 	router := chi.NewRouter()
 	router.Use(middleware.Logger)
 	router.Use(middleware.Recoverer)
-	router.Use(api.AuthMiddleware()) // placeholder auth
+	router.Use(api.AuthMiddleware(cfg.User.Name)) // placeholder auth
 
 	api.NewAPI(router, svc)
 

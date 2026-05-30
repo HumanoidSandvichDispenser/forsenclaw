@@ -18,13 +18,16 @@ const userContextKey contextKey = iota
 
 // AuthMiddleware is a placeholder authentication middleware.
 // In F11 this will validate session tokens. For now, all requests
-// are treated as the root user.
-func AuthMiddleware() func(http.Handler) http.Handler {
+// are treated as the configured root user.
+func AuthMiddleware(name string) func(http.Handler) http.Handler {
+	if name == "" {
+		name = "user"
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			user := User{
-				ID:   "local",
-				Name: "User",
+				ID:   "user:" + name,
+				Name: name,
 				Role: "owner",
 			}
 			ctx := context.WithValue(r.Context(), userContextKey, user)

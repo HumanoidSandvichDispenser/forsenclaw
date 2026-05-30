@@ -59,6 +59,18 @@ func (svc *Service) createRoom(ctx context.Context, input *CreateRoomRequest) (*
 		return nil, huma.Error400BadRequest(err.Error())
 	}
 
+	// Always include the configured user as a participant.
+	hasUser := false
+	for _, p := range participants {
+		if p.ID == svc.user.ID {
+			hasUser = true
+			break
+		}
+	}
+	if !hasUser {
+		participants = append([]room.Actor{svc.user}, participants...)
+	}
+
 	// Default clearance
 	clearance := input.Body.Clearance
 	if clearance == 0 {

@@ -27,8 +27,13 @@ func DefaultContextConfig() ContextConfig {
 	}
 }
 
+type UserConfig struct {
+	Name string `yaml:"name"`
+}
+
 type ServerConfig struct {
 	Listen     string           `yaml:"listen"`
+	User       UserConfig       `yaml:"user"`
 	Providers  []Provider       `yaml:"providers"`
 	Models     map[string]Model `yaml:"models"`
 	Embeddings EmbeddingsConfig `yaml:"embeddings"`
