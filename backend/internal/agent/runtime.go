@@ -15,6 +15,10 @@ type ResponseWriter interface {
 	WriteAgentResponse(ctx context.Context, roomID int64, agentName string, content string) error
 }
 
+type StreamWriter interface {
+	StreamAgentDelta(ctx context.Context, roomID int64, agentName string, delta string) error
+}
+
 // Assembler assembles the context window for an agent invocation.
 // Defined here as an interface to avoid an import cycle with the memory package.
 type Assembler interface {
@@ -40,6 +44,7 @@ type RuntimeDeps struct {
 	ConfirmationRegistry *ConfirmationRegistry
 	Notifier             ConfirmationNotifier
 	ResponseWriter       ResponseWriter
+	StreamWriter         StreamWriter
 }
 
 // AgentRuntime drives the request DAG for a single agent.
@@ -58,6 +63,7 @@ type AgentRuntime struct {
 	// responseWriter is called after a root InferenceHandler node resolves.
 	// May be nil (no-op in that case).
 	responseWriter ResponseWriter
+	streamWriter   StreamWriter
 
 	// work is pulsed when new work may be available.
 	work chan struct{}
@@ -77,6 +83,7 @@ func NewAgentRuntime(agent *Agent, deps RuntimeDeps) *AgentRuntime {
 		confirmationRegistry: deps.ConfirmationRegistry,
 		notifier:             deps.Notifier,
 		responseWriter:       deps.ResponseWriter,
+		streamWriter:         deps.StreamWriter,
 		work:                 make(chan struct{}, 1),
 	}
 	r.idle = sync.NewCond(&r.mu)
@@ -93,6 +100,7 @@ func (r *AgentRuntime) Enqueue(req Request) {
 		executor:             r.executor,
 		confirmationRegistry: r.confirmationRegistry,
 		notifier:             r.notifier,
+		streamWriter:         r.streamWriter,
 	}, "")
 	r.pulse()
 }

@@ -196,6 +196,7 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 		Executor:       mcpExecutor,
 		Notifier:       api.NewHubNotifier(hub),
 		ResponseWriter: api.NewAgentResponseWriter(store, store, hub),
+		StreamWriter:   api.NewAgentStreamWriter(hub),
 	})
 	if err != nil {
 		log.Fatalf("failed to create agent manager: %v", err)

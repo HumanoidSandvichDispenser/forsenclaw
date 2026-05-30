@@ -8,7 +8,7 @@ import RoomHeader from '@/components/room/RoomHeader.vue';
 import RoomMembersPanel from '@/components/room/RoomMembersPanel.vue';
 import RoomMessageItem from '@/components/room/RoomMessageItem.vue';
 import type { MessageResponse } from '@/client';
-import type { MessageCreatedPayload, ConfirmationPendingPayload } from '@/composables/useWebSocket';
+import type { MessageCreatedPayload, MessageDeltaPayload, ConfirmationPendingPayload } from '@/composables/useWebSocket';
 import { useWebSocket } from '@/composables/useWebSocket';
 import { useConfirmationsStore } from '@/stores/confirmations';
 import { useMessagesStore } from '@/stores/messages';
@@ -137,6 +137,16 @@ onMounted(() => {
           tool_name: p.tool_name,
         };
         messagesStore.finalizeMessage(roomId.value, msg);
+        break;
+      }
+      case 'message.delta': {
+        const p = event.payload as MessageDeltaPayload;
+        if (String(p.room_id) !== roomId.value) return;
+        if (!messagesStore.streamingByRoomId[roomId.value]) {
+          const sender = room.value?.participants.find((pt) => pt.id === p.actor.id) ?? agentSender.value;
+          messagesStore.startTyping(roomId.value, sender);
+        }
+        messagesStore.appendChunk(roomId.value, p.delta);
         break;
       }
       case 'confirmation.pending': {

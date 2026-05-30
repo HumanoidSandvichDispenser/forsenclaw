@@ -17,6 +17,12 @@ export type MessageCreatedPayload = {
   tool_name?: string;
 };
 
+export type MessageDeltaPayload = {
+  room_id: number;
+  actor: { id: string; name: string; type: string; clearance: number };
+  delta: string;
+};
+
 export type ConfirmationPendingPayload = {
   node_id: string;
   agent_name: string;
@@ -27,6 +33,7 @@ export type ConfirmationPendingPayload = {
 
 export type WSEvent =
   | { type: 'message.created'; payload: MessageCreatedPayload }
+  | { type: 'message.delta'; payload: MessageDeltaPayload }
   | { type: 'confirmation.pending'; payload: ConfirmationPendingPayload }
   | { type: string; payload?: unknown };
 

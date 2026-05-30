@@ -135,7 +135,12 @@ permissions: []
 	hub := NewHub()
 	go hub.Run()
 
-	svc := NewService(dispatcher, store, store, agentMgr, hub)
+	svc := NewService(dispatcher, store, store, agentMgr, hub, room.Actor{
+		ID:        "user:test",
+		Type:      room.ActorUser,
+		Clearance: 5,
+		Name:      "test",
+	})
 
 	cleanup := func() {
 		store.Close()
@@ -148,7 +153,7 @@ permissions: []
 func newTestRouter(t *testing.T, svc *Service) (chi.Router, huma.API) {
 	t.Helper()
 	router := chi.NewRouter()
-	router.Use(AuthMiddleware())
+	router.Use(AuthMiddleware("test"))
 	api := NewAPI(router, svc)
 	return router, api
 }
@@ -182,8 +187,9 @@ func TestCreateRoom(t *testing.T) {
 	if room.ID == 0 {
 		t.Fatalf("expected room ID to be assigned, got 0. body: %s", w.Body.String())
 	}
-	if len(room.Participants) != 2 {
-		t.Fatalf("expected 2 participants, got %d", len(room.Participants))
+	// 2 requested + 1 auto-added configured user = 3
+	if len(room.Participants) != 3 {
+		t.Fatalf("expected 3 participants (2 requested + configured user), got %d", len(room.Participants))
 	}
 }
 
@@ -530,8 +536,8 @@ func TestGetMe(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	if user.ID != "local" {
-		t.Fatalf("expected user ID local, got %s", user.ID)
+	if user.ID != "user:test" {
+		t.Fatalf("expected user ID user:test, got %s", user.ID)
 	}
 	if user.Role != "owner" {
 		t.Fatalf("expected role owner, got %s", user.Role)

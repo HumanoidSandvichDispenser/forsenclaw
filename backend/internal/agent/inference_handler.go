@@ -24,6 +24,7 @@ type InferenceHandler struct {
 	registry  *inference.Registry
 	assembler Assembler
 	executor  ToolExecutor
+	streamWriter         StreamWriter
 
 	confirmationRegistry *ConfirmationRegistry
 	notifier             ConfirmationNotifier
@@ -137,6 +138,16 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 		for chunk := range ch {
 			content.WriteString(chunk.Content)
 			toolCalls = append(toolCalls, chunk.ToolCalls...)
+
+			// stream delta to clients as it arrives
+			if h.streamWriter != nil {
+				h.streamWriter.StreamAgentDelta(
+					ctx,
+					h.req.Payload.RoomID,
+					h.agent.Name(),
+					chunk.Content,
+				)
+			}
 		}
 		response := content.String()
 

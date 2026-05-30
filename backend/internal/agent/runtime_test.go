@@ -181,3 +181,47 @@ type stubRuntimeHandler struct {
 func (h *stubRuntimeHandler) Handle(_ context.Context, _ map[string]dag.Result) ([]dag.Dep, *dag.Result, error) {
 	return nil, h.result, nil
 }
+
+// mockResponseWriter records WriteAgentResponse calls.
+type mockResponseWriter struct {
+	calls []mockResponseCall
+}
+
+type mockResponseCall struct {
+	roomID    int64
+	agentName string
+	content   string
+}
+
+func (m *mockResponseWriter) WriteAgentResponse(_ context.Context, roomID int64, agentName string, content string) error {
+	m.calls = append(m.calls, mockResponseCall{roomID, agentName, content})
+	return nil
+}
+
+// TestRuntime_NilStreamWriter_DoesNotPanic verifies that a runtime with no
+// streamWriter set handles a resolved node without panicking.
+func TestRuntime_NilStreamWriter_DoesNotPanic(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	rw := &mockResponseWriter{}
+	r := &AgentRuntime{
+		dag:            dag.New(),
+		work:           make(chan struct{}, 1),
+		responseWriter: rw,
+		// streamWriter intentionally nil
+	}
+	r.idle = sync.NewCond(&r.mu)
+
+	r.dag.Add("node", &stubRuntimeHandler{
+		result: &dag.Result{Status: dag.StatusAllowed, Content: "response"},
+	}, "")
+	r.pulse()
+
+	go r.Run(ctx)
+	r.WaitIdle()
+
+	if n := r.dag.Get("node"); n.State != dag.NodeResolved {
+		t.Fatalf("node state = %s, want resolved", n.State)
+	}
+}

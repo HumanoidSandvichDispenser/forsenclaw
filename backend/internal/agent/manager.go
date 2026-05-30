@@ -30,6 +30,7 @@ type ManagerDeps struct {
 	Executor       ToolExecutor
 	Notifier       ConfirmationNotifier
 	ResponseWriter ResponseWriter
+	StreamWriter   StreamWriter
 }
 
 // Manager loads, tracks, and hot-reloads agent definitions from disk.
@@ -48,6 +49,7 @@ type Manager struct {
 	confirmationRegistry *ConfirmationRegistry
 	notifier             ConfirmationNotifier
 	responseWriter       ResponseWriter
+	streamWriter         StreamWriter
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -67,6 +69,7 @@ func NewManager(p *paths.Paths, serverCfg *config.ServerConfig, deps ManagerDeps
 		confirmationRegistry: confirmationRegistry,
 		notifier:             deps.Notifier,
 		responseWriter:       deps.ResponseWriter,
+		streamWriter:         deps.StreamWriter,
 		ctx:                  ctx,
 		cancel:               cancel,
 	}
@@ -239,6 +242,7 @@ func (m *Manager) newEntry(agent *Agent) *agentEntry {
 			ConfirmationRegistry: m.confirmationRegistry,
 			Notifier:             m.notifier,
 			ResponseWriter:       m.responseWriter,
+			StreamWriter:         m.streamWriter,
 		})
 		go e.runtime.Run(m.ctx)
 	}

@@ -145,6 +145,12 @@ type Message struct {
 	ToolName string `json:"tool_name,omitempty" gorm:"default:''"`
 }
 
+type MessageDelta struct {
+	RoomID int64  `json:"room_id"`
+	Actor  Actor  `json:"actor"`
+	Delta  string `json:"delta"`
+}
+
 // Usage returns the token usage as a pointer, or nil if both counts are zero.
 func (m Message) Usage() *Usage {
 	if m.UsageInputTokens == 0 && m.UsageOutputTokens == 0 {
