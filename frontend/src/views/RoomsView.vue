@@ -30,7 +30,6 @@ const rooms = computed(() => roomsStore.rooms);
         :to="`/rooms/${r.id}`"
       >
         <div class="title">{{ (r.participants ?? []).map((p) => p.name).join(' · ') || r.id }}</div>
-        <div class="meta">{{ r.protocol_type }}</div>
       </RouterLink>
     </div>
   </section>

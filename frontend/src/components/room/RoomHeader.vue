@@ -1,7 +1,6 @@
 <script setup lang="ts">
 defineProps<{
   participantCount: number;
-  protocolType: string;
   title: string;
 }>();
 
@@ -15,9 +14,7 @@ defineEmits<{
     <div class="title-block">
       <h1 class="title">{{ title }}</h1>
       <p class="meta">
-        <span class="text-tertiary">{{ protocolType || 'room' }}</span>
-        <span class="dot" aria-hidden="true">•</span>
-        <span class="text-tertiary">{{ participantCount }} participants</span>
+<span class="text-tertiary">{{ participantCount }} participants</span>
       </p>
     </div>
 

@@ -32,7 +32,7 @@ const roomTabs = computed(() =>
       return {
         id: r.id,
         title,
-        subtitle: r.protocol_type,
+        subtitle: '',
       };
     }),
 );

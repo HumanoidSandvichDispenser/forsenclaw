@@ -90,10 +90,6 @@ export type CreateRoomRequestBody = {
      * Protocol-specific configuration (JSON)
      */
     protocol_config?: unknown;
-    /**
-     * Protocol type
-     */
-    protocol_type: string;
 };
 
 export type ErrorDetail = {
@@ -267,10 +263,6 @@ export type RoomResponse = {
      */
     protocol_config?: unknown;
     /**
-     * Protocol type
-     */
-    protocol_type: string;
-    /**
      * Last update time
      */
     updated_at: string;
@@ -354,10 +346,6 @@ export type CreateRoomRequestBodyWritable = {
      * Protocol-specific configuration (JSON)
      */
     protocol_config?: unknown;
-    /**
-     * Protocol type
-     */
-    protocol_type: string;
 };
 
 export type ErrorModelWritable = {
@@ -463,10 +451,6 @@ export type RoomResponseWritable = {
      * Protocol configuration
      */
     protocol_config?: unknown;
-    /**
-     * Protocol type
-     */
-    protocol_type: string;
     /**
      * Last update time
      */

@@ -143,8 +143,7 @@ onMounted(() => {
         const p = event.payload as MessageDeltaPayload;
         if (String(p.room_id) !== roomId.value) return;
         if (!messagesStore.streamingByRoomId[roomId.value]) {
-          const sender = room.value?.participants.find((pt) => pt.id === p.actor.id) ?? agentSender.value;
-          messagesStore.startTyping(roomId.value, sender);
+          messagesStore.startTyping(roomId.value, p.actor);
         }
         messagesStore.appendChunk(roomId.value, p.delta);
         break;
@@ -226,7 +225,6 @@ async function send() {
   <section class="room-layout">
     <RoomHeader
       :title="members.map((m) => m.name).join(' · ') || roomId"
-      :protocol-type="room?.protocol_type || 'room'"
       :participant-count="members.length"
       @settings="() => {}"
     />

@@ -58,7 +58,6 @@ export const useRoomsStore = defineStore('rooms', () => {
       body: {
         clearance: 5,
         participant_ids: participantIds,
-        protocol_type: 'freeform',
       },
     });
     const r = (room as any)?.data ?? room;
