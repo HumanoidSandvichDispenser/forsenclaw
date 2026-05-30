@@ -126,7 +126,7 @@ func RenderToolCallsXML(toolCalls []ToolCallWire) string {
 type ToolDefinition struct {
 	Name        string
 	Description string
-	Resource	string // resource path for permissions checking
+	Resource string // FRSN (frsn:tool/{server}/{tool}) for policy evaluation
 	Parameters  map[string]interface{} // JSON Schema object
 	// Clearance is the data classification tier for this tool.
 	// Populated by the registry at construction from config.

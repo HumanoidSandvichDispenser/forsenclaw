@@ -54,7 +54,8 @@ type Statement struct {
 //
 //	action/resource[:effect]
 //
-// The resource portion supports glob patterns. "**" matches any resource path.
+// The resource portion supports FRSN patterns (e.g. frsn:tool/**).
+// "**" matches any resource path; "*" matches a single path segment.
 // Effect defaults to "allow" if omitted.
 func ParseStatement(raw string) (Statement, error) {
 	if raw == "" {
@@ -93,7 +94,8 @@ func ParseStatement(raw string) (Statement, error) {
 }
 
 // Matches reports whether this statement applies to the given action and resource.
-// "**" in a resource pattern matches any path. Other patterns use path.Match semantics.
+// Resource patterns support "**" (any path, including across segments) and "*"
+// (any single segment). Other patterns use path.Match semantics.
 func (s Statement) Matches(action, resource string) bool {
 	actionMatched := false
 	for _, a := range s.Actions {
@@ -106,14 +108,26 @@ func (s Statement) Matches(action, resource string) bool {
 		return false
 	}
 	for _, r := range s.Resources {
-		if r == "**" {
-			return true
-		}
-		if matched, _ := path.Match(r, resource); matched {
+		if matchGlob(r, resource) {
 			return true
 		}
 	}
 	return false
+}
+
+// matchGlob matches a resource pattern against a resource string.
+// "**" matches any sequence of path segments (including none).
+// Other patterns delegate to path.Match.
+func matchGlob(pattern, s string) bool {
+	if pattern == "**" {
+		return true
+	}
+	if strings.HasSuffix(pattern, "/**") {
+		prefix := strings.TrimSuffix(pattern, "/**")
+		return s == prefix || strings.HasPrefix(s, prefix+"/")
+	}
+	matched, _ := path.Match(pattern, s)
+	return matched
 }
 
 // UnmarshalYAML handles both shorthand string and structured mapping forms.

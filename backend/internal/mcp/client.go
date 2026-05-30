@@ -45,10 +45,6 @@ type Registry interface {
 	// Returns an error if no server is registered for that tool.
 	Resolve(toolID string) (MCPClient, error)
 
-	// ToolClearance returns the clearance level for the given tool ID.
-	// Returns 0 if the tool is not registered.
-	ToolClearance(toolID string) int
-
 	// AllSchemas returns all tool schemas for tools the registry knows about,
 	// as pre-formatted strings suitable for injection into ContextPayload.ToolSchemas.
 	AllSchemas() []string
@@ -101,10 +97,6 @@ func (r *inMemoryRegistry) Resolve(toolID string) (MCPClient, error) {
 	return client, nil
 }
 
-func (r *inMemoryRegistry) ToolClearance(toolID string) int {
-	return r.clearances[toolID]
-}
-
 func (r *inMemoryRegistry) AllSchemas() []string {
 	var schemas []string
 	for _, client := range r.order {
@@ -120,7 +112,8 @@ func (r *inMemoryRegistry) AllDefinitions() []inference.ToolDefinition {
 	for _, client := range r.order {
 		if d, ok := client.(ToolDescriber); ok {
 			for _, def := range d.NativeDefinitions() {
-				def.Resource = r.resources[def.Name]
+				def.Resource = fmt.Sprintf("frsn:tool/%s", r.resources[def.Name])
+				def.Clearance = r.clearances[def.Name]
 				defs = append(defs, def)
 			}
 		}

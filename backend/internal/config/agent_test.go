@@ -14,9 +14,9 @@ func TestParseStatement(t *testing.T) {
 	}{
 		{"room:create", []string{"room:create"}, []string{"**"}, "allow", false},
 		{"tool:invoke/**", []string{"tool:invoke"}, []string{"**"}, "allow", false},
-		{"tool:invoke/builtin/*", []string{"tool:invoke"}, []string{"builtin/*"}, "allow", false},
-		{"tool:invoke/mcp/filesystem/*:require_confirmation", []string{"tool:invoke"}, []string{"mcp/filesystem/*"}, "require_confirmation", false},
-		{"tool:invoke/daemon/homeserver/*:deny", []string{"tool:invoke"}, []string{"daemon/homeserver/*"}, "deny", false},
+		{"tool:invoke/frsn:tool/**", []string{"tool:invoke"}, []string{"frsn:tool/**"}, "allow", false},
+		{"tool:invoke/frsn:tool/builtin/*:require_confirmation", []string{"tool:invoke"}, []string{"frsn:tool/builtin/*"}, "require_confirmation", false},
+		{"tool:invoke/frsn:tool/builtin/*:deny", []string{"tool:invoke"}, []string{"frsn:tool/builtin/*"}, "deny", false},
 		{"", nil, nil, "", true},
 	}
 
@@ -56,27 +56,32 @@ func TestStatement_Matches(t *testing.T) {
 		{
 			"wildcard resource matches anything",
 			Statement{Actions: []string{"tool:invoke"}, Resources: []string{"**"}, Effect: "allow"},
-			"tool:invoke", "builtin/webfetch", true,
+			"tool:invoke", "frsn:tool/builtin/webfetch", true,
 		},
 		{
-			"prefix glob matches",
-			Statement{Actions: []string{"tool:invoke"}, Resources: []string{"builtin/*"}, Effect: "allow"},
-			"tool:invoke", "builtin/webfetch", true,
+			"frsn double-star matches all tools",
+			Statement{Actions: []string{"tool:invoke"}, Resources: []string{"frsn:tool/**"}, Effect: "allow"},
+			"tool:invoke", "frsn:tool/builtin/webfetch", true,
 		},
 		{
-			"prefix glob no match",
-			Statement{Actions: []string{"tool:invoke"}, Resources: []string{"builtin/*"}, Effect: "allow"},
-			"tool:invoke", "mcp/filesystem/read_file", false,
+			"frsn server glob matches tool on that server",
+			Statement{Actions: []string{"tool:invoke"}, Resources: []string{"frsn:tool/builtin/*"}, Effect: "allow"},
+			"tool:invoke", "frsn:tool/builtin/webfetch", true,
+		},
+		{
+			"frsn server glob no match on different server",
+			Statement{Actions: []string{"tool:invoke"}, Resources: []string{"frsn:tool/builtin/*"}, Effect: "allow"},
+			"tool:invoke", "frsn:tool/mcp/filesystem/read_file", false,
 		},
 		{
 			"action mismatch",
 			Statement{Actions: []string{"room:create"}, Resources: []string{"**"}, Effect: "allow"},
-			"tool:invoke", "builtin/webfetch", false,
+			"tool:invoke", "frsn:tool/builtin/webfetch", false,
 		},
 		{
 			"exact resource match",
-			Statement{Actions: []string{"tool:invoke"}, Resources: []string{"builtin/webfetch"}, Effect: "allow"},
-			"tool:invoke", "builtin/webfetch", true,
+			Statement{Actions: []string{"tool:invoke"}, Resources: []string{"frsn:tool/builtin/webfetch"}, Effect: "allow"},
+			"tool:invoke", "frsn:tool/builtin/webfetch", true,
 		},
 	}
 

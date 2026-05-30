@@ -18,8 +18,5 @@ feature_flags:
 clearance: 5
 
 permissions:
-  - tool:invoke[*]
+  - tool:invoke/frsn:tool/**
   - room:create
-  - config:write[self]:require_confirmation
-  - config:read[server]:require_confirmation
-  - proactive:act[low, medium]
