@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
-import { marked } from 'marked';
+import { renderMarkdown, parseContent } from '@/utils/markdown';
+import type { TextPart, ThoughtPart, ToolUsePart } from '@/utils/markdown';
 
 import type { ActorResponse } from '@/client';
 import type { ToolCallEntry } from '@/stores/messages';
@@ -58,57 +59,7 @@ onUnmounted(() => {
   if (animFrame) cancelAnimationFrame(animFrame);
 });
 
-interface ToolUsePart { type: 'tool_use'; name: string; args: Record<string, unknown> | null; result: string | null }
-interface TextPart { type: 'text'; content: string }
-interface ThoughtPart { type: 'thought'; title: string; content: string }
-type ContentPart = TextPart | ThoughtPart | ToolUsePart;
-
-function parseToolUse(raw: string): ToolUsePart {
-  try {
-    const data = JSON.parse(raw);
-    return { type: 'tool_use', name: data.name ?? raw.trim(), args: data.args ?? null, result: data.result ?? null };
-  } catch {
-    return { type: 'tool_use', name: raw.trim(), args: null, result: null };
-  }
-}
-
-function parseContent(content: string): ContentPart[] {
-  const parts: ContentPart[] = [];
-  const regex = /<thought>([\s\S]*?)<\/thought>|<tool_use>([\s\S]*?)<\/tool_use>/g;
-  let lastIndex = 0;
-  let match;
-
-  while ((match = regex.exec(content)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push({ type: 'text', content: content.slice(lastIndex, match.index) });
-    }
-    if (match[1] !== undefined) {
-      parts.push({ type: 'thought', title: 'Thought', content: match[1] });
-    } else {
-      parts.push(parseToolUse(match[2] ?? ''));
-    }
-    lastIndex = match.index + match[0].length;
-  }
-
-  const remainder = content.slice(lastIndex);
-  const openThoughtIdx = remainder.lastIndexOf('<thought>');
-  if (openThoughtIdx !== -1) {
-    if (openThoughtIdx > 0) {
-      parts.push({ type: 'text', content: remainder.slice(0, openThoughtIdx) });
-    }
-    parts.push({ type: 'thought', title: 'Thinking...', content: remainder.slice(openThoughtIdx + '<thought>'.length) });
-  } else if (remainder.length > 0) {
-    parts.push({ type: 'text', content: remainder });
-  }
-
-  return parts;
-}
-
-const parsedParts = computed(() => parseContent(displayedContent.value));
-
-function renderMarkdown(text: string) {
-  return marked.parse(text, { async: false });
-}
+const parsedParts = computed(() => parseContent(displayedContent.value, true));
 </script>
 
 <template>

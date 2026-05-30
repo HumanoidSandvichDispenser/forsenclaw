@@ -351,7 +351,7 @@ func (a *Assembler) assemble(ctx context.Context, ag *agent.Agent, req assembleR
 		if m.Type == room.MessageToolCall || m.Type == room.MessageToolResult {
 			continue
 		}
-		rfcContent.WriteString(fmt.Sprintf("# Request/Message Sent by %s:\n\n", m.Sender.Name))
+		rfcContent.WriteString(fmt.Sprintf("%s: ", m.Sender.Name))
 		rfcContent.WriteString(m.Content)
 		break
 	}

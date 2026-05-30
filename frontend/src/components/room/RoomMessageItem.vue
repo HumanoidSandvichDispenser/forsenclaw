@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
-import { marked } from 'marked';
+import { renderMarkdown, parseContent } from '@/utils/markdown';
+import type { ContentPart, TextPart, ThoughtPart, ToolUsePart } from '@/utils/markdown';
 
 import type { ActorResponse, MessageResponse } from '@/client';
 import type { ToolCallEntry } from '@/stores/messages';
@@ -66,58 +67,6 @@ watch(() => props.streaming?.content, () => {
 onUnmounted(() => {
   if (animFrame) cancelAnimationFrame(animFrame);
 });
-
-// ---------------------------------------------------------------------------
-// Content parsing
-// ---------------------------------------------------------------------------
-interface ToolUsePart { type: 'tool_use'; name: string; args: Record<string, unknown> | null; result: string | null }
-interface TextPart { type: 'text'; content: string }
-interface ThoughtPart { type: 'thought'; title: string; content: string }
-type ContentPart = TextPart | ThoughtPart | ToolUsePart;
-
-function parseToolUse(raw: string): ToolUsePart {
-  try {
-    const data = JSON.parse(raw);
-    return { type: 'tool_use', name: data.name ?? raw.trim(), args: data.args ?? null, result: data.result ?? null };
-  } catch {
-    return { type: 'tool_use', name: raw.trim(), args: null, result: null };
-  }
-}
-
-function parseContent(content: string, allowPartialThought = false): ContentPart[] {
-  const parts: ContentPart[] = [];
-  const regex = /<thought>([\s\S]*?)<\/thought>|<tool_use>([\s\S]*?)<\/tool_use>/g;
-  let lastIndex = 0;
-  let match;
-
-  while ((match = regex.exec(content)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push({ type: 'text', content: content.slice(lastIndex, match.index) });
-    }
-    if (match[1] !== undefined) {
-      parts.push({ type: 'thought', title: 'Thought', content: match[1] });
-    } else {
-      parts.push(parseToolUse(match[2] ?? ''));
-    }
-    lastIndex = match.index + match[0].length;
-  }
-
-  const remainder = content.slice(lastIndex);
-  if (allowPartialThought) {
-    const openIdx = remainder.lastIndexOf('<thought>');
-    if (openIdx !== -1) {
-      if (openIdx > 0) parts.push({ type: 'text', content: remainder.slice(0, openIdx) });
-      parts.push({ type: 'thought', title: 'Thinking...', content: remainder.slice(openIdx + '<thought>'.length) });
-      return parts;
-    }
-  }
-  if (remainder.length > 0) parts.push({ type: 'text', content: remainder });
-  return parts;
-}
-
-function renderMarkdown(text: string) {
-  return marked.parse(text, { async: false });
-}
 
 // ---------------------------------------------------------------------------
 // Streaming mode: active/completed tool calls from ToolCallEntry[]
@@ -224,7 +173,7 @@ const sourceOpen = ref(false);
           :open="isStreaming"
           class="thought"
         >
-          <p>{{ (part as ThoughtPart).content }}</p>
+          <div class="content" v-html="renderMarkdown((part as ThoughtPart).content)" />
         </DisclosureBlock>
         <DisclosureBlock
           v-else-if="part.type === 'tool_use'"
