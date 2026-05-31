@@ -311,6 +311,7 @@ func buildMCPRegistry(cfg *config.ServerConfig) (mcp.Registry, error) {
 	webfetchClearance := cfg.ResolveToolClearance(cfg.Tools.WebFetch.Clearance, systemMax)
 	clients := []mcp.NamedMCPClient{
 		{Name: "builtin", Client: mcpTools.NewWebFetch(webfetchClearance)},
+		{Name: "builtin", Client: &mcpTools.ForsenLineClient{}},
 	}
 	clearances["webfetch"] = webfetchClearance
 
