@@ -194,7 +194,7 @@ type mockResponseCall struct {
 	content   string
 }
 
-func (m *mockResponseWriter) WriteAgentResponse(_ context.Context, roomID int64, agentName string, content string, _ []inference.ToolCallWire) error {
+func (m *mockResponseWriter) WriteAgentResponse(_ context.Context, roomID int64, agentName string, content string, _ []inference.ToolCallWire, _, _ int) error {
 	m.calls = append(m.calls, mockResponseCall{roomID, agentName, content})
 	return nil
 }

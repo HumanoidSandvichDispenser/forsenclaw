@@ -148,9 +148,13 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 
 		var content strings.Builder
 		var toolCalls []inference.ToolCallWire
+		var usage inference.Usage
 		for chunk := range ch {
 			content.WriteString(chunk.Content)
 			toolCalls = append(toolCalls, chunk.ToolCalls...)
+			if chunk.Usage.TotalTokens > 0 {
+				usage = chunk.Usage
+			}
 
 			// stream delta to clients as it arrives
 			if h.streamWriter != nil {
@@ -165,7 +169,12 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 		response := content.String()
 
 		if len(toolCalls) == 0 {
-			return nil, &dag.Result{Status: dag.StatusAllowed, Content: response}, nil
+			return nil, &dag.Result{
+				Status:       dag.StatusAllowed,
+				Content:      response,
+				InputTokens:  usage.PromptTokens,
+				OutputTokens: usage.CompletionTokens,
+			}, nil
 		}
 
 		h.turnHistory = append(h.turnHistory, inference.HistoryMessage{
@@ -177,7 +186,16 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 		// Persist the assistant's tool call message immediately so the
 		// frontend sees the invocation before execution completes.
 		if h.responseWriter != nil {
-			if werr := h.responseWriter.WriteAgentResponse(ctx, h.req.Payload.RoomID, h.agent.Name(), response, toolCalls); werr != nil {
+			werr := h.responseWriter.WriteAgentResponse(
+				ctx,
+				h.req.Payload.RoomID,
+				h.agent.Name(),
+				response,
+				toolCalls,
+				usage.PromptTokens,
+				usage.CompletionTokens,
+			)
+			if werr != nil {
 				return nil, nil, fmt.Errorf("writing tool call message: %w", werr)
 			}
 		}

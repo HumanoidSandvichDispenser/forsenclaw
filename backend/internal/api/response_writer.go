@@ -28,7 +28,7 @@ func NewAgentResponseWriter(rooms store.RoomRepository, messages store.MessageRe
 
 // WriteAgentResponse looks up the room, appends the agent message, and
 // broadcasts a message.created event to subscribers.
-func (w *AgentResponseWriter) WriteAgentResponse(ctx context.Context, roomID int64, agentName string, content string, toolCalls []inference.ToolCallWire) error {
+func (w *AgentResponseWriter) WriteAgentResponse(ctx context.Context, roomID int64, agentName string, content string, toolCalls []inference.ToolCallWire, inputTokens, outputTokens int) error {
 	r, err := w.rooms.GetRoom(ctx, roomID)
 	if err != nil {
 		return fmt.Errorf("looking up room %d: %w", roomID, err)
@@ -54,13 +54,15 @@ func (w *AgentResponseWriter) WriteAgentResponse(ctx context.Context, roomID int
 	}
 
 	msg := room.Message{
-		Timestamp:    time.Now().UTC(),
-		RoomID:       roomID,
-		Sender:       *sender,
-		ClearanceTag: min(sender.Clearance, r.Clearance),
-		Type:         msgType,
-		Content:      content,
-		ToolCalls:    records,
+		Timestamp:         time.Now().UTC(),
+		RoomID:            roomID,
+		Sender:            *sender,
+		ClearanceTag:      min(sender.Clearance, r.Clearance),
+		Type:              msgType,
+		Content:           content,
+		ToolCalls:         records,
+		UsageInputTokens:  inputTokens,
+		UsageOutputTokens: outputTokens,
 	}
 
 	number, err := w.messages.AppendMessage(ctx, roomID, msg)

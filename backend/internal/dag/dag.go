@@ -17,10 +17,12 @@ const (
 
 // Result is what a node produces when it resolves.
 type Result struct {
-	Content    string
-	Source     string
-	Status     ResultStatus
-	EditedArgs string // non-empty: use these JSON args instead of original (edit-args confirmation)
+	Content      string
+	Source       string
+	Status       ResultStatus
+	EditedArgs   string // non-empty: use these JSON args instead of original (edit-args confirmation)
+	InputTokens  int
+	OutputTokens int
 }
 
 // Handler is the interface implemented by each node type. The runtime calls
