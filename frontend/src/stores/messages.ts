@@ -106,22 +106,32 @@ export const useMessagesStore = defineStore('messages', () => {
       ...streamingByRoomId.value,
       [roomId]: {
         ...current,
-        content: current.content.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '').trimEnd(),
         toolCalls: [...current.toolCalls, { name: toolName, done: false }],
       },
     };
   }
 
-  function clearToolCall(roomId: string) {
+  function clearToolCall(roomId: string, toolName?: string) {
     const current = streamingByRoomId.value[roomId];
     if (!current) return;
-    const toolCalls = current.toolCalls.map((tc, i) =>
-      i === current.toolCalls.length - 1 && !tc.done ? { ...tc, done: true } : tc,
-    );
+    let cleared = false;
+    const toolCalls = current.toolCalls.map((tc) => {
+      if (!cleared && !tc.done && (!toolName || tc.name === toolName)) {
+        cleared = true;
+        return { ...tc, done: true };
+      }
+      return tc;
+    });
     streamingByRoomId.value = {
       ...streamingByRoomId.value,
       [roomId]: { ...current, toolCalls },
     };
+  }
+
+  // Append a message to the list without touching streaming state.
+  function appendMessage(roomId: string, msg: MessageResponse) {
+    const current = byRoomId.value[roomId] ?? [];
+    byRoomId.value = { ...byRoomId.value, [roomId]: [...current, msg] };
   }
 
   function finalizeMessage(roomId: string, msg: MessageResponse) {
@@ -151,6 +161,7 @@ export const useMessagesStore = defineStore('messages', () => {
     appendChunk,
     setToolCall,
     clearToolCall,
+    appendMessage,
     finalizeMessage,
     clearStreaming,
   };

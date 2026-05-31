@@ -12,7 +12,8 @@ import (
 // ResponseWriter persists completed agent responses to the room transcript.
 // Defined here as an interface to avoid an import cycle with the store/api packages.
 type ResponseWriter interface {
-	WriteAgentResponse(ctx context.Context, roomID int64, agentName string, content string) error
+	WriteAgentResponse(ctx context.Context, roomID int64, agentName string, content string, toolCalls []inference.ToolCallWire) error
+	WriteToolResult(ctx context.Context, roomID int64, agentName string, toolCallID string, toolName string, result string) error
 }
 
 type StreamWriter interface {
@@ -101,6 +102,7 @@ func (r *AgentRuntime) Enqueue(req Request) {
 		confirmationRegistry: r.confirmationRegistry,
 		notifier:             r.notifier,
 		streamWriter:         r.streamWriter,
+		responseWriter:       r.responseWriter,
 	}, "")
 	r.pulse()
 }
@@ -187,7 +189,7 @@ func (r *AgentRuntime) runNode(ctx context.Context, node *dag.Node) {
 		case result != nil:
 			r.dag.Resolve(node.ID, *result)
 			if ih, ok := node.Handler.(*InferenceHandler); ok && r.responseWriter != nil && result.Content != "" {
-				if werr := r.responseWriter.WriteAgentResponse(ctx, ih.req.Payload.RoomID, r.agent.Name(), result.Content); werr != nil {
+				if werr := r.responseWriter.WriteAgentResponse(ctx, ih.req.Payload.RoomID, r.agent.Name(), result.Content, nil); werr != nil {
 					log.Printf("agent %s: failed to write response: %v", r.agent.Name(), werr)
 				}
 			}

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/dispatch"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/store"
 )
@@ -27,7 +28,56 @@ func NewAgentResponseWriter(rooms store.RoomRepository, messages store.MessageRe
 
 // WriteAgentResponse looks up the room, appends the agent message, and
 // broadcasts a message.created event to subscribers.
-func (w *AgentResponseWriter) WriteAgentResponse(ctx context.Context, roomID int64, agentName string, content string) error {
+func (w *AgentResponseWriter) WriteAgentResponse(ctx context.Context, roomID int64, agentName string, content string, toolCalls []inference.ToolCallWire) error {
+	r, err := w.rooms.GetRoom(ctx, roomID)
+	if err != nil {
+		return fmt.Errorf("looking up room %d: %w", roomID, err)
+	}
+
+	actorID := "agent:" + agentName
+	sender := r.ParticipantByID(actorID)
+	if sender == nil {
+		return fmt.Errorf("agent %q not found in room %d", actorID, roomID)
+	}
+
+	msgType := room.MessageText
+	var records []room.ToolCallRecord
+	if len(toolCalls) > 0 {
+		msgType = room.MessageToolCall
+		for _, tc := range toolCalls {
+			records = append(records, room.ToolCallRecord{
+				ID:        tc.ID,
+				ToolName:  tc.Function.Name,
+				Arguments: tc.Function.Arguments,
+			})
+		}
+	}
+
+	msg := room.Message{
+		Timestamp:    time.Now().UTC(),
+		RoomID:       roomID,
+		Sender:       *sender,
+		ClearanceTag: min(sender.Clearance, r.Clearance),
+		Type:         msgType,
+		Content:      content,
+		ToolCalls:    records,
+	}
+
+	number, err := w.messages.AppendMessage(ctx, roomID, msg)
+	if err != nil {
+		return fmt.Errorf("appending message: %w", err)
+	}
+	msg.Number = number
+
+	w.hub.Broadcast(roomID, dispatch.StreamEvent{
+		Type:    "message.created",
+		Payload: msg,
+	})
+	return nil
+}
+
+// WriteToolResult appends a tool result message and broadcasts it.
+func (w *AgentResponseWriter) WriteToolResult(ctx context.Context, roomID int64, agentName string, toolCallID string, toolName string, result string) error {
 	r, err := w.rooms.GetRoom(ctx, roomID)
 	if err != nil {
 		return fmt.Errorf("looking up room %d: %w", roomID, err)
@@ -44,13 +94,15 @@ func (w *AgentResponseWriter) WriteAgentResponse(ctx context.Context, roomID int
 		RoomID:       roomID,
 		Sender:       *sender,
 		ClearanceTag: min(sender.Clearance, r.Clearance),
-		Type:         room.MessageText,
-		Content:      content,
+		Type:         room.MessageToolResult,
+		Content:      result,
+		ToolCallID:   toolCallID,
+		ToolName:     toolName,
 	}
 
 	number, err := w.messages.AppendMessage(ctx, roomID, msg)
 	if err != nil {
-		return fmt.Errorf("appending message: %w", err)
+		return fmt.Errorf("appending tool result: %w", err)
 	}
 	msg.Number = number
 

@@ -26,6 +26,7 @@ type InferenceHandler struct {
 	executor  ToolExecutor
 	streamWriter         StreamWriter
 
+	responseWriter       ResponseWriter
 	confirmationRegistry *ConfirmationRegistry
 	notifier             ConfirmationNotifier
 
@@ -161,6 +162,14 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 			ToolCalls: toolCalls,
 		})
 
+		// Persist the assistant's tool call message immediately so the
+		// frontend sees the invocation before execution completes.
+		if h.responseWriter != nil {
+			if werr := h.responseWriter.WriteAgentResponse(ctx, h.req.Payload.RoomID, h.agent.Name(), response, toolCalls); werr != nil {
+				return nil, nil, fmt.Errorf("writing tool call message: %w", werr)
+			}
+		}
+
 		var deps []dag.Dep
 		for i, tc := range toolCalls {
 			switch h.toolEffect(tc.Function.Name) {
@@ -175,6 +184,11 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 					Name:       tc.Function.Name,
 					ToolCallID: tc.ID,
 				})
+				if h.responseWriter != nil {
+					if werr := h.responseWriter.WriteToolResult(ctx, h.req.Payload.RoomID, h.agent.Name(), tc.ID, tc.Function.Name, toolResult); werr != nil {
+						return nil, nil, fmt.Errorf("writing tool result: %w", werr)
+					}
+				}
 
 			case "deny":
 				h.turnHistory = append(h.turnHistory, inference.HistoryMessage{

@@ -136,7 +136,17 @@ onMounted(() => {
           tool_call_id: p.tool_call_id,
           tool_name: p.tool_name,
         };
-        messagesStore.finalizeMessage(roomId.value, msg);
+        if (p.type === 'tool_call') {
+          messagesStore.appendMessage(roomId.value, msg);
+          for (const tc of p.tool_calls ?? []) {
+            messagesStore.setToolCall(roomId.value, tc.tool_name);
+          }
+        } else if (p.type === 'tool_result') {
+          messagesStore.appendMessage(roomId.value, msg);
+          messagesStore.clearToolCall(roomId.value, p.tool_name);
+        } else {
+          messagesStore.finalizeMessage(roomId.value, msg);
+        }
         break;
       }
       case 'message.delta': {

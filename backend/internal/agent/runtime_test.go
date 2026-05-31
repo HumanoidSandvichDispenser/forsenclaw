@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/dag"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
 )
 
 // newTestRuntime builds a minimal AgentRuntime for testing.
@@ -193,8 +194,12 @@ type mockResponseCall struct {
 	content   string
 }
 
-func (m *mockResponseWriter) WriteAgentResponse(_ context.Context, roomID int64, agentName string, content string) error {
+func (m *mockResponseWriter) WriteAgentResponse(_ context.Context, roomID int64, agentName string, content string, _ []inference.ToolCallWire) error {
 	m.calls = append(m.calls, mockResponseCall{roomID, agentName, content})
+	return nil
+}
+
+func (m *mockResponseWriter) WriteToolResult(_ context.Context, _ int64, _ string, _ string, _ string, _ string) error {
 	return nil
 }
 
