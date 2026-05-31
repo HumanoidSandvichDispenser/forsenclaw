@@ -34,6 +34,11 @@ type InferenceHandler struct {
 	pendingConfirmations []confirmationEntry
 	turnCount            int // for generating unique dep IDs
 
+	// basePayload is the assembled context from the first inference turn.
+	// Cached so that subsequent turns don't re-read room history and re-append
+	// the RFC, which would make the user's message appear twice in context.
+	basePayload *inference.ContextPayload
+
 	// BLP state — computed at the start of each inference loop turn.
 	effectiveClearance int
 	toolClearances     map[string]int
@@ -129,10 +134,15 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 			h.toolResources[t.Name] = t.Resource
 		}
 
-		payload, err := h.assembler.Assemble(ctx, h.agent, h.req, tools)
-		if err != nil {
-			return nil, nil, err
+		if h.basePayload == nil {
+			assembled, err := h.assembler.Assemble(ctx, h.agent, h.req, tools)
+			if err != nil {
+				return nil, nil, err
+			}
+			h.basePayload = &assembled
 		}
+		payload := *h.basePayload
+		payload.ToolDefinitions = tools
 		payload.CurrentTurnHistory = h.turnHistory
 
 		provider, modelID, err := h.registry.ResolveTier(h.agent.Definition, inference.TierPrimary)
