@@ -62,20 +62,32 @@ func (h *InferenceHandler) applyConfirmations(ctx context.Context, childResults 
 
 		switch result.Status {
 		case dag.StatusDenied:
+			const deniedMsg = "Action denied by user."
 			h.turnHistory = append(h.turnHistory, inference.HistoryMessage{
 				Role:       inference.RoleTool,
-				Content:    "Action denied by user.",
+				Content:    deniedMsg,
 				Name:       entry.call.Function.Name,
 				ToolCallID: entry.call.ID,
 			})
+			if h.responseWriter != nil {
+				if werr := h.responseWriter.WriteToolResult(ctx, h.req.Payload.RoomID, h.agent.Name(), entry.call.ID, entry.call.Function.Name, deniedMsg); werr != nil {
+					return fmt.Errorf("writing denied tool result: %w", werr)
+				}
+			}
 
 		case dag.StatusRevise:
+			const revisedMsg = "User asked you to revise this action."
 			h.turnHistory = append(h.turnHistory, inference.HistoryMessage{
 				Role:       inference.RoleTool,
 				Content:    "User asked you to revise this action: " + result.Content,
 				Name:       entry.call.Function.Name,
 				ToolCallID: entry.call.ID,
 			})
+			if h.responseWriter != nil {
+				if werr := h.responseWriter.WriteToolResult(ctx, h.req.Payload.RoomID, h.agent.Name(), entry.call.ID, entry.call.Function.Name, revisedMsg); werr != nil {
+					return fmt.Errorf("writing revised tool result: %w", werr)
+				}
+			}
 
 		default: // StatusAllowed
 			call := entry.call

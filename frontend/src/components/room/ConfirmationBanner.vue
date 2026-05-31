@@ -13,19 +13,38 @@ const store = useConfirmationsStore();
 const busy = ref(false);
 const showRevise = ref(false);
 const feedback = ref('');
+const editingArgs = ref(false);
 
-let parsedArgs: Record<string, unknown> | null = null;
-try {
-  parsedArgs = JSON.parse(props.confirmation.args);
-} catch {
-  parsedArgs = null;
+const formattedArgs = (() => {
+  try {
+    return JSON.stringify(JSON.parse(props.confirmation.args), null, 2);
+  } catch {
+    return props.confirmation.args;
+  }
+})();
+
+const editedArgs = ref(formattedArgs);
+const argsError = ref('');
+
+function toggleEditArgs() {
+  editingArgs.value = !editingArgs.value;
+  argsError.value = '';
 }
 
 async function act(action: 'allow' | 'deny' | 'revise') {
   if (busy.value) return;
+  if (action === 'allow' && editingArgs.value) {
+    try {
+      JSON.parse(editedArgs.value);
+    } catch {
+      argsError.value = 'invalid JSON';
+      return;
+    }
+  }
   busy.value = true;
   try {
     await store.respond(props.roomId, props.confirmation.node_id, action, {
+      args: action === 'allow' && editingArgs.value ? editedArgs.value : undefined,
       feedback: action === 'revise' ? feedback.value : undefined,
     });
   } finally {
@@ -43,8 +62,9 @@ async function act(action: 'allow' | 'deny' | 'revise') {
       <code class="tool-name">{{ confirmation.tool_name }}</code>
     </div>
 
-    <pre v-if="parsedArgs" class="args">{{ JSON.stringify(parsedArgs, null, 2) }}</pre>
-    <pre v-else class="args">{{ confirmation.args }}</pre>
+    <textarea v-if="editingArgs" v-model="editedArgs" class="args args-edit" spellcheck="false" />
+    <pre v-else class="args">{{ formattedArgs }}</pre>
+    <span v-if="argsError" class="args-error">{{ argsError }}</span>
 
     <div v-if="showRevise" class="revise-row">
       <input
@@ -61,6 +81,7 @@ async function act(action: 'allow' | 'deny' | 'revise') {
     <div v-else class="actions">
       <button class="btn btn-confirm" :disabled="busy" @click="act('allow')">Allow</button>
       <button class="btn btn-revise" :disabled="busy" @click="showRevise = true">Revise</button>
+      <button class="btn btn-edit" :disabled="busy" @click="toggleEditArgs">{{ editingArgs ? 'Lock' : 'Edit' }}</button>
       <button class="btn btn-deny" :disabled="busy" @click="act('deny')">Deny</button>
     </div>
   </div>
@@ -165,5 +186,29 @@ async function act(action: 'allow' | 'deny' | 'revise') {
 .btn-cancel {
   background: transparent;
   color: var(--fg-tertiary, #888);
+}
+
+.btn-edit {
+  background: var(--bg-tertiary, #333);
+  color: inherit;
+}
+
+.args-edit {
+  width: 100%;
+  min-height: 6rem;
+  resize: vertical;
+  font-family: monospace;
+  font-size: 0.8rem;
+  color: var(--fg-secondary, #aaa);
+  background: var(--bg-tertiary, #222);
+  border: 1px solid var(--accent, #4a9eff);
+  border-radius: 4px;
+  padding: 0.5rem;
+  box-sizing: border-box;
+}
+
+.args-error {
+  font-size: 0.8rem;
+  color: var(--error, #e05555);
 }
 </style>
