@@ -1,13 +1,18 @@
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
 import remarkRehype from 'remark-rehype';
+import rehypeKatex from 'rehype-katex';
 import rehypeStringify from 'rehype-stringify';
+import 'katex/dist/katex.min.css';
 
 const processor = unified()
   .use(remarkParse)
   .use(remarkGfm)
+  .use(remarkMath)
   .use(remarkRehype)
+  .use(rehypeKatex)
   .use(rehypeStringify);
 
 export function renderMarkdown(text: string): string {
@@ -50,7 +55,7 @@ function codeRanges(content: string): Array<[number, number]> {
       const fm = trimmed.match(/^(`{3,}|~{3,})/);
       if (fm?.[1]) {
         inFence = true;
-        fenceChar = fm[1][0];
+        fenceChar = fm[1][0]!;
         fenceMinLen = fm[1].length;
         fenceStart = pos;
       }
