@@ -541,3 +541,197 @@ func TestSQLiteStore_Messages(t *testing.T) {
 		t.Errorf("compacted[0]: got id=%d, want %d", compacted[0].ID, id2)
 	}
 }
+
+// appendTestMsg is a helper that appends a text message and returns its ID.
+func appendTestMsg(t *testing.T, s *SQLiteStore, roomID int64, sender room.Actor, content string) int64 {
+	t.Helper()
+	id, err := s.AppendMessage(context.Background(), roomID, room.Message{
+		Timestamp: time.Now().UTC(),
+		RoomID:    roomID,
+		Sender:    sender,
+		Type:      room.MessageText,
+		Content:   content,
+	})
+	if err != nil {
+		t.Fatalf("AppendMessage(%q): %v", content, err)
+	}
+	return id
+}
+
+// insertForkMsg inserts a message directly into the DB with a specific parent,
+// bypassing AppendMessage so the room head is not updated.
+func insertForkMsg(t *testing.T, s *SQLiteStore, roomID int64, parentID int64, sender room.Actor, content string) int64 {
+	t.Helper()
+	msg := room.Message{
+		Timestamp: time.Now().UTC(),
+		RoomID:    roomID,
+		ParentID:  &parentID,
+		Sender:    sender,
+		Type:      room.MessageText,
+		Content:   content,
+	}
+	if err := s.DB().Create(&msg).Error; err != nil {
+		t.Fatalf("insertForkMsg(%q): %v", content, err)
+	}
+	return msg.ID
+}
+
+func TestSQLiteStore_SwitchBranch(t *testing.T) {
+	store, _ := newTestStore(t)
+	defer store.Close()
+
+	ctx := context.Background()
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5, Name: "Alice"}
+	r := newTestRoom(alice)
+	if err := store.CreateRoom(ctx, &r); err != nil {
+		t.Fatalf("CreateRoom: %v", err)
+	}
+
+	// Build linear chain: A → B → C (head = C).
+	idA := appendTestMsg(t, store, r.ID, alice, "A")
+	idB := appendTestMsg(t, store, r.ID, alice, "B")
+	idC := appendTestMsg(t, store, r.ID, alice, "C")
+	_ = idA
+
+	// Insert D as an alternate child of B, creating a fork at B.
+	idD := insertForkMsg(t, store, r.ID, idB, alice, "D")
+
+	// Switch to D — D has no children so head should be D.
+	if err := store.SwitchBranch(ctx, r.ID, idD); err != nil {
+		t.Fatalf("SwitchBranch to D: %v", err)
+	}
+	msgs, err := store.GetMessages(ctx, r.ID, ReadOpts{})
+	if err != nil {
+		t.Fatalf("GetMessages after switch to D: %v", err)
+	}
+	wantContents(t, msgs, "A", "B", "D")
+
+	// Switch back to C — head should return to C.
+	if err := store.SwitchBranch(ctx, r.ID, idC); err != nil {
+		t.Fatalf("SwitchBranch to C: %v", err)
+	}
+	msgs, err = store.GetMessages(ctx, r.ID, ReadOpts{})
+	if err != nil {
+		t.Fatalf("GetMessages after switch to C: %v", err)
+	}
+	wantContents(t, msgs, "A", "B", "C")
+}
+
+func TestSQLiteStore_SwitchBranch_FollowsCursors(t *testing.T) {
+	store, _ := newTestStore(t)
+	defer store.Close()
+
+	ctx := context.Background()
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5, Name: "Alice"}
+	r := newTestRoom(alice)
+	if err := store.CreateRoom(ctx, &r); err != nil {
+		t.Fatalf("CreateRoom: %v", err)
+	}
+
+	// Build: A → B → C (head = C). Then insert D as fork child of B,
+	// E as child of D, with branch cursor D→E already set.
+	// SwitchBranch(D) should walk D→E and set head = E.
+	idA := appendTestMsg(t, store, r.ID, alice, "A")
+	idB := appendTestMsg(t, store, r.ID, alice, "B")
+	_ = appendTestMsg(t, store, r.ID, alice, "C")
+	_ = idA
+
+	idD := insertForkMsg(t, store, r.ID, idB, alice, "D")
+	idE := insertForkMsg(t, store, r.ID, idD, alice, "E")
+
+	// Manually seed a branch cursor D→E (as if E was previously the active child of D).
+	if err := store.DB().Exec(
+		"INSERT INTO message_branch_cursors (parent_id, child_id) VALUES (?, ?)", idD, idE,
+	).Error; err != nil {
+		t.Fatalf("seed cursor D→E: %v", err)
+	}
+
+	if err := store.SwitchBranch(ctx, r.ID, idD); err != nil {
+		t.Fatalf("SwitchBranch to D: %v", err)
+	}
+	msgs, err := store.GetMessages(ctx, r.ID, ReadOpts{})
+	if err != nil {
+		t.Fatalf("GetMessages: %v", err)
+	}
+	wantContents(t, msgs, "A", "B", "D", "E")
+}
+
+func TestSQLiteStore_GetSiblings(t *testing.T) {
+	store, _ := newTestStore(t)
+	defer store.Close()
+
+	ctx := context.Background()
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5, Name: "Alice"}
+	r := newTestRoom(alice)
+	if err := store.CreateRoom(ctx, &r); err != nil {
+		t.Fatalf("CreateRoom: %v", err)
+	}
+
+	// Build: A → B, with C as a fork sibling of B (both children of A).
+	idA := appendTestMsg(t, store, r.ID, alice, "A")
+	idB := appendTestMsg(t, store, r.ID, alice, "B")
+	idC := insertForkMsg(t, store, r.ID, idA, alice, "C")
+
+	// Both B and C are children of A.
+	siblings, err := store.GetSiblings(ctx, idB)
+	if err != nil {
+		t.Fatalf("GetSiblings(B): %v", err)
+	}
+	wantContents(t, siblings, "B", "C")
+
+	siblings, err = store.GetSiblings(ctx, idC)
+	if err != nil {
+		t.Fatalf("GetSiblings(C): %v", err)
+	}
+	wantContents(t, siblings, "B", "C")
+}
+
+func TestSQLiteStore_GetSiblings_Root(t *testing.T) {
+	store, _ := newTestStore(t)
+	defer store.Close()
+
+	ctx := context.Background()
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5, Name: "Alice"}
+	r := newTestRoom(alice)
+	if err := store.CreateRoom(ctx, &r); err != nil {
+		t.Fatalf("CreateRoom: %v", err)
+	}
+
+	// Two root messages (parent_id = NULL) in the same room.
+	idA := appendTestMsg(t, store, r.ID, alice, "root-A")
+	// Insert root-B directly so it also has parent_id = NULL.
+	rootB := room.Message{
+		Timestamp: time.Now().UTC(),
+		RoomID:    r.ID,
+		ParentID:  nil,
+		Sender:    alice,
+		Type:      room.MessageText,
+		Content:   "root-B",
+	}
+	if err := store.DB().Create(&rootB).Error; err != nil {
+		t.Fatalf("insert root-B: %v", err)
+	}
+
+	siblings, err := store.GetSiblings(ctx, idA)
+	if err != nil {
+		t.Fatalf("GetSiblings(root-A): %v", err)
+	}
+	wantContents(t, siblings, "root-A", "root-B")
+}
+
+// wantContents asserts that msgs has exactly the given contents in order.
+func wantContents(t *testing.T, msgs []room.Message, want ...string) {
+	t.Helper()
+	if len(msgs) != len(want) {
+		got := make([]string, len(msgs))
+		for i, m := range msgs {
+			got[i] = m.Content
+		}
+		t.Fatalf("got %d messages %v, want %d %v", len(msgs), got, len(want), want)
+	}
+	for i, w := range want {
+		if msgs[i].Content != w {
+			t.Errorf("msgs[%d]: got %q, want %q", i, msgs[i].Content, w)
+		}
+	}
+}
