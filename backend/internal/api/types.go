@@ -150,7 +150,7 @@ type RoomResponse struct {
 
 // MessageResponse is the API representation of a message.
 type MessageResponse struct {
-	Number       int64               `json:"number"         doc:"Per-room message number"`
+	ID           int64               `json:"id"             doc:"Message ID"`
 	Timestamp    time.Time           `json:"timestamp"      doc:"Message timestamp"`
 	RoomID       int64               `json:"room_id"        doc:"Room this message belongs to"`
 	Sender       ActorResponse       `json:"sender"         doc:"Actor who sent this message"`

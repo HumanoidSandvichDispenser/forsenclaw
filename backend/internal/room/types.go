@@ -104,13 +104,15 @@ type Usage struct {
 // Message is a single record in a room transcript. Messages are immutable
 // once written to the database.
 type Message struct {
-	// RoomID identifies the room this message belongs to.
-	RoomID int64 `json:"room_id" gorm:"primaryKey"`
+	// ID is the globally unique message identifier, assigned by the database.
+	ID int64 `json:"id" gorm:"primaryKey;autoIncrement"`
 
-	// Number is the per-room monotonic sequence number. Together with RoomID
-	// it forms the composite primary key. Number is assigned by the database
-	// at append time.
-	Number int64 `json:"number" gorm:"primaryKey"`
+	// RoomID identifies the room this message belongs to.
+	RoomID int64 `json:"room_id" gorm:"not null;index"`
+
+	// ParentID is the ID of the parent message in the conversation tree.
+	// NULL for the first message in a room.
+	ParentID *int64 `json:"parent_id,omitempty" gorm:"index"`
 
 	// Timestamp is when the message was created.
 	Timestamp time.Time `json:"timestamp"`
@@ -193,6 +195,10 @@ func (m Message) Validate() error {
 type Room struct {
 	// ID is a unique room identifier (auto-incremented integer).
 	ID int64 `json:"id" gorm:"primaryKey;autoIncrement"`
+
+	// Head is the ID of the tip message on the active branch. NULL if the room
+	// has no messages yet.
+	Head *int64 `json:"head,omitempty"`
 
 	// Name is a human-readable name for the room (optional).
 	Name string `json:"name"`

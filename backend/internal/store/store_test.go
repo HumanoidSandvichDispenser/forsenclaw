@@ -386,13 +386,13 @@ func TestSQLiteStore_CompactionOffset_Invalid(t *testing.T) {
 
 	ctx := context.Background()
 
-	if err := store.SetCompactionOffset(ctx, "", 1, 10); err == nil {
+	if err := store.SetCompactionOffset(ctx, "", 1, int64(10)); err == nil {
 		t.Fatal("expected error for missing agentName")
 	}
-	if err := store.SetCompactionOffset(ctx, "housewife", 0, 10); err == nil {
+	if err := store.SetCompactionOffset(ctx, "housewife", 0, int64(10)); err == nil {
 		t.Fatal("expected error for missing roomID")
 	}
-	if err := store.SetCompactionOffset(ctx, "housewife", 1, -1); err == nil {
+	if err := store.SetCompactionOffset(ctx, "housewife", 1, int64(-1)); err == nil {
 		t.Fatal("expected error for negative offset")
 	}
 }
@@ -479,12 +479,12 @@ func TestSQLiteStore_Messages(t *testing.T) {
 		Type:      room.MessageText,
 		Content:   "Hello",
 	}
-	num1, err := store.AppendMessage(ctx, r.ID, msg1)
+	id1, err := store.AppendMessage(ctx, r.ID, msg1)
 	if err != nil {
 		t.Fatalf("AppendMessage 1: %v", err)
 	}
-	if num1 != 1 {
-		t.Errorf("expected message number 1, got %d", num1)
+	if id1 <= 0 {
+		t.Errorf("expected positive message id, got %d", id1)
 	}
 
 	msg2 := room.Message{
@@ -494,12 +494,12 @@ func TestSQLiteStore_Messages(t *testing.T) {
 		Type:      room.MessageText,
 		Content:   "Hi there",
 	}
-	num2, err := store.AppendMessage(ctx, r.ID, msg2)
+	id2, err := store.AppendMessage(ctx, r.ID, msg2)
 	if err != nil {
 		t.Fatalf("AppendMessage 2: %v", err)
 	}
-	if num2 != 2 {
-		t.Errorf("expected message number 2, got %d", num2)
+	if id2 <= id1 {
+		t.Errorf("expected id2 > id1, got id1=%d id2=%d", id1, id2)
 	}
 
 	// Get all messages
@@ -510,14 +510,14 @@ func TestSQLiteStore_Messages(t *testing.T) {
 	if len(msgs) != 2 {
 		t.Fatalf("expected 2 messages, got %d", len(msgs))
 	}
-	if msgs[0].Number != 1 || msgs[0].Content != "Hello" {
-		t.Errorf("msg[0]: got number=%d content=%q, want number=1 content=Hello", msgs[0].Number, msgs[0].Content)
+	if msgs[0].Content != "Hello" {
+		t.Errorf("msg[0]: got content=%q, want Hello", msgs[0].Content)
 	}
-	if msgs[1].Number != 2 || msgs[1].Content != "Hi there" {
-		t.Errorf("msg[1]: got number=%d content=%q, want number=2 content=Hi there", msgs[1].Number, msgs[1].Content)
+	if msgs[1].Content != "Hi there" {
+		t.Errorf("msg[1]: got content=%q, want Hi there", msgs[1].Content)
 	}
 
-	// Get with limit (tail behaviour)
+	// Get with limit (tail behaviour: last 1 message)
 	limited, err := store.GetMessages(ctx, r.ID, ReadOpts{Limit: 1})
 	if err != nil {
 		t.Fatalf("GetMessages limit: %v", err)
@@ -525,19 +525,19 @@ func TestSQLiteStore_Messages(t *testing.T) {
 	if len(limited) != 1 {
 		t.Fatalf("expected 1 message with limit=1, got %d", len(limited))
 	}
-	if limited[0].Number != 2 {
-		t.Errorf("limited[0]: got number=%d, want 2", limited[0].Number)
+	if limited[0].ID != id2 {
+		t.Errorf("limited[0]: got id=%d, want %d", limited[0].ID, id2)
 	}
 
-	// Get with offset
-	offset, err := store.GetMessages(ctx, r.ID, ReadOpts{Offset: 1})
+	// Get with compaction: stop before id1
+	compacted, err := store.GetMessages(ctx, r.ID, ReadOpts{CompactionID: id1})
 	if err != nil {
-		t.Fatalf("GetMessages offset: %v", err)
+		t.Fatalf("GetMessages compaction: %v", err)
 	}
-	if len(offset) != 1 {
-		t.Fatalf("expected 1 message with offset=1, got %d", len(offset))
+	if len(compacted) != 1 {
+		t.Fatalf("expected 1 message with compaction boundary, got %d", len(compacted))
 	}
-	if offset[0].Number != 2 {
-		t.Errorf("offset[0]: got number=%d, want 2", offset[0].Number)
+	if compacted[0].ID != id2 {
+		t.Errorf("compacted[0]: got id=%d, want %d", compacted[0].ID, id2)
 	}
 }

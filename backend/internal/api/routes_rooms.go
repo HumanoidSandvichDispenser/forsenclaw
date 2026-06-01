@@ -207,7 +207,7 @@ func toActorResponse(a room.Actor) ActorResponse {
 // toMessageResponse converts an internal room.Message to the API response type.
 func toMessageResponse(m room.Message) MessageResponse {
 	return MessageResponse{
-		Number:       m.Number,
+		ID:           m.ID,
 		Timestamp:    m.Timestamp,
 		RoomID:       m.RoomID,
 		Sender:       toActorResponse(m.Sender),

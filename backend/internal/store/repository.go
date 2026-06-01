@@ -27,12 +27,17 @@ type ListOpts struct {
 
 // ReadOpts controls filtering and pagination for GetMessages.
 type ReadOpts struct {
-	// Limit is the maximum number of messages to return (0 = all).
+	// Limit is the maximum number of messages to return walking back from head
+	// (0 = no limit, capped at a safety maximum internally).
 	Limit int
 
-	// Offset is the compaction cursor: only messages with number > Offset
-	// are returned.
-	Offset int
+	// Head is the message ID to start walking from. 0 means use the room's
+	// current head.
+	Head int64
+
+	// CompactionID is the compaction boundary: the walk stops before any
+	// ancestor with id <= CompactionID. 0 means no compaction boundary.
+	CompactionID int64
 
 	// After returns only messages strictly after this time.
 	After *time.Time
@@ -59,6 +64,15 @@ type RoomRepository interface {
 type MessageRepository interface {
 	AppendMessage(ctx context.Context, roomID int64, msg room.Message) (int64, error)
 	GetMessages(ctx context.Context, roomID int64, opts ReadOpts) ([]room.Message, error)
-	GetCompactionOffset(ctx context.Context, agentName string, roomID int64) (int, error)
-	SetCompactionOffset(ctx context.Context, agentName string, roomID int64, offset int) error
+	GetCompactionOffset(ctx context.Context, agentName string, roomID int64) (int64, error)
+	SetCompactionOffset(ctx context.Context, agentName string, roomID int64, offset int64) error
+
+	// SwitchBranch sets the active branch to the subtree rooted at messageID.
+	// It updates the branch cursor for messageID's parent and sets the room's
+	// head to the tip of messageID's subtree.
+	SwitchBranch(ctx context.Context, roomID int64, messageID int64) error
+
+	// GetSiblings returns all messages that share the same parent as messageID,
+	// including messageID itself.
+	GetSiblings(ctx context.Context, messageID int64) ([]room.Message, error)
 }

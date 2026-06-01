@@ -21,6 +21,7 @@ import (
 
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/agent"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/api"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/audit"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/config"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/dispatch"
@@ -282,9 +283,9 @@ permissions:
 	dispatcher := dispatch.NewDispatcher(agentMgr)
 
 	// API service + router + real HTTP server
-	svc := api.NewService(dispatcher, sqliteStore, sqliteStore, agentMgr, hub)
+	svc := api.NewService(dispatcher, sqliteStore, sqliteStore, agentMgr, hub, room.Actor{ID: "user:test", Name: "test", Type: room.ActorUser})
 	router := chi.NewRouter()
-	router.Use(api.AuthMiddleware())
+	router.Use(api.AuthMiddleware("test"))
 	api.NewAPI(router, svc)
 
 	srv := httptest.NewServer(router)
@@ -451,7 +452,15 @@ func TestE2E_ToolCallRoundTrip(t *testing.T) {
 
 	sendMessage(t, env.serverURL, roomID, "user:alice", "Use the echo tool please")
 
-	payload := awaitEvent(t, conn, "message.created")
+	// The round trip produces multiple message.created events (tool call, tool
+	// result, final reply). Skip intermediates and wait for a text message.
+	var payload map[string]any
+	for {
+		payload = awaitEvent(t, conn, "message.created")
+		if msgType, _ := payload["type"].(string); msgType == "message" {
+			break
+		}
+	}
 
 	content, _ := payload["content"].(string)
 	if content != "Done! Tool said: echoed: hello" {

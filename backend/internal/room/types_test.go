@@ -91,7 +91,7 @@ func TestMessage_Validate(t *testing.T) {
 		{
 			name: "valid message",
 			msg: Message{
-				RoomID: 1, Number: 1, Sender: validSender,
+				RoomID: 1, Sender: validSender,
 				Type: MessageText, Content: "Hello",
 			},
 			wantErr: false,
@@ -99,7 +99,7 @@ func TestMessage_Validate(t *testing.T) {
 		{
 			name: "missing room_id",
 			msg: Message{
-				Number: 1, Sender: validSender,
+				Sender: validSender,
 				Type: MessageText, Content: "Hello",
 			},
 			wantErr: true,
@@ -108,7 +108,7 @@ func TestMessage_Validate(t *testing.T) {
 		{
 			name: "invalid sender",
 			msg: Message{
-				RoomID: 1, Number: 1, Type: MessageText, Content: "Hello",
+				RoomID: 1, Type: MessageText, Content: "Hello",
 			},
 			wantErr: true,
 			errMsg:  "sender",
@@ -116,7 +116,7 @@ func TestMessage_Validate(t *testing.T) {
 		{
 			name: "invalid message type",
 			msg: Message{
-				RoomID: 1, Number: 1, Sender: validSender,
+				RoomID: 1, Sender: validSender,
 				Type: "chat", Content: "Hello",
 			},
 			wantErr: true,
@@ -125,7 +125,7 @@ func TestMessage_Validate(t *testing.T) {
 		{
 			name: "missing content",
 			msg: Message{
-				RoomID: 1, Number: 1, Sender: validSender,
+				RoomID: 1, Sender: validSender,
 				Type: MessageText,
 			},
 			wantErr: true,

@@ -55,8 +55,8 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req agent.Req
 		}
 
 		msgs, err := a.messages.GetMessages(ctx, req.Payload.RoomID, store.ReadOpts{
-			Limit:  100,
-			Offset: offset,
+			Limit:        100,
+			CompactionID: offset,
 		})
 		if err != nil {
 			return inference.ContextPayload{}, fmt.Errorf("get messages: %w", err)

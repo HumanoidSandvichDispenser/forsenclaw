@@ -65,11 +65,11 @@ func (w *AgentResponseWriter) WriteAgentResponse(ctx context.Context, roomID int
 		UsageOutputTokens: outputTokens,
 	}
 
-	number, err := w.messages.AppendMessage(ctx, roomID, msg)
+	id, err := w.messages.AppendMessage(ctx, roomID, msg)
 	if err != nil {
 		return fmt.Errorf("appending message: %w", err)
 	}
-	msg.Number = number
+	msg.ID = id
 
 	w.hub.Broadcast(roomID, dispatch.StreamEvent{
 		Type:    "message.created",
@@ -102,11 +102,11 @@ func (w *AgentResponseWriter) WriteToolResult(ctx context.Context, roomID int64,
 		ToolName:     toolName,
 	}
 
-	number, err := w.messages.AppendMessage(ctx, roomID, msg)
+	id, err := w.messages.AppendMessage(ctx, roomID, msg)
 	if err != nil {
 		return fmt.Errorf("appending tool result: %w", err)
 	}
-	msg.Number = number
+	msg.ID = id
 
 	w.hub.Broadcast(roomID, dispatch.StreamEvent{
 		Type:    "message.created",
