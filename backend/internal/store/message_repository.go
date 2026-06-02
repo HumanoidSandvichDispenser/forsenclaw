@@ -13,7 +13,11 @@ import (
 
 // AppendMessage writes a message to the room's conversation tree, attaching it
 // as a child of the current room head. Returns the assigned message ID.
-func (s *SQLiteStore) AppendMessage(ctx context.Context, roomID int64, msg room.Message) (int64, error) {
+func (s *SQLiteStore) AppendMessage(
+	ctx context.Context,
+	roomID int64,
+	msg room.Message,
+) (int64, error) {
 	if err := msg.Validate(); err != nil {
 		return 0, fmt.Errorf("invalid message: %w", err)
 	}
@@ -21,7 +25,8 @@ func (s *SQLiteStore) AppendMessage(ctx context.Context, roomID int64, msg room.
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Read the current head to use as parent.
 		var head *int64
-		if err := tx.Raw("SELECT head FROM rooms WHERE id = ?", roomID).Scan(&head).Error; err != nil {
+		err := tx.Raw("SELECT head FROM rooms WHERE id = ?", roomID).Scan(&head).Error
+		if err != nil {
 			return fmt.Errorf("get room head: %w", err)
 		}
 
@@ -40,7 +45,8 @@ func (s *SQLiteStore) AppendMessage(ctx context.Context, roomID int64, msg room.
 		}
 
 		// Advance the room's head.
-		if err := tx.Exec("UPDATE rooms SET head = ? WHERE id = ?", msg.ID, roomID).Error; err != nil {
+		err = tx.Exec("UPDATE rooms SET head = ? WHERE id = ?", msg.ID, roomID).Error
+		if err != nil {
 			return fmt.Errorf("update room head: %w", err)
 		}
 
@@ -59,11 +65,18 @@ func (s *SQLiteStore) AppendMessage(ctx context.Context, roomID int64, msg room.
 // opts.Head overrides the room's stored head (useful for viewing a specific
 // branch). opts.Limit caps the walk depth. opts.CompactionID stops the walk
 // before any ancestor with id <= CompactionID.
-func (s *SQLiteStore) GetMessages(ctx context.Context, roomID int64, opts ReadOpts) ([]room.Message, error) {
+func (s *SQLiteStore) GetMessages(
+	ctx context.Context,
+	roomID int64,
+	opts ReadOpts,
+) ([]room.Message, error) {
 	headID := opts.Head
 	if headID == 0 {
 		var head *int64
-		if err := s.db.WithContext(ctx).Raw("SELECT head FROM rooms WHERE id = ?", roomID).Scan(&head).Error; err != nil {
+		err := s.db.WithContext(ctx).
+			Raw("SELECT head FROM rooms WHERE id = ?", roomID).
+			Scan(&head).Error
+		if err != nil {
 			return nil, fmt.Errorf("get room head: %w", err)
 		}
 		if head == nil {
@@ -94,7 +107,10 @@ func (s *SQLiteStore) GetMessages(ctx context.Context, roomID int64, opts ReadOp
 		SELECT id FROM chain ORDER BY id ASC
 	`
 	var ids []int64
-	if err := s.db.WithContext(ctx).Raw(cteQuery, headID, limit, opts.CompactionID, opts.CompactionID).Scan(&ids).Error; err != nil {
+	err := s.db.WithContext(ctx).
+		Raw(cteQuery, headID, limit, opts.CompactionID, opts.CompactionID).
+		Scan(&ids).Error
+	if err != nil {
 		return nil, fmt.Errorf("get message ids: %w", err)
 	}
 	if len(ids) == 0 {
@@ -117,7 +133,11 @@ func (s *SQLiteStore) GetMessages(ctx context.Context, roomID int64, opts ReadOp
 
 // GetCompactionOffset returns the last compacted message ID for the given
 // agent+room pair. Returns 0 if no record exists yet.
-func (s *SQLiteStore) GetCompactionOffset(ctx context.Context, agentName string, roomID int64) (int64, error) {
+func (s *SQLiteStore) GetCompactionOffset(
+	ctx context.Context,
+	agentName string,
+	roomID int64,
+) (int64, error) {
 	var cursor CompactionCursor
 	err := s.db.WithContext(ctx).
 		Where("agent_name = ? AND room_id = ?", agentName, roomID).
@@ -132,7 +152,12 @@ func (s *SQLiteStore) GetCompactionOffset(ctx context.Context, agentName string,
 }
 
 // SetCompactionOffset upserts the compaction message ID for an agent+room pair.
-func (s *SQLiteStore) SetCompactionOffset(ctx context.Context, agentName string, roomID int64, offset int64) error {
+func (s *SQLiteStore) SetCompactionOffset(
+	ctx context.Context,
+	agentName string,
+	roomID int64,
+	offset int64,
+) error {
 	if agentName == "" {
 		return fmt.Errorf("agentName is required")
 	}
@@ -160,7 +185,9 @@ func (s *SQLiteStore) SwitchBranch(ctx context.Context, roomID int64, messageID 
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Get the parent of the target message.
 		var parentID *int64
-		if err := tx.Raw("SELECT parent_id FROM messages WHERE id = ?", messageID).Scan(&parentID).Error; err != nil {
+		err := tx.Raw("SELECT parent_id FROM messages WHERE id = ?", messageID).
+			Scan(&parentID).Error
+		if err != nil {
 			return fmt.Errorf("get message parent: %w", err)
 		}
 
@@ -199,7 +226,9 @@ func (s *SQLiteStore) GetSiblings(ctx context.Context, messageID int64) ([]room.
 		ParentID *int64
 		RoomID   int64
 	}
-	if err := s.db.WithContext(ctx).Raw("SELECT parent_id, room_id FROM messages WHERE id = ?", messageID).Scan(&anchor).Error; err != nil {
+	if err := s.db.WithContext(ctx).
+		Raw("SELECT parent_id, room_id FROM messages WHERE id = ?", messageID).
+		Scan(&anchor).Error; err != nil {
 		return nil, fmt.Errorf("get message: %w", err)
 	}
 
@@ -207,9 +236,13 @@ func (s *SQLiteStore) GetSiblings(ctx context.Context, messageID int64) ([]room.
 	var err error
 	if anchor.ParentID == nil {
 		// Root message — siblings are other root messages in the same room.
-		err = s.db.WithContext(ctx).Where("room_id = ? AND parent_id IS NULL", anchor.RoomID).Order("id ASC").Find(&msgs).Error
+		err = s.db.WithContext(ctx).
+			Where("room_id = ? AND parent_id IS NULL", anchor.RoomID).
+			Order("id ASC").Find(&msgs).Error
 	} else {
-		err = s.db.WithContext(ctx).Where("parent_id = ?", *anchor.ParentID).Order("id ASC").Find(&msgs).Error
+		err = s.db.WithContext(ctx).
+			Where("parent_id = ?", *anchor.ParentID).
+			Order("id ASC").Find(&msgs).Error
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get siblings: %w", err)
