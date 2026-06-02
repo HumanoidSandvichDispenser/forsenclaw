@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 
 import type { ConfirmationResponse } from '@/client/types.gen';
 import { useConfirmationsStore } from '@/stores/confirmations';
@@ -8,6 +8,32 @@ const props = defineProps<{
   roomId: string;
   confirmation: ConfirmationResponse;
 }>();
+
+// Maps the policy reason to UI treatment. Only blp_write_down and
+// permission_confirmation actually reach a confirmation; deny/allow reasons
+// never produce a banner. Unknown reasons fall back to a neutral label.
+const reasonMeta = computed(() => {
+  switch (props.confirmation.reason) {
+    case 'blp_write_down':
+      return {
+        kind: 'declass',
+        label: 'Declassification',
+        detail: 'Moves classified context into a lower-clearance room.',
+      };
+    case 'permission_confirmation':
+      return {
+        kind: 'permission',
+        label: 'Permission required',
+        detail: 'This tool needs your approval before it runs.',
+      };
+    default:
+      return {
+        kind: 'permission',
+        label: 'Confirmation required',
+        detail: '',
+      };
+  }
+});
 
 const store = useConfirmationsStore();
 const busy = ref(false);
@@ -55,12 +81,14 @@ async function act(action: 'allow' | 'deny' | 'revise') {
 </script>
 
 <template>
-  <div class="confirmation-banner">
+  <div class="confirmation-banner" :class="`is-${reasonMeta.kind}`">
     <div class="confirmation-header">
+      <span class="reason-badge">{{ reasonMeta.label }}</span>
       <span class="agent-name">{{ confirmation.agent_name }}</span>
       <span class="wants-to">wants to call</span>
       <code class="tool-name">{{ confirmation.tool_name }}</code>
     </div>
+    <p v-if="reasonMeta.detail" class="reason-detail">{{ reasonMeta.detail }}</p>
 
     <textarea v-if="editingArgs" v-model="editedArgs" class="args args-edit" spellcheck="false" />
     <pre v-else class="args">{{ formattedArgs }}</pre>
@@ -90,6 +118,7 @@ async function act(action: 'allow' | 'deny' | 'revise') {
 <style scoped>
 .confirmation-banner {
   border: 1px solid var(--border, #333);
+  border-left: 3px solid var(--border, #333);
   border-radius: 8px;
   padding: 0.75rem 1rem;
   background: var(--bg-secondary, #1a1a1a);
@@ -98,11 +127,39 @@ async function act(action: 'allow' | 'deny' | 'revise') {
   gap: 0.5rem;
 }
 
+/* Declassification is security-significant — flag it distinctly. */
+.confirmation-banner.is-declass {
+  border-left-color: var(--warning, #e0a155);
+}
+
 .confirmation-header {
   display: flex;
   align-items: center;
   gap: 0.4rem;
   font-size: 0.9rem;
+  flex-wrap: wrap;
+}
+
+.reason-badge {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: var(--bg-tertiary, #222);
+  color: var(--fg-tertiary, #888);
+}
+
+.is-declass .reason-badge {
+  background: color-mix(in srgb, var(--warning, #e0a155) 18%, transparent);
+  color: var(--warning, #e0a155);
+}
+
+.reason-detail {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--fg-secondary, #aaa);
 }
 
 .agent-name {

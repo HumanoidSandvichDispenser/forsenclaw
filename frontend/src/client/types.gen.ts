@@ -235,6 +235,7 @@ export type ConfirmationResponse = {
     room_id: number;
     tool_name: string;
     args: string;
+    reason: string;
 };
 
 export type RoomResponse = {

@@ -167,6 +167,7 @@ onMounted(() => {
           room_id: p.room_id,
           tool_name: p.tool_name,
           args: p.args,
+          reason: p.reason,
         });
         break;
       }

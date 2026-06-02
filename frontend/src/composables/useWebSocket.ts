@@ -29,6 +29,7 @@ export type ConfirmationPendingPayload = {
   room_id: number;
   tool_name: string;
   args: string;
+  reason: string;
 };
 
 export type WSEvent =
