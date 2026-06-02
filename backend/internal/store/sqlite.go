@@ -2,12 +2,34 @@ package store
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
 )
+
+// canonicalMessagesDDL is the messages-table schema exactly as GORM generates
+// it for room.Message. The tree migration originally wrote a tab-indented,
+// space-aligned CREATE statement that glebarez/sqlite's migrator misparses
+// (it reads NOT NULL columns as nullable, decides a rebuild is needed, then
+// drops every other column during that rebuild — violating room_id NOT NULL).
+// Rewriting the table in this canonical form makes AutoMigrate a clean no-op.
+const canonicalMessagesDDL = "CREATE TABLE `messages` (" +
+	"`id` integer PRIMARY KEY AUTOINCREMENT," +
+	"`room_id` integer NOT NULL," +
+	"`parent_id` integer," +
+	"`timestamp` datetime," +
+	"`sender` text," +
+	"`clearance_tag` integer," +
+	"`type` text," +
+	"`content` text," +
+	"`usage_input_tokens` integer DEFAULT 0," +
+	"`usage_output_tokens` integer DEFAULT 0," +
+	"`tool_calls` text," +
+	"`tool_call_id` text DEFAULT \"\"," +
+	"`tool_name` text DEFAULT \"\")"
 
 // SQLiteStore implements RoomRepository and MessageRepository using GORM over
 // SQLite.
@@ -64,6 +86,10 @@ func (s *SQLiteStore) DB() *gorm.DB {
 func (s *SQLiteStore) migrate() error {
 	if err := s.migrateMessagesToTree(); err != nil {
 		return fmt.Errorf("messages tree migration: %w", err)
+	}
+
+	if err := s.normalizeMessagesTable(); err != nil {
+		return fmt.Errorf("normalize messages table: %w", err)
 	}
 
 	if err := s.db.AutoMigrate(
@@ -168,6 +194,45 @@ func (s *SQLiteStore) migrateMessagesToTree() error {
 
 		ALTER TABLE compaction_cursors ADD COLUMN compacted_id INTEGER DEFAULT 0;
 		UPDATE compaction_cursors SET compacted_id = compacted_number;
+	`)
+	return err
+}
+
+// normalizeMessagesTable rebuilds the messages table with canonicalMessagesDDL
+// when the stored schema is the legacy hand-written format that glebarez/sqlite
+// cannot round-trip. It is data-preserving and idempotent: once the table is in
+// canonical form (backtick-quoted columns, no tabs) it is a no-op. Runs before
+// AutoMigrate so AutoMigrate never attempts its lossy rebuild.
+func (s *SQLiteStore) normalizeMessagesTable() error {
+	sqlDB, err := s.db.DB()
+	if err != nil {
+		return err
+	}
+
+	var ddl string
+	if err := sqlDB.QueryRow(
+		`SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'`,
+	).Scan(&ddl); err != nil {
+		// No messages table yet (fresh install) — AutoMigrate will create it.
+		return nil
+	}
+
+	// Canonical DDL has backtick-quoted columns and no tab indentation. Legacy
+	// DDL is tab-indented and space-aligned, which is what GORM misparses.
+	if !strings.Contains(ddl, "\t") && strings.Contains(ddl, "`room_id`") {
+		return nil // already canonical
+	}
+
+	const cols = "id,room_id,parent_id,timestamp,sender,clearance_tag,type," +
+		"content,usage_input_tokens,usage_output_tokens,tool_calls,tool_call_id,tool_name"
+
+	_, err = sqlDB.Exec(`
+		ALTER TABLE messages RENAME TO messages_legacy;
+		` + canonicalMessagesDDL + `;
+		INSERT INTO messages (` + cols + `) SELECT ` + cols + ` FROM messages_legacy;
+		DROP TABLE messages_legacy;
+		CREATE INDEX IF NOT EXISTS idx_messages_room_id ON messages(room_id);
+		CREATE INDEX IF NOT EXISTS idx_messages_parent_id ON messages(parent_id);
 	`)
 	return err
 }
