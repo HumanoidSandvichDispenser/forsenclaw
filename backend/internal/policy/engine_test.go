@@ -142,6 +142,97 @@ func TestEngine_Evaluate(t *testing.T) {
 	}
 }
 
+func TestEngine_EvaluateAll(t *testing.T) {
+	// data:read statement helpers for two-tier cases.
+	dataRead := func(effect string, resources ...string) config.Statement {
+		return config.Statement{Actions: []string{"data:read"}, Resources: resources, Effect: effect}
+	}
+
+	tests := []struct {
+		name       string
+		statements []config.Statement
+		queries    []Query
+		wantEffect Effect
+		wantReason Reason
+	}{
+		{
+			name:       "no queries is default deny",
+			wantEffect: Deny,
+			wantReason: ReasonDefaultDeny,
+		},
+		{
+			name:       "single capability allow",
+			statements: []config.Statement{allow("builtin/*")},
+			queries:    []Query{{Action: "tool:invoke", Resource: "builtin/x"}},
+			wantEffect: Allow,
+			wantReason: ReasonAllowed,
+		},
+		{
+			name:       "both tiers allow",
+			statements: []config.Statement{allow("builtin/*"), dataRead("allow", "builtin/*")},
+			queries: []Query{
+				{Action: "tool:invoke", Resource: "builtin/x"},
+				{Action: "data:read", Resource: "builtin/x"},
+			},
+			wantEffect: Allow,
+			wantReason: ReasonAllowed,
+		},
+		{
+			name:       "capability allows but data tier default-denies",
+			statements: []config.Statement{allow("builtin/*")},
+			queries: []Query{
+				{Action: "tool:invoke", Resource: "builtin/x"},
+				{Action: "data:read", Resource: "builtin/x"},
+			},
+			wantEffect: Deny,
+			wantReason: ReasonDefaultDeny,
+		},
+		{
+			name:       "data tier explicit deny beats capability allow",
+			statements: []config.Statement{allow("builtin/*"), dataRead("deny", "builtin/*")},
+			queries: []Query{
+				{Action: "tool:invoke", Resource: "builtin/x"},
+				{Action: "data:read", Resource: "builtin/x"},
+			},
+			wantEffect: Deny,
+			wantReason: ReasonExplicitDeny,
+		},
+		{
+			name:       "data tier confirm escalates from allow",
+			statements: []config.Statement{allow("builtin/*"), dataRead("require_confirmation", "builtin/*")},
+			queries: []Query{
+				{Action: "tool:invoke", Resource: "builtin/x"},
+				{Action: "data:read", Resource: "builtin/x"},
+			},
+			wantEffect: Confirm,
+			wantReason: ReasonPermConfirm,
+		},
+		{
+			name:       "most restrictive wins regardless of query order",
+			statements: []config.Statement{deny("builtin/*"), dataRead("allow", "builtin/*")},
+			queries: []Query{
+				{Action: "data:read", Resource: "builtin/x"},
+				{Action: "tool:invoke", Resource: "builtin/x"},
+			},
+			wantEffect: Deny,
+			wantReason: ReasonExplicitDeny,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := NewEngine(tt.statements)
+			got := e.EvaluateAll(tt.queries...)
+			if got.Effect != tt.wantEffect {
+				t.Errorf("Effect = %q, want %q", got.Effect, tt.wantEffect)
+			}
+			if got.Reason != tt.wantReason {
+				t.Errorf("Reason = %q, want %q", got.Reason, tt.wantReason)
+			}
+		})
+	}
+}
+
 func TestClearanceCheck(t *testing.T) {
 	tests := []struct {
 		name              string

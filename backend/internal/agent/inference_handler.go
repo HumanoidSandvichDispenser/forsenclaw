@@ -44,6 +44,7 @@ type InferenceHandler struct {
 	effectiveClearance int
 	toolClearances     map[string]int
 	toolResources      map[string]string
+	toolDataActions    map[string][]string
 
 	// policy evaluates per-call authorization (permissions + BLP). Built from
 	// the agent's permission statements at the start of the inference loop.
@@ -135,8 +136,10 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 		var tools []inference.ToolDefinition
 		tools, h.toolClearances = filterToolsByClearance(allTools, h.effectiveClearance)
 		h.toolResources = make(map[string]string, len(allTools))
+		h.toolDataActions = make(map[string][]string, len(allTools))
 		for _, t := range allTools {
 			h.toolResources[t.Name] = t.Resource
+			h.toolDataActions[t.Name] = t.DataActions
 		}
 		h.policy = policy.NewEngine(h.agent.Permissions())
 
@@ -273,21 +276,33 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 }
 
 // toolEffect returns the combined BLP + permission effect for a tool name by
-// delegating to the policy engine. BLP is checked first (structural, not
-// overridable by permissions), then permission statements are evaluated with
-// deny > require_confirmation > allow precedence, defaulting to deny.
+// delegating to the policy engine. Two-tier authorization: the tool's capability
+// action ("tool:invoke") AND each data-level action it declares must all pass;
+// the most restrictive Decision wins (deny > require_confirmation > allow). Each
+// query runs BLP first (structural, not overridable) then permission statements.
 func (h *InferenceHandler) toolEffect(toolName string) string {
 	// Lazily build the engine so direct-constructed handlers (e.g. in tests)
 	// that never enter the inference loop still evaluate correctly.
 	if h.policy == nil {
 		h.policy = policy.NewEngine(h.agent.Permissions())
 	}
-	d := h.policy.Evaluate(policy.Query{
+	resource := h.toolResources[toolName]
+	clearance := h.toolClearances[toolName]
+	queries := []policy.Query{{
 		Action:            "tool:invoke",
-		Resource:          h.toolResources[toolName],
+		Resource:          resource,
 		SubjectClearance:  h.effectiveClearance,
-		ResourceClearance: h.toolClearances[toolName],
-	})
+		ResourceClearance: clearance,
+	}}
+	for _, action := range h.toolDataActions[toolName] {
+		queries = append(queries, policy.Query{
+			Action:            action,
+			Resource:          resource,
+			SubjectClearance:  h.effectiveClearance,
+			ResourceClearance: clearance,
+		})
+	}
+	d := h.policy.EvaluateAll(queries...)
 	return string(d.Effect)
 }
 

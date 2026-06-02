@@ -48,6 +48,41 @@ func ClearanceCheck(subjectClearance, resourceClearance int) (Decision, bool) {
 	return Decision{}, false
 }
 
+// severity ranks effects from least to most restrictive, so EvaluateAll can pick
+// the most restrictive outcome across a set of queries.
+func severity(e Effect) int {
+	switch e {
+	case Deny:
+		return 2
+	case Confirm:
+		return 1
+	default: // Allow
+		return 0
+	}
+}
+
+// EvaluateAll decides a set of queries that must ALL pass for an action to
+// proceed, returning the single most restrictive Decision (deny > confirm >
+// allow). This is the two-tier authorization primitive: a tool call is gated by
+// its capability action (tool:invoke) AND any data-level actions it performs
+// (data:read / data:write), each evaluated through the same statement set.
+//
+// With no queries it returns a default deny — callers always pass at least the
+// capability query.
+func (e *Engine) EvaluateAll(queries ...Query) Decision {
+	if len(queries) == 0 {
+		return Decision{Effect: Deny, Reason: ReasonDefaultDeny}
+	}
+	result := Decision{Effect: Allow, Reason: ReasonAllowed}
+	for _, q := range queries {
+		d := e.Evaluate(q)
+		if severity(d.Effect) > severity(result.Effect) {
+			result = d
+		}
+	}
+	return result
+}
+
 // Evaluate decides a Query. Bell-LaPadula is checked first and is structural —
 // it is not overridable by permission statements. If BLP does not fire,
 // permission statements are evaluated with precedence

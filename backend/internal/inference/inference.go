@@ -126,7 +126,11 @@ func RenderToolCallsXML(toolCalls []ToolCallWire) string {
 type ToolDefinition struct {
 	Name        string
 	Description string
-	Resource string // FRSN (frsn:tool/{server}/{tool}) for policy evaluation
+	Resource    string // FRSN (frsn:tool/{server}/{tool}) for policy evaluation
+	// DataActions are the data-level actions this tool performs (e.g.
+	// "data:read", "data:write"), evaluated alongside "tool:invoke" for
+	// two-tier authorization. Empty means no data-tier check applies.
+	DataActions []string
 	Parameters  map[string]interface{} // JSON Schema object
 	// Clearance is the data classification tier for this tool.
 	// Populated by the registry at construction from config.
@@ -145,20 +149,20 @@ type ContextMessage struct {
 // ContextPayload is the structured context for a model invocation.
 // Providers receive this and render it natively for their API.
 type ContextPayload struct {
-	Model           string
-	SystemPrompt    string
-	Memory          string
-	DailyNotes      []string
-	RAGResults      []string
-	ToolSchemas     []string         // for XML tool-mode fallback
-	ToolDefinitions []ToolDefinition // for native tool calling adapters
-	CrossRoomFeed   []string         // pre-formatted strings, one per message
+	Model              string
+	SystemPrompt       string
+	Memory             string
+	DailyNotes         []string
+	RAGResults         []string
+	ToolSchemas        []string         // for XML tool-mode fallback
+	ToolDefinitions    []ToolDefinition // for native tool calling adapters
+	CrossRoomFeed      []string         // pre-formatted strings, one per message
 	History            []HistoryMessage // room conversation history, static for the request
 	CurrentTurnHistory []HistoryMessage // tool exchanges accumulated this inference turn
 	RFC                string
-	Temperature     *float64
-	MaxTokens       *int
-	Stop            []string
+	Temperature        *float64
+	MaxTokens          *int
+	Stop               []string
 }
 
 // Provider is the interface for all model provider adapters.
