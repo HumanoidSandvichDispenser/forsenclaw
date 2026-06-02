@@ -127,7 +127,7 @@ func (c *CreateRoomClient) Call(ctx context.Context, toolID string, params map[s
 		return "", fmt.Errorf("resolve calling agent %q: %w", agentName, err)
 	}
 
-	participants, err := c.buildParticipants(seeder, params["participants"])
+	participants, err := c.buildParticipants(seeder, ceiling, params["participants"])
 	if err != nil {
 		return "", err
 	}
@@ -168,13 +168,19 @@ func (c *CreateRoomClient) Call(ctx context.Context, toolID string, params map[s
 
 // buildParticipants assembles the participant list: the seeding agent (joins by
 // default), the configured user, and any explicitly named participants from the
-// comma-separated raw list. Deduplicated by actor ID.
-func (c *CreateRoomClient) buildParticipants(seeder room.Actor, raw string) ([]room.Actor, error) {
+// comma-separated raw list. Deduplicated by actor ID. Each participant's stored
+// clearance is capped to the room ceiling — it represents their effective
+// clearance in this room (min(actor, ceiling)), which also satisfies
+// room.Room.Validate's "participant clearance must not exceed room" rule.
+func (c *CreateRoomClient) buildParticipants(seeder room.Actor, ceiling int, raw string) ([]room.Actor, error) {
 	seen := make(map[string]bool)
 	var out []room.Actor
 	add := func(a room.Actor) {
 		if a.ID == "" || seen[a.ID] {
 			return
+		}
+		if a.Clearance > ceiling {
+			a.Clearance = ceiling
 		}
 		seen[a.ID] = true
 		out = append(out, a)

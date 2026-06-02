@@ -237,6 +237,7 @@ type ConfirmationResponse struct {
 	RoomID    int64  `json:"room_id"    doc:"Room the confirmation belongs to"`
 	ToolName  string `json:"tool_name"  doc:"Tool the agent wants to call"`
 	Args      string `json:"args"       doc:"JSON-encoded tool arguments"`
+	Reason    string `json:"reason"     doc:"Why confirmation is required (e.g. blp_write_down, permission_confirmation)"`
 }
 
 // UserResponse is the API representation of the authenticated user.

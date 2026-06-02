@@ -87,5 +87,6 @@ func toConfirmationResponse(pc agent.PendingConfirmation) ConfirmationResponse {
 		RoomID:    pc.RoomID,
 		ToolName:  pc.ToolName,
 		Args:      pc.Args,
+		Reason:    pc.Reason,
 	}
 }
