@@ -8,7 +8,8 @@ type PendingConfirmation struct {
 	AgentName string `json:"agent_name"`
 	RoomID    int64  `json:"room_id"`
 	ToolName  string `json:"tool_name"`
-	Args      string `json:"args"` // JSON-encoded arguments
+	Args      string `json:"args"`   // JSON-encoded arguments
+	Reason    string `json:"reason"` // why confirmation is required (policy.Reason)
 }
 
 // ConfirmationNotifier is implemented by the API layer to push real-time

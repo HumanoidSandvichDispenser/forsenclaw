@@ -16,6 +16,7 @@ type ConfirmationHandler struct {
 	nodeID    string
 	agentName string
 	roomID    int64
+	reason    string
 	registry  *ConfirmationRegistry
 	notifier  ConfirmationNotifier
 
@@ -23,10 +24,13 @@ type ConfirmationHandler struct {
 }
 
 // NewConfirmationHandler creates a ConfirmationHandler for the given tool call.
+// reason explains why confirmation is required (a policy.Reason value) so the
+// UI can distinguish e.g. a declassification write-down from a plain approval.
 func NewConfirmationHandler(
 	call inference.ToolCallWire,
 	nodeID, agentName string,
 	roomID int64,
+	reason string,
 	registry *ConfirmationRegistry,
 	notifier ConfirmationNotifier,
 ) *ConfirmationHandler {
@@ -35,6 +39,7 @@ func NewConfirmationHandler(
 		nodeID:    nodeID,
 		agentName: agentName,
 		roomID:    roomID,
+		reason:    reason,
 		registry:  registry,
 		notifier:  notifier,
 		response:  make(chan dag.Result, 1),
@@ -48,6 +53,7 @@ func (h *ConfirmationHandler) Handle(ctx context.Context, _ map[string]dag.Resul
 		RoomID:    h.roomID,
 		ToolName:  h.call.Function.Name,
 		Args:      h.call.Function.Arguments,
+		Reason:    h.reason,
 	}
 
 	if h.registry != nil {

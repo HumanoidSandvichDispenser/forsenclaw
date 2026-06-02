@@ -28,6 +28,35 @@ func (e *Executor) AllDefinitions() []inference.ToolDefinition {
 	return e.registry.AllDefinitions()
 }
 
+// DynamicClearance is implemented by tools whose resource clearance depends on
+// their call arguments rather than a static per-tool value (e.g. create_room,
+// whose target ceiling comes from an argument). ok is false when the args carry
+// no clearance, in which case the static tool clearance applies.
+type DynamicClearance interface {
+	ResourceClearance(params map[string]string) (int, bool)
+}
+
+// ResolveResourceClearance derives a per-call resource clearance from the call
+// arguments when the resolved tool implements DynamicClearance. Satisfies the
+// agent.ResourceClearanceResolver interface.
+func (e *Executor) ResolveResourceClearance(call inference.ToolCallWire) (int, bool) {
+	client, err := e.registry.Resolve(call.Function.Name)
+	if err != nil {
+		return 0, false
+	}
+	dc, ok := client.(DynamicClearance)
+	if !ok {
+		return 0, false
+	}
+	var params map[string]string
+	if call.Function.Arguments != "" {
+		if err := json.Unmarshal([]byte(call.Function.Arguments), &params); err != nil {
+			return 0, false
+		}
+	}
+	return dc.ResourceClearance(params)
+}
+
 // Execute resolves the tool, converts JSON arguments, calls the MCP client,
 // and logs the outcome. Satisfies the agent.ToolExecutor interface.
 func (e *Executor) Execute(ctx context.Context, call inference.ToolCallWire) (string, error) {

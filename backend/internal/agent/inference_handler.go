@@ -221,8 +221,9 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 
 		var deps []dag.Dep
 		for i, tc := range toolCalls {
-			switch h.toolEffect(tc.Function.Name) {
-			case "allow":
+			decision := h.toolEffect(tc)
+			switch decision.Effect {
+			case policy.Allow:
 				toolResult, err := h.executor.Execute(ctx, tc)
 				if err != nil {
 					return nil, nil, fmt.Errorf("executing tool %q: %w", tc.Function.Name, err)
@@ -239,7 +240,7 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 					}
 				}
 
-			case "deny":
+			case policy.Deny:
 				h.turnHistory = append(h.turnHistory, inference.HistoryMessage{
 					Role:       inference.RoleTool,
 					Content:    "Action not permitted.",
@@ -247,7 +248,7 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 					ToolCallID: tc.ID,
 				})
 
-			case "require_confirmation":
+			case policy.Confirm:
 				h.turnCount++
 				depID := fmt.Sprintf("confirm_%s_%d_%d", tc.Function.Name, h.turnCount, i)
 				h.pendingConfirmations = append(h.pendingConfirmations, confirmationEntry{
@@ -261,6 +262,7 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 						depID,
 						h.agent.Name(),
 						h.req.Payload.RoomID,
+						string(decision.Reason),
 						h.confirmationRegistry,
 						h.notifier,
 					),
@@ -275,19 +277,29 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 	}
 }
 
-// toolEffect returns the combined BLP + permission effect for a tool name by
+// toolEffect returns the combined BLP + permission Decision for a tool call by
 // delegating to the policy engine. Two-tier authorization: the tool's capability
 // action ("tool:invoke") AND each data-level action it declares must all pass;
 // the most restrictive Decision wins (deny > require_confirmation > allow). Each
 // query runs BLP first (structural, not overridable) then permission statements.
-func (h *InferenceHandler) toolEffect(toolName string) string {
+//
+// Resource clearance is normally the static per-tool value, but if the executor
+// implements ResourceClearanceResolver and resolves a per-call clearance from
+// the call arguments (e.g. create_room's target ceiling), that overrides it.
+func (h *InferenceHandler) toolEffect(call inference.ToolCallWire) policy.Decision {
 	// Lazily build the engine so direct-constructed handlers (e.g. in tests)
 	// that never enter the inference loop still evaluate correctly.
 	if h.policy == nil {
 		h.policy = policy.NewEngine(h.agent.Permissions())
 	}
+	toolName := call.Function.Name
 	resource := h.toolResources[toolName]
 	clearance := h.toolClearances[toolName]
+	if resolver, ok := h.executor.(ResourceClearanceResolver); ok {
+		if c, ok := resolver.ResolveResourceClearance(call); ok {
+			clearance = c
+		}
+	}
 	queries := []policy.Query{{
 		Action:            "tool:invoke",
 		Resource:          resource,
@@ -302,8 +314,7 @@ func (h *InferenceHandler) toolEffect(toolName string) string {
 			ResourceClearance: clearance,
 		})
 	}
-	d := h.policy.EvaluateAll(queries...)
-	return string(d.Effect)
+	return h.policy.EvaluateAll(queries...)
 }
 
 // filterToolsByClearance applies BLP rules to a set of tool definitions to

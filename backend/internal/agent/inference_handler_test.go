@@ -16,10 +16,15 @@ import (
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
 )
 
+// callOf builds a minimal tool call for toolEffect tests.
+func callOf(name string) inference.ToolCallWire {
+	return inference.ToolCallWire{Function: inference.ToolFunctionWire{Name: name}}
+}
+
 // --- mocks for InferenceHandler tests ---
 
 type mockInferenceAssembler struct {
-	calls int32
+	calls   int32
 	payload inference.ContextPayload
 }
 
@@ -105,10 +110,10 @@ func TestInferenceLoop_AssembleCalledOnce(t *testing.T) {
 	exec := &mockInferenceExecutor{}
 
 	h := &InferenceHandler{
-		agent:    ag,
-		registry: reg,
+		agent:     ag,
+		registry:  reg,
 		assembler: asm,
-		executor: exec,
+		executor:  exec,
 	}
 
 	deps, result, err := h.Handle(context.Background(), map[string]dag.Result{})
@@ -242,7 +247,7 @@ func TestToolEffect_BLPReadUp(t *testing.T) {
 		toolClearances:     map[string]int{"finances_read": 5},
 		agent:              ag,
 	}
-	if got := h.toolEffect("finances_read"); got != "deny" {
+	if got := string(h.toolEffect(callOf("finances_read")).Effect); got != "deny" {
 		t.Errorf("toolEffect(finances_read) = %q, want deny", got)
 	}
 }
@@ -254,7 +259,7 @@ func TestToolEffect_BLPWriteDown(t *testing.T) {
 		toolClearances:     map[string]int{"email_send": 2},
 		agent:              ag,
 	}
-	if got := h.toolEffect("email_send"); got != "require_confirmation" {
+	if got := string(h.toolEffect(callOf("email_send")).Effect); got != "require_confirmation" {
 		t.Errorf("toolEffect(email_send) = %q, want require_confirmation", got)
 	}
 }
@@ -272,7 +277,7 @@ func TestToolEffect_BLPEqualClearance(t *testing.T) {
 		toolResources:      map[string]string{"calendar_read": "builtin/calendar_read"},
 		agent:              ag,
 	}
-	if got := h.toolEffect("calendar_read"); got != "allow" {
+	if got := string(h.toolEffect(callOf("calendar_read")).Effect); got != "allow" {
 		t.Errorf("toolEffect(calendar_read) = %q, want allow", got)
 	}
 }
@@ -285,7 +290,7 @@ func TestToolEffect_BLPEqualClearanceNoPermission(t *testing.T) {
 		toolResources:      map[string]string{"calendar_read": "builtin/calendar_read"},
 		agent:              ag,
 	}
-	if got := h.toolEffect("calendar_read"); got != "deny" {
+	if got := string(h.toolEffect(callOf("calendar_read")).Effect); got != "deny" {
 		t.Errorf("toolEffect(calendar_read) = %q, want deny", got)
 	}
 }
@@ -303,7 +308,7 @@ func TestToolEffect_WildcardPermission(t *testing.T) {
 		toolResources:      map[string]string{"calendar_read": "builtin/calendar_read"},
 		agent:              ag,
 	}
-	if got := h.toolEffect("calendar_read"); got != "allow" {
+	if got := string(h.toolEffect(callOf("calendar_read")).Effect); got != "allow" {
 		t.Errorf("toolEffect(calendar_read) = %q, want allow", got)
 	}
 }
@@ -318,7 +323,7 @@ func TestToolEffect_BLPMissingFromMap(t *testing.T) {
 	}
 	// Missing tool defaults to 0 clearance, which is < effectiveClearance (3)
 	// so it should require_confirmation.
-	if got := h.toolEffect("unknown"); got != "require_confirmation" {
+	if got := string(h.toolEffect(callOf("unknown")).Effect); got != "require_confirmation" {
 		t.Errorf("toolEffect(unknown) = %q, want require_confirmation", got)
 	}
 }
@@ -336,7 +341,7 @@ func TestToolEffect_BLPEqualClearanceSpecificPermission(t *testing.T) {
 		toolResources:      map[string]string{"email_send": "builtin/email_send"},
 		agent:              ag,
 	}
-	if got := h.toolEffect("email_send"); got != "allow" {
+	if got := string(h.toolEffect(callOf("email_send")).Effect); got != "allow" {
 		t.Errorf("toolEffect(email_send) = %q, want allow", got)
 	}
 }
@@ -355,7 +360,7 @@ func TestToolEffect_DenyOverridesRequireConfirmation(t *testing.T) {
 		toolResources:      map[string]string{"email_send": "builtin/email_send"},
 		agent:              ag,
 	}
-	if got := h.toolEffect("email_send"); got != "deny" {
+	if got := string(h.toolEffect(callOf("email_send")).Effect); got != "deny" {
 		t.Errorf("toolEffect(email_send) = %q, want deny", got)
 	}
 }
@@ -374,7 +379,7 @@ func TestToolEffect_RequireConfirmationOverridesAllow(t *testing.T) {
 		toolResources:      map[string]string{"email_send": "builtin/email_send"},
 		agent:              ag,
 	}
-	if got := h.toolEffect("email_send"); got != "require_confirmation" {
+	if got := string(h.toolEffect(callOf("email_send")).Effect); got != "require_confirmation" {
 		t.Errorf("toolEffect(email_send) = %q, want require_confirmation", got)
 	}
 }
@@ -393,7 +398,7 @@ func TestToolEffect_DenyOverridesAllow(t *testing.T) {
 		toolResources:      map[string]string{"email_send": "builtin/email_send"},
 		agent:              ag,
 	}
-	if got := h.toolEffect("email_send"); got != "deny" {
+	if got := string(h.toolEffect(callOf("email_send")).Effect); got != "deny" {
 		t.Errorf("toolEffect(email_send) = %q, want deny", got)
 	}
 }

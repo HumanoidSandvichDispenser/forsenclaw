@@ -37,6 +37,14 @@ type ToolExecutor interface {
 	Execute(ctx context.Context, call inference.ToolCallWire) (string, error)
 }
 
+// ResourceClearanceResolver is optionally implemented by a ToolExecutor to
+// derive a per-call resource clearance from a tool call's arguments, overriding
+// the static tool clearance for policy evaluation. ok is false when the call
+// has no argument-derived clearance, in which case the static value is used.
+type ResourceClearanceResolver interface {
+	ResolveResourceClearance(call inference.ToolCallWire) (int, bool)
+}
+
 // RuntimeDeps groups optional dependencies for AgentRuntime.
 type RuntimeDeps struct {
 	Registry             *inference.Registry
