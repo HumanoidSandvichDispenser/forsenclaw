@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/audit"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/dag"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/policy"
@@ -52,6 +53,10 @@ type InferenceHandler struct {
 }
 
 func (h *InferenceHandler) Handle(ctx context.Context, childResults map[string]dag.Result) ([]dag.Dep, *dag.Result, error) {
+	// Stamp the calling agent into the context so downstream tool execution
+	// (and audit logging) can attribute actions to it.
+	ctx = audit.WithAgentID(ctx, h.agent.Name())
+
 	// If we have pending confirmations, apply their results before continuing.
 	if len(h.pendingConfirmations) > 0 {
 		if err := h.applyConfirmations(ctx, childResults); err != nil {

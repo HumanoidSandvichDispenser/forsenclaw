@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -164,14 +165,28 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 	}
 	defer store.Close()
 
+	// Resolve the configured user actor up front: the create_room tool needs it
+	// as a default participant when building the MCP registry below.
+	userName := cfg.User.Name
+	if userName == "" {
+		userName = "user"
+	}
+	userActor := roomPkg.Actor{
+		ID:        "user:" + userName,
+		Type:      roomPkg.ActorUser,
+		Clearance: 5,
+		Name:      userName,
+	}
+
 	// 3. Create inference registry
 	registry, err := inference.NewRegistry(cfg)
 	if err != nil {
 		log.Fatalf("failed to create inference registry: %v", err)
 	}
 
-	// 3b. Create built-in MCP registry.
-	mcpRegistry, err := buildMCPRegistry(cfg)
+	// 3b. Create built-in MCP registry. createRoomTool's actor resolver is wired
+	// after the agent manager exists (it backs the resolver).
+	mcpRegistry, createRoomTool, err := buildMCPRegistry(cfg, store, userActor)
 	if err != nil {
 		log.Fatalf("failed to create MCP registry: %v", err)
 	}
@@ -203,20 +218,13 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 	}
 	defer agentMgr.Close()
 
+	// Wire the create_room actor resolver now that the agent manager exists.
+	createRoomTool.SetResolver(&agentActorResolver{mgr: agentMgr, user: userActor})
+
 	// 7. Create dispatcher and start its run loop
 	dispatcher := dispatch.NewDispatcher(agentMgr)
 
 	// 8. Create service and API
-	userName := cfg.User.Name
-	if userName == "" {
-		userName = "user"
-	}
-	userActor := roomPkg.Actor{
-		ID:        "user:" + userName,
-		Type:      roomPkg.ActorUser,
-		Clearance: 5,
-		Name:      userName,
-	}
 	svc := api.NewService(dispatcher, store, store, agentMgr, assembler, mcpExecutor, hub, userActor)
 
 	router := chi.NewRouter()
@@ -302,7 +310,11 @@ func buildAuditLogger(cfg config.AuditConfig, p *paths.Paths) (*audit.Logger, fu
 	return audit.NewLogger(sinkConfigs), cleanup
 }
 
-func buildMCPRegistry(cfg *config.ServerConfig) (mcp.Registry, error) {
+func buildMCPRegistry(
+	cfg *config.ServerConfig,
+	store *storedb.SQLiteStore,
+	user roomPkg.Actor,
+) (mcp.Registry, *mcpTools.CreateRoomClient, error) {
 	// TODO: read systemMax from clearance_levels config when implemented.
 	const systemMax = 5
 
@@ -315,15 +327,61 @@ func buildMCPRegistry(cfg *config.ServerConfig) (mcp.Registry, error) {
 	}
 	clearances["webfetch"] = webfetchClearance
 
+	// create_room has static clearance 0 so it is always injected; its real
+	// resource clearance is the requested ceiling, resolved per-call via
+	// mcp.DynamicClearance and gated by the policy engine's write-down rule.
+	createRoomTool := mcpTools.NewCreateRoom(store, store, user)
+	clients = append(clients, mcp.NamedMCPClient{Name: "builtin", Client: createRoomTool})
+	clearances["create_room"] = 0
+
 	if apiKey := cfg.Tools.BraveSearch.APIKey.Resolve(); apiKey != "" {
 		braveClearance := cfg.ResolveToolClearance(cfg.Tools.BraveSearch.Clearance, systemMax)
 		client, err := mcpTools.NewBraveSearch(apiKey, braveClearance)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		clients = append(clients, mcp.NamedMCPClient{Name: "builtin", Client: client})
 		clearances["web_search"] = braveClearance
 	}
 
-	return mcp.NewRegistry(clients, clearances), nil
+	return mcp.NewRegistry(clients, clearances), createRoomTool, nil
+}
+
+// agentActorResolver resolves actor IDs to room.Actor values for the create_room
+// tool, backed by the agent manager. It mirrors the resolution rules used by the
+// API layer's participant handling.
+type agentActorResolver struct {
+	mgr  *agent.Manager
+	user roomPkg.Actor
+}
+
+func (r *agentActorResolver) ResolveActor(id string) (roomPkg.Actor, error) {
+	switch {
+	case strings.HasPrefix(id, "user:"):
+		name := id[len("user:"):]
+		if name == "" {
+			return roomPkg.Actor{}, fmt.Errorf("invalid user ID: %q", id)
+		}
+		// The configured root user is the only known user today.
+		if id == r.user.ID {
+			return r.user, nil
+		}
+		return roomPkg.Actor{ID: id, Type: roomPkg.ActorUser, Clearance: 5, Name: name}, nil
+
+	case strings.HasPrefix(id, "agent:"):
+		name := id[len("agent:"):]
+		ag := r.mgr.Get(name)
+		if ag == nil {
+			return roomPkg.Actor{}, fmt.Errorf("agent %q not found", name)
+		}
+		return roomPkg.Actor{
+			ID:        id,
+			Type:      roomPkg.ActorAgent,
+			Clearance: ag.Definition.Clearance,
+			Name:      ag.Definition.Name,
+		}, nil
+
+	default:
+		return roomPkg.Actor{}, fmt.Errorf("invalid actor ID: %q", id)
+	}
 }
