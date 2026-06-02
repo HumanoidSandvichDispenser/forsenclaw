@@ -635,3 +635,48 @@ func TestE2E_CreateRoomDeclassification(t *testing.T) {
 		t.Errorf("seed clearance_tag = %v, want 2", seed["clearance_tag"])
 	}
 }
+
+// TestE2E_CreateRoomDeclassificationDenied is the unhappy-path twin of the test
+// above: when the user denies the write-down confirmation, no room is created
+// and the agent's turn continues with the denial recorded.
+func TestE2E_CreateRoomDeclassificationDenied(t *testing.T) {
+	env := newE2EEnv(t, nil, nil)
+
+	roomID := createRoom(t, env.serverURL) // clearance 5
+
+	conn := connectWS(t, env.serverURL)
+	subscribeRoom(t, conn, roomID)
+
+	env.infer.enqueue(sseToolCallResponse("create_room", "call_1",
+		`{"name":"should not exist","clearance_ceiling":"2","context_summary":"nope"}`))
+	// After denial, the agent acknowledges and finishes its turn.
+	env.infer.enqueue(sseTextResponse("Understood, leaving it."))
+
+	sendMessage(t, env.serverURL, roomID, "user:alice", "make a lower-clearance room")
+
+	pending := awaitEvent(t, conn, "confirmation.pending")
+	nodeID, _ := pending["node_id"].(string)
+	if nodeID == "" {
+		t.Fatal("confirmation missing node_id")
+	}
+
+	// Deny the write-down.
+	respondConfirmation(t, env.serverURL, roomID, nodeID, "deny")
+
+	// The agent still finishes its turn.
+	for {
+		p := awaitEvent(t, conn, "message.created")
+		if mt, _ := p["type"].(string); mt == "message" {
+			if c, _ := p["content"].(string); c == "Understood, leaving it." {
+				break
+			}
+		}
+	}
+
+	// No room must have been created by the denied call.
+	for _, r := range listRooms(t, env.serverURL) {
+		if name, _ := r["name"].(string); name == "should not exist" {
+			t.Fatalf("a room was created despite the confirmation being denied")
+		}
+	}
+}
