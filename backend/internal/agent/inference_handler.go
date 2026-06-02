@@ -7,6 +7,7 @@ import (
 
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/dag"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/policy"
 )
 
 // confirmationEntry tracks a tool call that was yielded for user confirmation.
@@ -19,12 +20,12 @@ type confirmationEntry struct {
 // It accumulates history across handler invocations and yields ConfirmationHandler
 // deps for tool calls that require user approval.
 type InferenceHandler struct {
-	req       Request
-	agent     *Agent
-	registry  *inference.Registry
-	assembler Assembler
-	executor  ToolExecutor
-	streamWriter         StreamWriter
+	req          Request
+	agent        *Agent
+	registry     *inference.Registry
+	assembler    Assembler
+	executor     ToolExecutor
+	streamWriter StreamWriter
 
 	responseWriter       ResponseWriter
 	confirmationRegistry *ConfirmationRegistry
@@ -43,6 +44,10 @@ type InferenceHandler struct {
 	effectiveClearance int
 	toolClearances     map[string]int
 	toolResources      map[string]string
+
+	// policy evaluates per-call authorization (permissions + BLP). Built from
+	// the agent's permission statements at the start of the inference loop.
+	policy *policy.Engine
 }
 
 func (h *InferenceHandler) Handle(ctx context.Context, childResults map[string]dag.Result) ([]dag.Dep, *dag.Result, error) {
@@ -133,6 +138,7 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 		for _, t := range allTools {
 			h.toolResources[t.Name] = t.Resource
 		}
+		h.policy = policy.NewEngine(h.agent.Permissions())
 
 		if h.basePayload == nil {
 			assembled, err := h.assembler.Assemble(ctx, h.agent, h.req, tools)
@@ -246,15 +252,15 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 					depID: depID,
 				})
 				deps = append(deps, dag.Dep{
-					ID:      depID,
+					ID: depID,
 					Handler: NewConfirmationHandler(
-					tc,
-					depID,
-					h.agent.Name(),
-					h.req.Payload.RoomID,
-					h.confirmationRegistry,
-					h.notifier,
-				),
+						tc,
+						depID,
+						h.agent.Name(),
+						h.req.Payload.RoomID,
+						h.confirmationRegistry,
+						h.notifier,
+					),
 				})
 			}
 		}
@@ -266,69 +272,48 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 	}
 }
 
-// toolEffect returns the combined BLP + permission effect for a tool name.
-// BLP is checked first (structural, not overridable by permissions), then
-// the agent's permission statements are evaluated with deny > require_confirmation > allow
-// precedence. Falls back to "deny" if no statement matches.
+// toolEffect returns the combined BLP + permission effect for a tool name by
+// delegating to the policy engine. BLP is checked first (structural, not
+// overridable by permissions), then permission statements are evaluated with
+// deny > require_confirmation > allow precedence, defaulting to deny.
 func (h *InferenceHandler) toolEffect(toolName string) string {
-	// BLP pre-check: skip when effectiveClearance has not been computed yet.
-	if h.effectiveClearance > 0 {
-		tc := h.toolClearances[toolName]
-		if tc > h.effectiveClearance {
-			return "deny" // no read-up
-		}
-		if tc < h.effectiveClearance {
-			return "require_confirmation" // no write-down without approval
-		}
+	// Lazily build the engine so direct-constructed handlers (e.g. in tests)
+	// that never enter the inference loop still evaluate correctly.
+	if h.policy == nil {
+		h.policy = policy.NewEngine(h.agent.Permissions())
 	}
-
-	resource := h.toolResources[toolName]
-
-	// Collect the highest-priority effect across all matching statements.
-	// Priority: deny > require_confirmation > allow.
-	effect := ""
-	for _, stmt := range h.agent.Permissions() {
-		if !stmt.Matches("tool:invoke", resource) {
-			continue
-		}
-		switch stmt.Effect {
-		case "deny":
-			return "deny" // explicit deny short-circuits
-		case "require_confirmation":
-			effect = "require_confirmation"
-		case "allow":
-			if effect == "" {
-				effect = "allow"
-			}
-		}
-	}
-	if effect == "" {
-		return "deny" // default deny
-	}
-	return effect
+	d := h.policy.Evaluate(policy.Query{
+		Action:            "tool:invoke",
+		Resource:          h.toolResources[toolName],
+		SubjectClearance:  h.effectiveClearance,
+		ResourceClearance: h.toolClearances[toolName],
+	})
+	return string(d.Effect)
 }
 
-
-// filterToolsByClearance applies BLP rules to a set of tool definitions.
-// Tools with clearance > effectiveClearance are dropped (no read-up).
-// Tools with clearance < effectiveClearance are annotated with a write-down
-// warning in their description (no write-down without approval).
+// filterToolsByClearance applies BLP rules to a set of tool definitions to
+// decide which tools are injected into the model's context. Tools the subject
+// cannot read up to are dropped; tools that would be a write-down are annotated
+// with a warning in their description. The BLP rule itself lives in
+// policy.ClearanceCheck — only the prompt-facing annotation lives here.
 // Returns the filtered list and a map of tool name → clearance.
 func filterToolsByClearance(tools []inference.ToolDefinition, effectiveClearance int) ([]inference.ToolDefinition, map[string]int) {
 	clearances := make(map[string]int, len(tools))
 	var filtered []inference.ToolDefinition
 	for _, t := range tools {
 		clearances[t.Name] = t.Clearance
-		if t.Clearance > effectiveClearance {
-			// No read-up: tool above effective clearance is not injected.
-			continue
-		}
-		if t.Clearance < effectiveClearance {
-			// No write-down without approval: annotate with warning.
-			t.Description = fmt.Sprintf(
-				"[Clearance %d — requires confirmation in this clearance-%d room due to write-down risk. Minimize sensitive content or use propose_handoff for deliberate transfer.]\n\n%s",
-				t.Clearance, effectiveClearance, t.Description,
-			)
+		if d, ok := policy.ClearanceCheck(effectiveClearance, t.Clearance); ok {
+			switch d.Reason {
+			case policy.ReasonReadUp:
+				// No read-up: tool above effective clearance is not injected.
+				continue
+			case policy.ReasonWriteDown:
+				// No write-down without approval: annotate with warning.
+				t.Description = fmt.Sprintf(
+					"[Clearance %d — requires confirmation in this clearance-%d room due to write-down risk. Minimize sensitive content or use propose_handoff for deliberate transfer.]\n\n%s",
+					t.Clearance, effectiveClearance, t.Description,
+				)
+			}
 		}
 		filtered = append(filtered, t)
 	}
