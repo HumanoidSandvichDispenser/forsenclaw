@@ -8,7 +8,7 @@ import (
 )
 
 type AgentStreamWriter struct {
-	hub      *Hub
+	hub *Hub
 }
 
 func NewAgentStreamWriter(hub *Hub) *AgentStreamWriter {

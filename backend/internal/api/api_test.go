@@ -135,7 +135,9 @@ permissions: []
 	hub := NewHub()
 	go hub.Run()
 
-	svc := NewService(dispatcher, store, store, agentMgr, hub, room.Actor{
+	assembler := memory.NewAssembler(p, 0, store, store)
+
+	svc := NewService(dispatcher, store, store, agentMgr, assembler, nil, hub, room.Actor{
 		ID:        "user:test",
 		Type:      room.ActorUser,
 		Clearance: 5,
@@ -428,7 +430,6 @@ func TestGetAgent(t *testing.T) {
 
 // TestPreviewContext tests previewing the assembled context window.
 func TestPreviewContext(t *testing.T) {
-	t.Skip("context preview not yet implemented in new dispatch architecture")
 	svc, _, cleanup := newTestService(t)
 	defer cleanup()
 
@@ -465,7 +466,6 @@ func TestPreviewContext(t *testing.T) {
 // TestPreviewContext_HeadersMatchProviderRendering checks that the context
 // preview adds the same section headers that providers use.
 func TestPreviewContext_HeadersMatchProviderRendering(t *testing.T) {
-	t.Skip("context preview not yet implemented in new dispatch architecture")
 	svc, p, cleanup := newTestService(t)
 	defer cleanup()
 

@@ -86,7 +86,7 @@ type ListMessagesResponse struct {
 
 // GetContextPreviewRequest is the input for GET /api/rooms/{room_id}/agents/{agent_name}/context-preview.
 type GetContextPreviewRequest struct {
-	RoomID               int64 `path:"room_id"               validate:"required" doc:"Room ID"`
+	RoomID               int64  `path:"room_id"               validate:"required" doc:"Room ID"`
 	AgentName            string `path:"agent_name"            validate:"required" doc:"Agent name"`
 	IncludeCrossRoom     bool   `query:"include_cross_room"     default:"true" doc:"Include cross-room feed"`
 	IncludeInterjections bool   `query:"include_interjections" default:"false" doc:"Include queued interjections"`
@@ -96,9 +96,17 @@ type GetContextPreviewRequest struct {
 type GetContextPreviewResponse struct {
 	Body struct {
 		Messages         []ContextMessageResponse `json:"messages"`
+		Tools            []ContextToolResponse    `json:"tools" doc:"Tool definitions the agent would receive"`
 		CompactionOffset int                      `json:"compaction_offset" doc:"Current compaction cursor offset"`
 		AssembledBytes   int                      `json:"assembled_bytes" doc:"Total byte size of assembled message content"`
 	}
+}
+
+// ContextToolResponse is a tool definition as surfaced in a context preview.
+type ContextToolResponse struct {
+	Name      string `json:"name" doc:"Tool name"`
+	Resource  string `json:"resource" doc:"Tool FRSN resource identifier"`
+	Clearance int    `json:"clearance" doc:"Tool data-classification clearance tier"`
 }
 
 // ---------------------------------------------------------------------------
@@ -150,17 +158,17 @@ type RoomResponse struct {
 
 // MessageResponse is the API representation of a message.
 type MessageResponse struct {
-	ID           int64               `json:"id"             doc:"Message ID"`
-	Timestamp    time.Time           `json:"timestamp"      doc:"Message timestamp"`
-	RoomID       int64               `json:"room_id"        doc:"Room this message belongs to"`
-	Sender       ActorResponse       `json:"sender"         doc:"Actor who sent this message"`
-	ClearanceTag int                 `json:"clearance_tag"  doc:"Classification tier"`
-	Type         string              `json:"type"           doc:"Message type" example:"message"`
-	Content      string              `json:"content"        doc:"Message body"`
-	Usage        *room.Usage         `json:"usage,omitempty" doc:"Token usage for agent responses"`
+	ID           int64                 `json:"id"             doc:"Message ID"`
+	Timestamp    time.Time             `json:"timestamp"      doc:"Message timestamp"`
+	RoomID       int64                 `json:"room_id"        doc:"Room this message belongs to"`
+	Sender       ActorResponse         `json:"sender"         doc:"Actor who sent this message"`
+	ClearanceTag int                   `json:"clearance_tag"  doc:"Classification tier"`
+	Type         string                `json:"type"           doc:"Message type" example:"message"`
+	Content      string                `json:"content"        doc:"Message body"`
+	Usage        *room.Usage           `json:"usage,omitempty" doc:"Token usage for agent responses"`
 	ToolCalls    []room.ToolCallRecord `json:"tool_calls,omitempty" doc:"Structured tool calls for tool_call messages"`
-	ToolCallID   string              `json:"tool_call_id,omitempty" doc:"Correlating tool call ID for tool_result messages"`
-	ToolName     string              `json:"tool_name,omitempty" doc:"Tool identifier for tool_result messages"`
+	ToolCallID   string                `json:"tool_call_id,omitempty" doc:"Correlating tool call ID for tool_result messages"`
+	ToolName     string                `json:"tool_name,omitempty" doc:"Tool identifier for tool_result messages"`
 }
 
 // ContextMessageResponse is a simplified message representation for context previews.
@@ -207,7 +215,7 @@ type ListConfirmationsResponse struct {
 
 // RespondConfirmationRequest is the input for POST /api/rooms/{room_id}/confirmations/{node_id}.
 type RespondConfirmationRequest struct {
-	RoomID int64 `path:"room_id" validate:"required" doc:"Room ID"`
+	RoomID int64  `path:"room_id" validate:"required" doc:"Room ID"`
 	NodeID string `path:"node_id" validate:"required" doc:"Confirmation node ID"`
 	Body   struct {
 		// Action is one of: "allow", "deny", "revise".

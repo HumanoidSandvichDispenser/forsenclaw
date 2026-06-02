@@ -17,16 +17,22 @@ type Service struct {
 	rooms      store.RoomRepository
 	messages   store.MessageRepository
 	agentMgr   *agent.Manager
+	assembler  agent.Assembler
+	executor   agent.ToolExecutor
 	hub        *Hub
 	user       room.Actor
 }
 
 // NewService creates a new API service with the given dependencies.
+// executor may be nil (e.g. in tests); the context preview then assembles
+// without tool definitions.
 func NewService(
 	d *dispatch.Dispatcher,
 	rooms store.RoomRepository,
 	messages store.MessageRepository,
 	m *agent.Manager,
+	assembler agent.Assembler,
+	executor agent.ToolExecutor,
 	h *Hub,
 	user room.Actor,
 ) *Service {
@@ -35,6 +41,8 @@ func NewService(
 		rooms:      rooms,
 		messages:   messages,
 		agentMgr:   m,
+		assembler:  assembler,
+		executor:   executor,
 		hub:        h,
 		user:       user,
 	}

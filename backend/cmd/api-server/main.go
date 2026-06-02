@@ -217,7 +217,7 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 		Clearance: 5,
 		Name:      userName,
 	}
-	svc := api.NewService(dispatcher, store, store, agentMgr, hub, userActor)
+	svc := api.NewService(dispatcher, store, store, agentMgr, assembler, mcpExecutor, hub, userActor)
 
 	router := chi.NewRouter()
 	router.Use(middleware.Logger)

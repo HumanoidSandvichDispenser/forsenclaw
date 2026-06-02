@@ -283,7 +283,7 @@ permissions:
 	dispatcher := dispatch.NewDispatcher(agentMgr)
 
 	// API service + router + real HTTP server
-	svc := api.NewService(dispatcher, sqliteStore, sqliteStore, agentMgr, hub, room.Actor{ID: "user:test", Name: "test", Type: room.ActorUser})
+	svc := api.NewService(dispatcher, sqliteStore, sqliteStore, agentMgr, assembler, mcpExec, hub, room.Actor{ID: "user:test", Name: "test", Type: room.ActorUser})
 	router := chi.NewRouter()
 	router.Use(api.AuthMiddleware("test"))
 	api.NewAPI(router, svc)
