@@ -4,9 +4,15 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
+
+// DefaultSystemMax is the clearance ceiling used when no clearance_levels are
+// configured (the historical hardcoded value).
+const DefaultSystemMax = 5
 
 type ContextConfig struct {
 	CurrentRoomWindow int `yaml:"current_room_window"`
@@ -40,6 +46,42 @@ type ServerConfig struct {
 	Context    ContextConfig    `yaml:"context"`
 	Tools      ToolsConfig      `yaml:"tools"`
 	Audit      AuditConfig      `yaml:"audit"`
+
+	// ClearanceLevels names the data-classification tiers, mapping each name to
+	// its integer value (e.g. {public: 0, internal: 1, confidential: 2,
+	// restricted: 3}). Optional — when empty, only integer clearances are used
+	// and SystemMax falls back to DefaultSystemMax.
+	ClearanceLevels map[string]int `yaml:"clearance_levels,omitempty"`
+}
+
+// SystemMax returns the highest configured clearance level, or DefaultSystemMax
+// when no levels are configured. It is the ceiling tools fall back to when they
+// declare no clearance of their own.
+func (c *ServerConfig) SystemMax() int {
+	max := 0
+	for _, v := range c.ClearanceLevels {
+		if v > max {
+			max = v
+		}
+	}
+	if max == 0 {
+		return DefaultSystemMax
+	}
+	return max
+}
+
+// ResolveClearanceName resolves a clearance written as either a named level
+// (e.g. "confidential") or a plain integer string (e.g. "2") to its integer
+// value. ok is false when the string is neither a known level nor an integer.
+func (c *ServerConfig) ResolveClearanceName(s string) (int, bool) {
+	s = strings.TrimSpace(s)
+	if v, ok := c.ClearanceLevels[s]; ok {
+		return v, true
+	}
+	if n, err := strconv.Atoi(s); err == nil {
+		return n, true
+	}
+	return 0, false
 }
 
 // AuditConfig configures the audit logging pipeline.
@@ -144,9 +186,9 @@ type WebFetchConfig struct {
 
 // MCPServerConfig defines a remote MCP server endpoint.
 type MCPServerConfig struct {
-	Name    string `yaml:"name"`
-	URL     string `yaml:"url"`     // HTTP/SSE endpoint
-	Timeout string `yaml:"timeout"` // e.g. "30s"
+	Name          string `yaml:"name"`
+	URL           string `yaml:"url"`     // HTTP/SSE endpoint
+	Timeout       string `yaml:"timeout"` // e.g. "30s"
 	MCPToolConfig `yaml:",inline"`
 }
 
@@ -216,9 +258,9 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 
 // ResolveToolClearance returns the effective clearance for a tool given the
 // parsed config. Resolution order:
-//   1. The tool's own configured Clearance (if > 0).
-//   2. ToolsConfig.DefaultClearance (if > 0).
-//   3. The provided systemMax fallback.
+//  1. The tool's own configured Clearance (if > 0).
+//  2. ToolsConfig.DefaultClearance (if > 0).
+//  3. The provided systemMax fallback.
 func (c *ServerConfig) ResolveToolClearance(toolClearance int, systemMax int) int {
 	if toolClearance > 0 {
 		return toolClearance

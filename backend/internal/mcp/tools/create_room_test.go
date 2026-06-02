@@ -216,6 +216,36 @@ func TestCreateRoom_UnsupportedToolID(t *testing.T) {
 	}
 }
 
+func TestCreateRoom_NamedLevel(t *testing.T) {
+	tool, rooms, _ := newTestTool()
+	tool.SetLevelResolver(func(s string) (int, bool) {
+		levels := map[string]int{"public": 0, "internal": 1, "confidential": 2}
+		v, ok := levels[s]
+		return v, ok
+	})
+
+	_, err := tool.Call(callWith("seeder"), "create_room", map[string]string{
+		"name":              "r",
+		"clearance_ceiling": "internal",
+		"context_summary":   "s",
+	})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if rooms.created.Clearance != 1 {
+		t.Errorf("room clearance = %d, want 1 (internal)", rooms.created.Clearance)
+	}
+
+	// ResourceClearance resolves names too (so the policy engine sees the level).
+	if n, ok := tool.ResourceClearance(map[string]string{"clearance_ceiling": "confidential"}); !ok || n != 2 {
+		t.Errorf("ResourceClearance(confidential) = (%d,%v), want (2,true)", n, ok)
+	}
+	// Unknown name with a resolver set is rejected (no silent integer 0).
+	if _, ok := tool.ResourceClearance(map[string]string{"clearance_ceiling": "bogus"}); ok {
+		t.Error("unknown level should not resolve")
+	}
+}
+
 func TestCreateRoom_ResourceClearance(t *testing.T) {
 	tool, _, _ := newTestTool()
 	if n, ok := tool.ResourceClearance(map[string]string{"clearance_ceiling": "3"}); !ok || n != 3 {

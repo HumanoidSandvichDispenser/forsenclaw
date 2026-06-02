@@ -315,8 +315,7 @@ func buildMCPRegistry(
 	store *storedb.SQLiteStore,
 	user roomPkg.Actor,
 ) (mcp.Registry, *mcpTools.CreateRoomClient, error) {
-	// TODO: read systemMax from clearance_levels config when implemented.
-	const systemMax = 5
+	systemMax := cfg.SystemMax()
 
 	clearances := make(map[string]int)
 
@@ -331,6 +330,7 @@ func buildMCPRegistry(
 	// resource clearance is the requested ceiling, resolved per-call via
 	// mcp.DynamicClearance and gated by the policy engine's write-down rule.
 	createRoomTool := mcpTools.NewCreateRoom(store, store, user)
+	createRoomTool.SetLevelResolver(cfg.ResolveClearanceName)
 	clients = append(clients, mcp.NamedMCPClient{Name: "builtin", Client: createRoomTool})
 	clearances["create_room"] = 0
 

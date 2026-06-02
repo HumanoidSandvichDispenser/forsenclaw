@@ -93,6 +93,14 @@ func ValidateServerConfig(cfg *ServerConfig) []ConfigError {
 	if cfg.Tools.DefaultClearance < 0 {
 		errs = append(errs, ConfigError{Field: "tools.default_clearance", Message: "must be non-negative (0 = use system max)"})
 	}
+	for name, v := range cfg.ClearanceLevels {
+		if name == "" {
+			errs = append(errs, ConfigError{Field: "clearance_levels", Message: "level names must not be empty"})
+		}
+		if v < 0 {
+			errs = append(errs, ConfigError{Field: fmt.Sprintf("clearance_levels.%s", name), Message: "must be non-negative"})
+		}
+	}
 	if raw := string(cfg.Tools.BraveSearch.APIKey); raw != "" && cfg.Tools.BraveSearch.APIKey.Resolve() == "" {
 		errs = append(errs, ConfigError{Field: "tools.brave_search.api_key", Message: "must resolve to a non-empty value"})
 	}
@@ -155,7 +163,6 @@ func ValidateAgentDefinition(agent *AgentDefinition, serverCfg *ServerConfig) []
 			}
 		}
 	}
-
 
 	if strings.Contains(agent.Name, "/") || strings.Contains(agent.Name, "..") {
 		errs = append(errs, ConfigError{Field: "name", Message: "must not contain / or .."})

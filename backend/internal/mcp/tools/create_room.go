@@ -43,10 +43,11 @@ type ActorResolver interface {
 // The new room is a clean cut: the source room's history is never copied. Only
 // the agent's hand-written context_summary crosses, tagged with provenance.
 type CreateRoomClient struct {
-	rooms    RoomCreator
-	messages MessageAppender
-	user     room.Actor
-	resolver ActorResolver
+	rooms        RoomCreator
+	messages     MessageAppender
+	user         room.Actor
+	resolver     ActorResolver
+	resolveLevel func(string) (int, bool)
 }
 
 // NewCreateRoom builds the create_room tool. user is the configured user, always
@@ -61,6 +62,26 @@ func NewCreateRoom(rooms RoomCreator, messages MessageAppender, user room.Actor)
 // (transitively) on the tool registry this client lives in.
 func (c *CreateRoomClient) SetResolver(r ActorResolver) { c.resolver = r }
 
+// SetLevelResolver injects a resolver for named clearance levels (e.g.
+// "confidential" → 2). When unset, clearance_ceiling must be an integer string.
+func (c *CreateRoomClient) SetLevelResolver(f func(string) (int, bool)) { c.resolveLevel = f }
+
+// parseCeiling resolves a clearance_ceiling argument, accepting a named level
+// when a level resolver is configured and falling back to integer parsing.
+func (c *CreateRoomClient) parseCeiling(raw string) (int, bool) {
+	raw = strings.TrimSpace(raw)
+	if c.resolveLevel != nil {
+		if n, ok := c.resolveLevel(raw); ok {
+			return n, true
+		}
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
 func (c *CreateRoomClient) ToolIDs() []string { return []string{createRoomToolID} }
 func (c *CreateRoomClient) Healthy() bool     { return true }
 
@@ -69,11 +90,7 @@ func (c *CreateRoomClient) Healthy() bool     { return true }
 // false when no parseable ceiling is present, leaving the static tool clearance
 // in effect. Satisfies mcp.DynamicClearance.
 func (c *CreateRoomClient) ResourceClearance(params map[string]string) (int, bool) {
-	n, err := strconv.Atoi(strings.TrimSpace(params["clearance_ceiling"]))
-	if err != nil {
-		return 0, false
-	}
-	return n, true
+	return c.parseCeiling(params["clearance_ceiling"])
 }
 
 func (c *CreateRoomClient) Call(ctx context.Context, toolID string, params map[string]string) (string, error) {
@@ -92,9 +109,9 @@ func (c *CreateRoomClient) Call(ctx context.Context, toolID string, params map[s
 	if summary == "" {
 		return "", fmt.Errorf("missing required parameter %q", "context_summary")
 	}
-	ceiling, err := strconv.Atoi(strings.TrimSpace(params["clearance_ceiling"]))
-	if err != nil {
-		return "", fmt.Errorf("invalid clearance_ceiling: %w", err)
+	ceiling, ok := c.parseCeiling(params["clearance_ceiling"])
+	if !ok {
+		return "", fmt.Errorf("invalid clearance_ceiling %q: not a known level or integer", params["clearance_ceiling"])
 	}
 	if ceiling < 0 {
 		return "", fmt.Errorf("clearance_ceiling must be non-negative, got %d", ceiling)
