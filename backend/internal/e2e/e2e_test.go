@@ -21,14 +21,15 @@ import (
 
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/agent"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/api"
-	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/audit"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/config"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/dispatch"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/mcp"
+	mcpTools "github.com/humanoidsandvichdispenser/hearth/backend/internal/mcp/tools"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/memory"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/paths"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
 	storedb "github.com/humanoidsandvichdispenser/hearth/backend/internal/store"
 )
 
@@ -148,7 +149,7 @@ func (m *mockMCPClient) Call(_ context.Context, _ string, _ map[string]string) (
 	return m.result, nil
 }
 func (m *mockMCPClient) ToolIDs() []string { return []string{m.toolID} }
-func (m *mockMCPClient) Healthy() bool      { return true }
+func (m *mockMCPClient) Healthy() bool     { return true }
 
 // XMLSchemas satisfies mcp.ToolDescriber (XML mode — unused in native mode).
 func (m *mockMCPClient) XMLSchemas() []string { return nil }
@@ -255,8 +256,16 @@ permissions:
 		t.Fatalf("inference.NewRegistry: %v", err)
 	}
 
-	// MCP
-	mcpReg := mcp.NewRegistry(mcpClients, mcpClearances)
+	// MCP — always wire the built-in create_room tool (as production does); its
+	// actor resolver is set after the agent manager exists (it backs the resolver).
+	userActor := room.Actor{ID: "user:test", Name: "test", Type: room.ActorUser, Clearance: 5}
+	createRoomTool := mcpTools.NewCreateRoom(sqliteStore, sqliteStore, userActor)
+	clients := append([]mcp.NamedMCPClient{{Name: "builtin", Client: createRoomTool}}, mcpClients...)
+	clearances := map[string]int{"create_room": 0}
+	for k, v := range mcpClearances {
+		clearances[k] = v
+	}
+	mcpReg := mcp.NewRegistry(clients, clearances)
 	mcpExec := mcp.NewExecutor(mcpReg, audit.Nop())
 
 	// Hub
@@ -279,11 +288,14 @@ permissions:
 		t.Fatalf("agent.NewManager: %v", err)
 	}
 
+	// Wire the create_room actor resolver now that the agent manager exists.
+	createRoomTool.SetResolver(&e2eActorResolver{mgr: agentMgr, user: userActor})
+
 	// Dispatcher
 	dispatcher := dispatch.NewDispatcher(agentMgr)
 
 	// API service + router + real HTTP server
-	svc := api.NewService(dispatcher, sqliteStore, sqliteStore, agentMgr, assembler, mcpExec, hub, room.Actor{ID: "user:test", Name: "test", Type: room.ActorUser})
+	svc := api.NewService(dispatcher, sqliteStore, sqliteStore, agentMgr, assembler, mcpExec, hub, userActor)
 	router := chi.NewRouter()
 	router.Use(api.AuthMiddleware("test"))
 	api.NewAPI(router, svc)
@@ -465,5 +477,161 @@ func TestE2E_ToolCallRoundTrip(t *testing.T) {
 	content, _ := payload["content"].(string)
 	if content != "Done! Tool said: echoed: hello" {
 		t.Errorf("expected final agent reply, got %q", content)
+	}
+}
+
+// e2eActorResolver resolves actor IDs to room.Actor values for the create_room
+// tool, backed by the agent manager (mirrors main.agentActorResolver).
+type e2eActorResolver struct {
+	mgr  *agent.Manager
+	user room.Actor
+}
+
+func (r *e2eActorResolver) ResolveActor(id string) (room.Actor, error) {
+	switch {
+	case strings.HasPrefix(id, "user:"):
+		return r.user, nil
+	case strings.HasPrefix(id, "agent:"):
+		name := id[len("agent:"):]
+		ag := r.mgr.Get(name)
+		if ag == nil {
+			return room.Actor{}, fmt.Errorf("agent %q not found", name)
+		}
+		return room.Actor{
+			ID: id, Type: room.ActorAgent,
+			Clearance: ag.Definition.Clearance, Name: ag.Definition.Name,
+		}, nil
+	default:
+		return room.Actor{}, fmt.Errorf("invalid actor ID %q", id)
+	}
+}
+
+// respondConfirmation POSTs a decision to a pending confirmation node.
+func respondConfirmation(t *testing.T, serverURL string, roomID int64, nodeID, action string) {
+	t.Helper()
+	body, _ := json.Marshal(map[string]any{"action": action})
+	url := fmt.Sprintf("%s/api/rooms/%d/confirmations/%s", serverURL, roomID, nodeID)
+	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("respond confirmation: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("respond confirmation: status %d: %s", resp.StatusCode, b)
+	}
+}
+
+// listRooms fetches all rooms.
+func listRooms(t *testing.T, serverURL string) []map[string]any {
+	t.Helper()
+	resp, err := http.Get(serverURL + "/api/rooms")
+	if err != nil {
+		t.Fatalf("list rooms: %v", err)
+	}
+	defer resp.Body.Close()
+	var result struct {
+		Rooms []map[string]any `json:"rooms"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode rooms: %v", err)
+	}
+	return result.Rooms
+}
+
+// listMessages fetches a room's messages.
+func listMessages(t *testing.T, serverURL string, roomID int64) []map[string]any {
+	t.Helper()
+	url := fmt.Sprintf("%s/api/rooms/%d/messages", serverURL, roomID)
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	defer resp.Body.Close()
+	var result struct {
+		Messages []map[string]any `json:"messages"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode messages: %v", err)
+	}
+	return result.Messages
+}
+
+// TestE2E_CreateRoomDeclassification drives the full write-down declassification
+// flow: an agent in a clearance-5 room calls create_room targeting clearance 2,
+// which is a Bell-LaPadula write-down. That must yield a confirmation tagged
+// blp_write_down; once the user approves, a new clearance-2 room is created and
+// seeded with the provenance-tagged summary.
+func TestE2E_CreateRoomDeclassification(t *testing.T) {
+	env := newE2EEnv(t, nil, nil)
+
+	roomID := createRoom(t, env.serverURL) // clearance 5
+
+	conn := connectWS(t, env.serverURL)
+	subscribeRoom(t, conn, roomID)
+
+	// Agent requests create_room at a lower clearance (write-down 5 -> 2).
+	env.infer.enqueue(sseToolCallResponse("create_room", "call_1",
+		`{"name":"low room","clearance_ceiling":"2","context_summary":"the distilled gist"}`))
+	// After the tool runs (post-approval), the agent gives a final reply.
+	env.infer.enqueue(sseTextResponse("Spun up the room."))
+
+	sendMessage(t, env.serverURL, roomID, "user:alice", "make a lower-clearance room")
+
+	// The write-down must surface as a confirmation tagged blp_write_down.
+	pending := awaitEvent(t, conn, "confirmation.pending")
+	if got, _ := pending["tool_name"].(string); got != "create_room" {
+		t.Errorf("confirmation tool_name = %q, want create_room", got)
+	}
+	if got, _ := pending["reason"].(string); got != "blp_write_down" {
+		t.Errorf("confirmation reason = %q, want blp_write_down", got)
+	}
+	nodeID, _ := pending["node_id"].(string)
+	if nodeID == "" {
+		t.Fatal("confirmation missing node_id")
+	}
+
+	// Approve the write-down.
+	respondConfirmation(t, env.serverURL, roomID, nodeID, "allow")
+
+	// Wait for the agent's final reply, confirming the loop completed.
+	for {
+		p := awaitEvent(t, conn, "message.created")
+		if mt, _ := p["type"].(string); mt == "message" {
+			if c, _ := p["content"].(string); c == "Spun up the room." {
+				break
+			}
+		}
+	}
+
+	// A new clearance-2 room named "low room" must now exist.
+	var newRoomID int64
+	for _, r := range listRooms(t, env.serverURL) {
+		if name, _ := r["name"].(string); name == "low room" {
+			if cl, _ := r["clearance"].(float64); int(cl) != 2 {
+				t.Errorf("new room clearance = %v, want 2", r["clearance"])
+			}
+			newRoomID = int64(r["id"].(float64))
+		}
+	}
+	if newRoomID == 0 {
+		t.Fatal("new declassified room was not created")
+	}
+
+	// The new room is seeded with the provenance-tagged summary, classified at 2.
+	msgs := listMessages(t, env.serverURL, newRoomID)
+	if len(msgs) == 0 {
+		t.Fatal("new room has no seed message")
+	}
+	seed := msgs[0]
+	content, _ := seed["content"].(string)
+	if !strings.Contains(content, "Declassified into clearance-2 room") {
+		t.Errorf("seed missing provenance tag: %q", content)
+	}
+	if !strings.Contains(content, "the distilled gist") {
+		t.Errorf("seed missing summary: %q", content)
+	}
+	if tag, _ := seed["clearance_tag"].(float64); int(tag) != 2 {
+		t.Errorf("seed clearance_tag = %v, want 2", seed["clearance_tag"])
 	}
 }
