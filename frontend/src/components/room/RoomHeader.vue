@@ -2,10 +2,12 @@
 defineProps<{
   participantCount: number;
   title: string;
+  agentName?: string;
 }>();
 
 defineEmits<{
   (e: 'settings'): void;
+  (e: 'preview'): void;
 }>();
 </script>
 
@@ -18,7 +20,17 @@ defineEmits<{
       </p>
     </div>
 
-    <button class="settings" type="button" aria-label="Room settings" @click="$emit('settings')">⚙</button>
+    <div class="actions">
+      <button
+        v-if="agentName"
+        class="preview"
+        type="button"
+        @click="$emit('preview')"
+      >
+        Preview context
+      </button>
+      <button class="settings" type="button" aria-label="Room settings" @click="$emit('settings')">⚙</button>
+    </div>
   </header>
 </template>
 
@@ -54,6 +66,26 @@ defineEmits<{
 .dot {
   margin: 0 0.5rem;
   color: var(--fg-muted);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.preview {
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--border-default);
+  border-radius: 0.5rem;
+  background: var(--bg-primary);
+  color: var(--fg-secondary);
+  font-size: var(--body-sm-size);
+  cursor: pointer;
+}
+
+.preview:hover {
+  background: var(--bg-tertiary, #222);
 }
 
 .settings {

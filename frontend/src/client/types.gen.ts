@@ -138,6 +138,21 @@ export type ErrorModel = {
     type?: string;
 };
 
+export type ContextToolResponse = {
+    /**
+     * Tool name
+     */
+    name: string;
+    /**
+     * Tool FRSN resource identifier
+     */
+    resource: string;
+    /**
+     * Tool data-classification clearance tier
+     */
+    clearance: number;
+};
+
 export type GetContextPreviewResponseBody = {
     /**
      * A URL to the JSON Schema for this object.
@@ -152,6 +167,10 @@ export type GetContextPreviewResponseBody = {
      */
     compaction_offset: number;
     messages: Array<ContextMessageResponse> | null;
+    /**
+     * Tool definitions the agent would receive
+     */
+    tools: Array<ContextToolResponse> | null;
 };
 
 export type ListAgentsResponseBody = {

@@ -5,7 +5,7 @@ import { useRoute } from 'vue-router';
 import RoomComposer from '@/components/room/RoomComposer.vue';
 import ConfirmationBanner from '@/components/room/ConfirmationBanner.vue';
 import RoomHeader from '@/components/room/RoomHeader.vue';
-import RoomMembersPanel from '@/components/room/RoomMembersPanel.vue';
+import ContextPreviewModal from '@/components/room/ContextPreviewModal.vue';
 import RoomMessageItem from '@/components/room/RoomMessageItem.vue';
 import type { MessageResponse } from '@/client';
 import type { MessageCreatedPayload, MessageDeltaPayload, ConfirmationPendingPayload } from '@/composables/useWebSocket';
@@ -76,6 +76,20 @@ const meActorId = computed(() => {
 });
 
 const members = computed(() => room.value?.participants ?? []);
+
+const showPreview = ref(false);
+
+// The agent to preview. Prefer a participant, but fall back to scanning message
+// senders so the affordance works even if participants haven't loaded.
+const previewAgentName = computed(() => {
+  const prefix = 'agent:';
+  const p = (room.value?.participants ?? []).find((m) => m.id.startsWith(prefix));
+  if (p) return p.id.slice(prefix.length);
+  const msgs = messagesStore.byRoomId[roomId.value] ?? [];
+  const m = msgs.find((msg) => msg.sender?.id?.startsWith(prefix));
+  if (m) return m.sender.id.slice(prefix.length);
+  return '';
+});
 
 const agentSender = computed(() => {
   const participants = room.value?.participants ?? [];
@@ -237,7 +251,9 @@ async function send() {
     <RoomHeader
       :title="members.map((m) => m.name).join(' · ') || roomId"
       :participant-count="members.length"
+      :agent-name="previewAgentName"
       @settings="() => {}"
+      @preview="showPreview = true"
     />
 
     <main class="room-main">
@@ -281,8 +297,15 @@ async function send() {
         />
       </section>
 
-      <RoomMembersPanel :members="members" :me-actor-id="meActorId" />
     </main>
+
+    <ContextPreviewModal
+      v-if="showPreview && previewAgentName"
+      :open="showPreview"
+      :room-id="roomId"
+      :agent-name="previewAgentName"
+      @close="showPreview = false"
+    />
   </section>
 </template>
 
@@ -295,7 +318,7 @@ async function send() {
 
 .room-main {
   display: grid;
-  grid-template-columns: 1fr 18rem;
+  grid-template-columns: 1fr;
   min-height: 0;
   flex: 1;
 }
