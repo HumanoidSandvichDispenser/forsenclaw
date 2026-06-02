@@ -44,8 +44,12 @@ func (s *SQLiteStore) AppendMessage(
 			}
 		}
 
-		// Advance the room's head.
-		err = tx.Exec("UPDATE rooms SET head = ? WHERE id = ?", msg.ID, roomID).Error
+		// Advance the room's head and mark the room as active so it sorts to the
+		// top of the updated_at-ordered room list.
+		err = tx.Exec(
+			"UPDATE rooms SET head = ?, updated_at = ? WHERE id = ?",
+			msg.ID, time.Now().UTC(), roomID,
+		).Error
 		if err != nil {
 			return fmt.Errorf("update room head: %w", err)
 		}
