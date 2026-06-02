@@ -14,7 +14,33 @@ import (
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/config"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/dag"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/policy"
 )
+
+// recordingExecutor records Execute calls and can supply a per-call resource
+// clearance, so it doubles as a ToolExecutor and a ResourceClearanceResolver.
+type recordingExecutor struct {
+	executed   []inference.ToolCallWire
+	result     string
+	resolveClr func(inference.ToolCallWire) (int, bool)
+}
+
+func (e *recordingExecutor) AllDefinitions() []inference.ToolDefinition { return nil }
+
+func (e *recordingExecutor) Execute(_ context.Context, call inference.ToolCallWire) (string, error) {
+	e.executed = append(e.executed, call)
+	if e.result == "" {
+		return "ok", nil
+	}
+	return e.result, nil
+}
+
+func (e *recordingExecutor) ResolveResourceClearance(call inference.ToolCallWire) (int, bool) {
+	if e.resolveClr == nil {
+		return 0, false
+	}
+	return e.resolveClr(call)
+}
 
 // callOf builds a minimal tool call for toolEffect tests.
 func callOf(name string) inference.ToolCallWire {
@@ -401,4 +427,146 @@ func TestToolEffect_DenyOverridesAllow(t *testing.T) {
 	if got := string(h.toolEffect(callOf("email_send")).Effect); got != "deny" {
 		t.Errorf("toolEffect(email_send) = %q, want deny", got)
 	}
+}
+
+// TestToolEffect_PerCallResourceClearance verifies that when the executor
+// resolves a per-call resource clearance (e.g. create_room's target ceiling),
+// it overrides the static tool clearance and drives the BLP decision.
+func TestToolEffect_PerCallResourceClearance(t *testing.T) {
+	ag, _ := NewAgent(&config.AgentDefinition{
+		Name: "test",
+		Permissions: []config.Statement{
+			{Actions: []string{"tool:invoke"}, Resources: []string{"**"}, Effect: "allow"},
+		},
+	})
+	tests := []struct {
+		name       string
+		resolved   int
+		wantEffect policy.Effect
+		wantReason policy.Reason
+	}{
+		{"read-up denies", 5, policy.Deny, policy.ReasonReadUp},
+		{"equal falls through to allow", 3, policy.Allow, policy.ReasonAllowed},
+		{"write-down confirms", 1, policy.Confirm, policy.ReasonWriteDown},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resolved := tt.resolved
+			exec := &recordingExecutor{
+				resolveClr: func(inference.ToolCallWire) (int, bool) { return resolved, true },
+			}
+			h := &InferenceHandler{
+				agent:              ag,
+				effectiveClearance: 3,
+				toolClearances:     map[string]int{"create_room": 0}, // static; must be overridden
+				toolResources:      map[string]string{"create_room": "frsn:tool/builtin/create_room"},
+				executor:           exec,
+			}
+			d := h.toolEffect(callOf("create_room"))
+			if d.Effect != tt.wantEffect {
+				t.Errorf("Effect = %q, want %q", d.Effect, tt.wantEffect)
+			}
+			if d.Reason != tt.wantReason {
+				t.Errorf("Reason = %q, want %q", d.Reason, tt.wantReason)
+			}
+		})
+	}
+}
+
+// TestToolEffect_ResolverDeclinedUsesStatic verifies that when the resolver
+// returns ok=false, the static tool clearance is used instead.
+func TestToolEffect_ResolverDeclinedUsesStatic(t *testing.T) {
+	ag, _ := NewAgent(&config.AgentDefinition{Name: "test"})
+	exec := &recordingExecutor{
+		resolveClr: func(inference.ToolCallWire) (int, bool) { return 0, false },
+	}
+	h := &InferenceHandler{
+		agent:              ag,
+		effectiveClearance: 3,
+		toolClearances:     map[string]int{"x": 5}, // static read-up (5 > 3)
+		toolResources:      map[string]string{"x": "builtin/x"},
+		executor:           exec,
+	}
+	d := h.toolEffect(callOf("x"))
+	if d.Effect != policy.Deny || d.Reason != policy.ReasonReadUp {
+		t.Errorf("got %v/%v, want deny/blp_read_up (static clearance path)", d.Effect, d.Reason)
+	}
+}
+
+// TestApplyConfirmations covers the three terminal confirmation outcomes.
+func TestApplyConfirmations(t *testing.T) {
+	tc := inference.ToolCallWire{ID: "c1", Function: inference.ToolFunctionWire{Name: "create_room"}}
+
+	t.Run("deny does not execute", func(t *testing.T) {
+		ag, _ := NewAgent(&config.AgentDefinition{Name: "test"})
+		exec := &recordingExecutor{}
+		h := &InferenceHandler{
+			agent:                ag,
+			executor:             exec,
+			pendingConfirmations: []confirmationEntry{{call: tc, depID: "d1"}},
+		}
+		err := h.applyConfirmations(context.Background(), map[string]dag.Result{
+			"d1": {Status: dag.StatusDenied},
+		})
+		if err != nil {
+			t.Fatalf("applyConfirmations: %v", err)
+		}
+		if len(exec.executed) != 0 {
+			t.Errorf("executor ran %d times on deny, want 0", len(exec.executed))
+		}
+		if len(h.turnHistory) != 1 || h.turnHistory[0].Content != "Action denied by user." {
+			t.Errorf("turnHistory = %+v, want a single denied entry", h.turnHistory)
+		}
+		if h.turnHistory[0].ToolCallID != "c1" {
+			t.Errorf("ToolCallID = %q, want c1", h.turnHistory[0].ToolCallID)
+		}
+	})
+
+	t.Run("revise does not execute and carries feedback", func(t *testing.T) {
+		ag, _ := NewAgent(&config.AgentDefinition{Name: "test"})
+		exec := &recordingExecutor{}
+		h := &InferenceHandler{
+			agent:                ag,
+			executor:             exec,
+			pendingConfirmations: []confirmationEntry{{call: tc, depID: "d1"}},
+		}
+		err := h.applyConfirmations(context.Background(), map[string]dag.Result{
+			"d1": {Status: dag.StatusRevise, Content: "use a lower clearance"},
+		})
+		if err != nil {
+			t.Fatalf("applyConfirmations: %v", err)
+		}
+		if len(exec.executed) != 0 {
+			t.Errorf("executor ran %d times on revise, want 0", len(exec.executed))
+		}
+		if len(h.turnHistory) != 1 ||
+			h.turnHistory[0].Content != "User asked you to revise this action: use a lower clearance" {
+			t.Errorf("turnHistory = %+v, want revise feedback entry", h.turnHistory)
+		}
+	})
+
+	t.Run("allow executes with edited args", func(t *testing.T) {
+		ag, _ := NewAgent(&config.AgentDefinition{Name: "test"})
+		exec := &recordingExecutor{result: "done"}
+		h := &InferenceHandler{
+			agent:                ag,
+			executor:             exec,
+			pendingConfirmations: []confirmationEntry{{call: tc, depID: "d1"}},
+		}
+		err := h.applyConfirmations(context.Background(), map[string]dag.Result{
+			"d1": {Status: dag.StatusAllowed, EditedArgs: `{"clearance_ceiling":"2"}`},
+		})
+		if err != nil {
+			t.Fatalf("applyConfirmations: %v", err)
+		}
+		if len(exec.executed) != 1 {
+			t.Fatalf("executor ran %d times on allow, want 1", len(exec.executed))
+		}
+		if exec.executed[0].Function.Arguments != `{"clearance_ceiling":"2"}` {
+			t.Errorf("executed args = %q, want edited args", exec.executed[0].Function.Arguments)
+		}
+		if len(h.turnHistory) != 1 || h.turnHistory[0].Content != "done" {
+			t.Errorf("turnHistory = %+v, want tool result 'done'", h.turnHistory)
+		}
+	})
 }
