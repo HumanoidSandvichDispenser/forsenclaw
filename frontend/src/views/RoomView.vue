@@ -14,6 +14,7 @@ import { useConfirmationsStore } from '@/stores/confirmations';
 import { useMessagesStore } from '@/stores/messages';
 import { useRoomsStore } from '@/stores/rooms';
 import { useUserStore } from '@/stores/user';
+import { agentNameFromId, isAgentId, isUserId, userId } from '@/utils/actor';
 
 interface MessageGroup {
   key: string;
@@ -69,10 +70,10 @@ const scrollerEl = ref<HTMLElement | null>(null);
 
 const meActorId = computed(() => {
   const participants = room.value?.participants ?? [];
-  const byName = userStore.user?.name ? `user:${userStore.user.name}` : null;
+  const byName = userStore.user?.name ? userId(userStore.user.name) : null;
   if (byName && participants.some((p) => p.id === byName)) return byName;
-  const firstUser = participants.find((p) => p.id.startsWith('user:'));
-  return firstUser?.id ?? byName ?? 'user:local';
+  const firstUser = participants.find((p) => isUserId(p.id));
+  return firstUser?.id ?? byName ?? userId('local');
 });
 
 const members = computed(() => room.value?.participants ?? []);
@@ -82,20 +83,11 @@ const showPreview = ref(false);
 // The agent to preview. Prefer a participant, but fall back to scanning message
 // senders so the affordance works even if participants haven't loaded.
 const previewAgentName = computed(() => {
-  const prefix = 'agent:';
-  const p = (room.value?.participants ?? []).find((m) => m.id.startsWith(prefix));
-  if (p) return p.id.slice(prefix.length);
+  const p = (room.value?.participants ?? []).find((m) => isAgentId(m.id));
+  if (p) return agentNameFromId(p.id);
   const msgs = messagesStore.byRoomId[roomId.value] ?? [];
-  const m = msgs.find((msg) => msg.sender?.id?.startsWith(prefix));
-  if (m) return m.sender.id.slice(prefix.length);
-  return '';
-});
-
-const agentSender = computed(() => {
-  const participants = room.value?.participants ?? [];
-  const agent = participants.find((p) => p.id.startsWith('agent:'));
-  if (agent) return agent;
-  return { id: 'agent:unknown', name: 'Agent', type: 'agent', clearance: 0 };
+  const m = msgs.find((msg) => msg.sender?.id && isAgentId(msg.sender.id));
+  return m ? agentNameFromId(m.sender.id) : '';
 });
 
 const isLoading = computed(() => {
