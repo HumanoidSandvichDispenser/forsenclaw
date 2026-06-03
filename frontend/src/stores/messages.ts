@@ -26,6 +26,9 @@ export const useMessagesStore = defineStore('messages', () => {
   const loadingByRoomId = ref<Record<string, boolean>>({});
   const errorByRoomId = ref<Record<string, string | null>>({});
   const streamingByRoomId = ref<Record<string, StreamingState | null>>({});
+  // turnErrorByRoomId holds a failed agent turn's error, shown where the reply
+  // would have appeared. Distinct from errorByRoomId (room load failures).
+  const turnErrorByRoomId = ref<Record<string, string | null>>({});
 
   const getMessages = (roomId: string) => computed(() => byRoomId.value[roomId] ?? []);
 
@@ -35,6 +38,17 @@ export const useMessagesStore = defineStore('messages', () => {
 
   function setRoomError(roomId: string, value: string | null) {
     errorByRoomId.value = { ...errorByRoomId.value, [roomId]: value };
+  }
+
+  function setTurnError(roomId: string, value: string | null) {
+    turnErrorByRoomId.value = { ...turnErrorByRoomId.value, [roomId]: value };
+  }
+
+  // failTurn surfaces a failed agent turn: stop the typing indicator and record
+  // why so the room view can show it.
+  function failTurn(roomId: string, message: string) {
+    clearStreaming(roomId);
+    setTurnError(roomId, message);
   }
 
   async function fetchMessages(roomId: string) {
@@ -61,6 +75,7 @@ export const useMessagesStore = defineStore('messages', () => {
 
   async function postMessage(roomId: string, sender: string, content: string) {
     setRoomError(roomId, null);
+    setTurnError(roomId, null);
     const msg = await sendMessage({
       client: clientStore.client,
       path: { room_id: Number(roomId) },
@@ -74,6 +89,7 @@ export const useMessagesStore = defineStore('messages', () => {
   }
 
   function startTyping(roomId: string, sender: ActorResponse) {
+    setTurnError(roomId, null);
     streamingByRoomId.value = {
       ...streamingByRoomId.value,
       [roomId]: {
@@ -134,6 +150,7 @@ export const useMessagesStore = defineStore('messages', () => {
   }
 
   function finalizeMessage(roomId: string, msg: MessageResponse) {
+    setTurnError(roomId, null);
     streamingByRoomId.value = { ...streamingByRoomId.value, [roomId]: null };
     const current = byRoomId.value[roomId] ?? [];
     byRoomId.value = { ...byRoomId.value, [roomId]: [...current, msg] };
@@ -152,6 +169,7 @@ export const useMessagesStore = defineStore('messages', () => {
     loadingByRoomId,
     errorByRoomId,
     streamingByRoomId,
+    turnErrorByRoomId,
     getMessages,
     getStreaming,
     fetchMessages,
@@ -162,6 +180,7 @@ export const useMessagesStore = defineStore('messages', () => {
     clearToolCall,
     appendMessage,
     finalizeMessage,
+    failTurn,
     clearStreaming,
   };
 });

@@ -13,6 +13,7 @@ import type {
   MessageCreatedPayload,
   MessageDeltaPayload,
   ConfirmationPendingPayload,
+  AgentErrorPayload,
 } from '@/composables/useWebSocket';
 import { useWebSocket } from '@/composables/useWebSocket';
 import { useConfirmationsStore } from '@/stores/confirmations';
@@ -188,6 +189,12 @@ onMounted(() => {
         });
         break;
       }
+      case 'agent.error': {
+        const p = event.payload as AgentErrorPayload;
+        if (String(p.room_id) !== roomId.value) return;
+        messagesStore.failTurn(roomId.value, `${p.agent_name} failed to respond: ${p.message}`);
+        break;
+      }
     }
   });
 });
@@ -278,6 +285,9 @@ async function send() {
               :timestamp-label="formatTime(g.message.timestamp)"
             />
             <RoomMessageItem v-if="liveStreaming" :streaming="streaming ?? undefined" />
+            <p v-if="messagesStore.turnErrorByRoomId[roomId]" class="turn-error" role="alert">
+              {{ messagesStore.turnErrorByRoomId[roomId] }}
+            </p>
           </div>
         </div>
 
@@ -368,5 +378,15 @@ async function send() {
 .error {
   color: var(--error-dark);
   margin: 0;
+}
+
+.turn-error {
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--error);
+  border-radius: var(--border-radius);
+  background: var(--error-light);
+  color: var(--error-dark);
+  font-size: var(--body-sm-size);
 }
 </style>

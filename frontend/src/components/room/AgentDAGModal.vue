@@ -215,7 +215,7 @@ function elapsed(n: DagNode): string {
 }
 
 .error {
-  color: var(--error, #e05555);
+  color: var(--error);
 }
 
 .nodes {
@@ -236,19 +236,19 @@ function elapsed(n: DagNode): string {
 
 /* State accents on the left border so in-flight vs settled reads at a glance. */
 .node.state-in_progress {
-  border-left-color: var(--accent, #4a9eff);
+  border-left-color: var(--accent-primary);
 }
 
 .node.state-blocked {
-  border-left-color: var(--warning, #e0a155);
+  border-left-color: var(--warning);
 }
 
 .node.state-resolved {
-  border-left-color: var(--success, #4caf72);
+  border-left-color: var(--success);
 }
 
 .node.state-failed {
-  border-left-color: var(--error, #e05555);
+  border-left-color: var(--error);
 }
 
 .node-head {
@@ -264,7 +264,7 @@ function elapsed(n: DagNode): string {
   font-weight: 700;
   padding: 0.1rem 0.4rem;
   border-radius: 0.35rem;
-  background: var(--bg-tertiary, #222);
+  background: var(--bg-tertiary);
   color: var(--fg-secondary);
 }
 
@@ -293,7 +293,7 @@ function elapsed(n: DagNode): string {
 .waiting {
   margin-top: 0.3rem;
   font-size: var(--body-xs-size);
-  color: var(--warning, #e0a155);
+  color: var(--warning);
 }
 
 .edges {

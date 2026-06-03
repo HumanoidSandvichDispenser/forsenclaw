@@ -19,6 +19,9 @@ type ResponseWriter interface {
 
 type StreamWriter interface {
 	StreamAgentDelta(ctx context.Context, roomID int64, agentName string, delta string) error
+	// StreamAgentError surfaces a failed inference turn to the room so clients
+	// can show why and stop any in-progress typing indicator.
+	StreamAgentError(ctx context.Context, roomID int64, agentName string, message string) error
 }
 
 // DAGStreamWriter streams a single DAG node-state transition for an agent to
@@ -298,6 +301,15 @@ func (r *AgentRuntime) runNode(ctx context.Context, node *dag.Node) {
 		switch {
 		case err != nil:
 			r.dag.Fail(node.ID, err)
+			// Surface a failed inference turn to the room: without this the
+			// client never learns the turn died and leaves the typing indicator
+			// spinning. Only inference roots map to a room turn.
+			if ih, ok := node.Handler.(*InferenceHandler); ok && r.streamWriter != nil {
+				if serr := r.streamWriter.StreamAgentError(ctx, ih.req.Payload.RoomID, r.agent.Name(), err.Error()); serr != nil {
+					log.Printf("agent %s: failed to stream error: %v", r.agent.Name(), serr)
+				}
+			}
+			log.Printf("agent %s: node %s failed: %v", r.agent.Name(), node.ID, err)
 		case result != nil:
 			r.dag.Resolve(node.ID, *result)
 			if ih, ok := node.Handler.(*InferenceHandler); ok && r.responseWriter != nil && result.Content != "" {

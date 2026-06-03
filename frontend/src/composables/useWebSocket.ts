@@ -38,11 +38,18 @@ export type ConfirmationPendingPayload = {
 // updates merge directly into a loaded snapshot.
 export type DagUpdatePayload = DagNode;
 
+export type AgentErrorPayload = {
+  room_id: number;
+  agent_name: string;
+  message: string;
+};
+
 export type WSEvent =
   | { type: 'message.created'; payload: MessageCreatedPayload }
   | { type: 'message.delta'; payload: MessageDeltaPayload }
   | { type: 'confirmation.pending'; payload: ConfirmationPendingPayload }
   | { type: 'dag.update'; payload: DagUpdatePayload }
+  | { type: 'agent.error'; payload: AgentErrorPayload }
   | { type: string; payload?: unknown };
 
 type Callback = (event: WSEvent) => void;
