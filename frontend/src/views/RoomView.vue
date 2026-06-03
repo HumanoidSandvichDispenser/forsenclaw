@@ -6,6 +6,7 @@ import RoomComposer from '@/components/room/RoomComposer.vue';
 import ConfirmationBanner from '@/components/room/ConfirmationBanner.vue';
 import RoomHeader from '@/components/room/RoomHeader.vue';
 import ContextPreviewModal from '@/components/room/ContextPreviewModal.vue';
+import AgentDAGModal from '@/components/room/AgentDAGModal.vue';
 import RoomMessageItem from '@/components/room/RoomMessageItem.vue';
 import type { MessageResponse } from '@/client';
 import type {
@@ -89,6 +90,7 @@ const meActorId = computed(() => {
 const members = computed(() => room.value?.participants ?? []);
 
 const showPreview = ref(false);
+const showDAG = ref(false);
 
 // The agent to preview. Prefer a participant, but fall back to scanning message
 // senders so the affordance works even if participants haven't loaded.
@@ -255,6 +257,7 @@ async function send() {
       :agent-name="previewAgentName"
       @settings="() => {}"
       @preview="showPreview = true"
+      @dag="showDAG = true"
     />
 
     <main class="room-main">
@@ -302,6 +305,13 @@ async function send() {
       :room-id="roomId"
       :agent-name="previewAgentName"
       @close="showPreview = false"
+    />
+
+    <AgentDAGModal
+      v-if="showDAG && previewAgentName"
+      :open="showDAG"
+      :agent-name="previewAgentName"
+      @close="showDAG = false"
     />
   </section>
 </template>

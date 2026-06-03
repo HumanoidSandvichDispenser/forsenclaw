@@ -8,6 +8,7 @@ defineProps<{
 defineEmits<{
   (e: 'settings'): void;
   (e: 'preview'): void;
+  (e: 'dag'): void;
 }>();
 </script>
 
@@ -16,20 +17,20 @@ defineEmits<{
     <div class="title-block">
       <h1 class="title">{{ title }}</h1>
       <p class="meta">
-<span class="text-tertiary">{{ participantCount }} participants</span>
+        <span class="text-tertiary">{{ participantCount }} participants</span>
       </p>
     </div>
 
     <div class="actions">
-      <button
-        v-if="agentName"
-        class="preview"
-        type="button"
-        @click="$emit('preview')"
-      >
+      <button v-if="agentName" class="preview" type="button" @click="$emit('preview')">
         Preview context
       </button>
-      <button class="settings" type="button" aria-label="Room settings" @click="$emit('settings')">⚙</button>
+      <button v-if="agentName" class="preview" type="button" @click="$emit('dag')">
+        Request DAG
+      </button>
+      <button class="settings" type="button" aria-label="Room settings" @click="$emit('settings')">
+        ⚙
+      </button>
     </div>
   </header>
 </template>
