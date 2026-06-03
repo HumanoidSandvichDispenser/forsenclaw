@@ -4,7 +4,9 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/config"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/dag"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
 )
@@ -13,10 +15,13 @@ import (
 // agent/registry/assembler are nil since mock handlers don't use them.
 func newTestRuntime() *AgentRuntime {
 	r := &AgentRuntime{
-		dag:  dag.New(),
-		work: make(chan struct{}, 1),
+		dag:    dag.New(),
+		now:    time.Now,
+		timing: make(map[string]*nodeTiming),
+		work:   make(chan struct{}, 1),
 	}
 	r.idle = sync.NewCond(&r.mu)
+	r.dag.Observe(r.observe)
 	return r
 }
 
@@ -181,6 +186,150 @@ type stubRuntimeHandler struct {
 
 func (h *stubRuntimeHandler) Handle(_ context.Context, _ map[string]dag.Result) ([]dag.Dep, *dag.Result, error) {
 	return nil, h.result, nil
+}
+
+// --- DAG viewer (slice 2): Describe, timing, snapshot, enqueue reset ---
+
+func TestInferenceHandler_Describe(t *testing.T) {
+	if got := (&InferenceHandler{}).Describe(); got.Kind != KindInference {
+		t.Fatalf("kind = %q, want %q", got.Kind, KindInference)
+	}
+}
+
+func TestConfirmationHandler_Describe(t *testing.T) {
+	h := NewConfirmationHandler(
+		inference.ToolCallWire{Function: inference.ToolFunctionWire{Name: "webfetch"}},
+		"node1", "agent", 3, "blp_write_down", nil, nil,
+	)
+	got := h.Describe()
+	if got.Kind != KindConfirmation {
+		t.Fatalf("kind = %q, want %q", got.Kind, KindConfirmation)
+	}
+	if got.Label != "webfetch" {
+		t.Fatalf("label = %q, want webfetch", got.Label)
+	}
+	if got.WaitingOn != "blp_write_down" {
+		t.Fatalf("waiting_on = %q, want blp_write_down", got.WaitingOn)
+	}
+}
+
+// fakeClock returns t0, t0+1s, t0+2s, ... on successive calls so timing
+// assertions are deterministic and ordered.
+func fakeClock() func() time.Time {
+	t0 := time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC)
+	var n int
+	return func() time.Time {
+		t := t0.Add(time.Duration(n) * time.Second)
+		n++
+		return t
+	}
+}
+
+func TestSnapshot_ComposesTimingFromTransitions(t *testing.T) {
+	r := newTestRuntime()
+	r.now = fakeClock()
+
+	r.dag.Add("root", &stubRuntimeHandler{}, "") // pending  -> created
+	r.dag.NextReady()                            // in_prog  -> started
+	r.dag.Resolve("root", dag.Result{Status: dag.StatusAllowed})
+
+	snap := r.Snapshot()
+	if len(snap) != 1 {
+		t.Fatalf("expected 1 node, got %d", len(snap))
+	}
+	n := snap[0]
+	if n.CreatedAt == nil || n.StartedAt == nil || n.SettledAt == nil {
+		t.Fatalf("expected all timestamps set, got %+v", n)
+	}
+	if !n.CreatedAt.Before(*n.StartedAt) || !n.StartedAt.Before(*n.SettledAt) {
+		t.Fatalf("timestamps not ordered: created=%v started=%v settled=%v",
+			n.CreatedAt, n.StartedAt, n.SettledAt)
+	}
+}
+
+// TestTiming_CreatedSetOnce: pending fires both on Add and when a blocked parent
+// becomes ready again; only the first sets created.
+func TestTiming_CreatedSetOnce(t *testing.T) {
+	r := newTestRuntime()
+	r.now = fakeClock()
+
+	r.dag.Add("parent", &stubRuntimeHandler{}, "") // parent created at t0
+	wantCreated := r.Snapshot()[0].CreatedAt
+
+	r.dag.Add("child", &stubRuntimeHandler{}, "parent")           // parent -> blocked
+	r.dag.Resolve("child", dag.Result{Status: dag.StatusAllowed}) // parent -> pending again
+
+	var parent DAGNode
+	for _, n := range r.Snapshot() {
+		if n.ID == "parent" {
+			parent = n
+		}
+	}
+	if parent.CreatedAt == nil || !parent.CreatedAt.Equal(*wantCreated) {
+		t.Fatalf("parent created changed on re-readiness: want %v, got %v", wantCreated, parent.CreatedAt)
+	}
+}
+
+func TestEnqueue_ResetsWhenSettled(t *testing.T) {
+	r := newTestRuntime()
+
+	r.dag.Add("old", &stubRuntimeHandler{}, "")
+	r.dag.Resolve("old", dag.Result{Status: dag.StatusAllowed}) // DAG now settled
+
+	r.Enqueue(Request{ID: "new"})
+
+	snap := r.Snapshot()
+	if len(snap) != 1 || snap[0].ID != "new" {
+		t.Fatalf("expected only new node after reset, got %+v", snap)
+	}
+	r.timingMu.Lock()
+	_, oldTiming := r.timing["old"]
+	r.timingMu.Unlock()
+	if oldTiming {
+		t.Fatal("expected old node timing to be cleared on reset")
+	}
+}
+
+func TestEnqueue_KeepsInFlightWork(t *testing.T) {
+	r := newTestRuntime()
+
+	r.dag.Add("inflight", &stubRuntimeHandler{}, "") // pending, not settled
+
+	r.Enqueue(Request{ID: "new"})
+
+	if len(r.Snapshot()) != 2 {
+		t.Fatalf("expected in-flight node preserved alongside new, got %d nodes", len(r.Snapshot()))
+	}
+}
+
+// recordingDAGStream captures StreamDAGUpdate calls.
+type recordingDAGStream struct {
+	mu      sync.Mutex
+	updates []DAGNode
+}
+
+func (s *recordingDAGStream) StreamDAGUpdate(_ string, node DAGNode) {
+	s.mu.Lock()
+	s.updates = append(s.updates, node)
+	s.mu.Unlock()
+}
+
+func TestObserver_ForwardsToStream(t *testing.T) {
+	r := newTestRuntime()
+	r.agent = &Agent{Definition: &config.AgentDefinition{Name: "agent"}}
+	stream := &recordingDAGStream{}
+	r.dagStream = stream
+
+	r.dag.Add("root", &stubRuntimeHandler{}, "") // one pending transition
+
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	if len(stream.updates) != 1 {
+		t.Fatalf("expected 1 stream update, got %d", len(stream.updates))
+	}
+	if stream.updates[0].ID != "root" || stream.updates[0].State != dag.NodePending {
+		t.Fatalf("unexpected stream update: %+v", stream.updates[0])
+	}
 }
 
 // mockResponseWriter records WriteAgentResponse calls.

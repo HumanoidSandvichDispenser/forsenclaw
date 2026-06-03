@@ -52,6 +52,11 @@ type InferenceHandler struct {
 	policy *policy.Engine
 }
 
+// Describe identifies this node to the DAG viewer as an inference root.
+func (h *InferenceHandler) Describe() dag.NodeInfo {
+	return dag.NodeInfo{Kind: KindInference}
+}
+
 func (h *InferenceHandler) Handle(ctx context.Context, childResults map[string]dag.Result) ([]dag.Dep, *dag.Result, error) {
 	// Stamp the calling agent into the context so downstream tool execution
 	// (and audit logging) can attribute actions to it.

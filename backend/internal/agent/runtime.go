@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/dag"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
@@ -18,6 +19,14 @@ type ResponseWriter interface {
 
 type StreamWriter interface {
 	StreamAgentDelta(ctx context.Context, roomID int64, agentName string, delta string) error
+}
+
+// DAGStreamWriter streams a single DAG node-state transition for an agent to
+// subscribed clients. Calls originate from the DAG's transition observer, which
+// runs under the DAG lock, so implementations must not block or call back into
+// the runtime or DAG.
+type DAGStreamWriter interface {
+	StreamDAGUpdate(agentName string, node DAGNode)
 }
 
 // Assembler assembles the context window for an agent invocation.
@@ -54,6 +63,7 @@ type RuntimeDeps struct {
 	Notifier             ConfirmationNotifier
 	ResponseWriter       ResponseWriter
 	StreamWriter         StreamWriter
+	DAGStream            DAGStreamWriter
 }
 
 // AgentRuntime drives the request DAG for a single agent.
@@ -73,6 +83,17 @@ type AgentRuntime struct {
 	// May be nil (no-op in that case).
 	responseWriter ResponseWriter
 	streamWriter   StreamWriter
+	dagStream      DAGStreamWriter
+
+	// now supplies the clock for node timing; overridable in tests. The dag
+	// package is time-free, so the runtime owns when transitions happened.
+	now func() time.Time
+
+	// timing records per-node lifecycle timestamps, written from the transition
+	// observer and read when composing a DAGNode. Guarded by timingMu, which is
+	// independent of mu to keep the observer off the mu→dag.mu lock path.
+	timingMu sync.Mutex
+	timing   map[string]*nodeTiming
 
 	// work is pulsed when new work may be available.
 	work chan struct{}
@@ -93,14 +114,28 @@ func NewAgentRuntime(agent *Agent, deps RuntimeDeps) *AgentRuntime {
 		notifier:             deps.Notifier,
 		responseWriter:       deps.ResponseWriter,
 		streamWriter:         deps.StreamWriter,
+		dagStream:            deps.DAGStream,
+		now:                  time.Now,
+		timing:               make(map[string]*nodeTiming),
 		work:                 make(chan struct{}, 1),
 	}
 	r.idle = sync.NewCond(&r.mu)
+	r.dag.Observe(r.observe)
 	return r
 }
 
-// Enqueue adds a request to the DAG and wakes the run loop.
+// Enqueue adds a request to the DAG and wakes the run loop. If the DAG has
+// fully settled since the last request, it is reset first so the viewer shows
+// only live work — settled nodes from the previous request persist until this
+// next request arrives (the until-next-request retention model). In-flight work
+// is never discarded. mu is held so the settled-check, reset, and add are atomic
+// against a concurrent Enqueue.
 func (r *AgentRuntime) Enqueue(req Request) {
+	r.mu.Lock()
+	if r.dag.AllSettled() {
+		r.dag.Reset()
+		r.resetTiming()
+	}
 	r.dag.Add(req.ID, &InferenceHandler{
 		req:                  req,
 		agent:                r.agent,
@@ -112,6 +147,7 @@ func (r *AgentRuntime) Enqueue(req Request) {
 		streamWriter:         r.streamWriter,
 		responseWriter:       r.responseWriter,
 	}, "")
+	r.mu.Unlock()
 	r.pulse()
 }
 
@@ -162,6 +198,74 @@ func (r *AgentRuntime) WaitIdle() {
 	for !r.dag.AllSettled() {
 		r.idle.Wait()
 	}
+}
+
+// Snapshot returns the agent's current DAG as viewer nodes: the dag package's
+// structural projection composed with runtime-recorded timing.
+func (r *AgentRuntime) Snapshot() []DAGNode {
+	views := r.dag.Snapshot()
+	out := make([]DAGNode, len(views))
+	for i, v := range views {
+		out[i] = r.nodeView(v)
+	}
+	return out
+}
+
+// observe is the DAG transition observer. It records timing and forwards the
+// transition to the stream. Runs under the DAG lock — must not block.
+func (r *AgentRuntime) observe(v dag.NodeView) {
+	r.recordTiming(v)
+	if r.dagStream != nil {
+		r.dagStream.StreamDAGUpdate(r.agent.Name(), r.nodeView(v))
+	}
+}
+
+// recordTiming stamps the node's lifecycle timestamp for the observed state.
+// set-if-zero is required because the pending state is emitted both on creation
+// (Add) and on re-readiness (a blocked parent's last child clearing); only the
+// first counts as created.
+func (r *AgentRuntime) recordTiming(v dag.NodeView) {
+	r.timingMu.Lock()
+	defer r.timingMu.Unlock()
+	t := r.timing[v.ID]
+	if t == nil {
+		t = &nodeTiming{}
+		r.timing[v.ID] = t
+	}
+	switch v.State {
+	case dag.NodePending:
+		if t.created.IsZero() {
+			t.created = r.now()
+		}
+	case dag.NodeInProgress:
+		if t.started.IsZero() {
+			t.started = r.now()
+		}
+	case dag.NodeResolved, dag.NodeFailed:
+		if t.settled.IsZero() {
+			t.settled = r.now()
+		}
+	}
+}
+
+// resetTiming clears all recorded timing. Called under mu alongside dag.Reset.
+func (r *AgentRuntime) resetTiming() {
+	r.timingMu.Lock()
+	r.timing = make(map[string]*nodeTiming)
+	r.timingMu.Unlock()
+}
+
+// nodeView composes a structural NodeView with its recorded timing.
+func (r *AgentRuntime) nodeView(v dag.NodeView) DAGNode {
+	n := DAGNode{NodeView: v}
+	r.timingMu.Lock()
+	if t := r.timing[v.ID]; t != nil {
+		n.CreatedAt = nonZeroTime(t.created)
+		n.StartedAt = nonZeroTime(t.started)
+		n.SettledAt = nonZeroTime(t.settled)
+	}
+	r.timingMu.Unlock()
+	return n
 }
 
 // pulse sends a non-blocking wake signal to the run loop.

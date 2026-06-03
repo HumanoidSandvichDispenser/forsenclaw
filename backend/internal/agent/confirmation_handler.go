@@ -82,3 +82,14 @@ func (h *ConfirmationHandler) Handle(ctx context.Context, _ map[string]dag.Resul
 func (h *ConfirmationHandler) Respond(result dag.Result) {
 	h.response <- result
 }
+
+// Describe identifies this node to the DAG viewer: a confirmation node labelled
+// with the tool awaiting approval, waiting on the policy reason (e.g.
+// "blp_write_down").
+func (h *ConfirmationHandler) Describe() dag.NodeInfo {
+	return dag.NodeInfo{
+		Kind:      KindConfirmation,
+		Label:     h.call.Function.Name,
+		WaitingOn: h.reason,
+	}
+}
