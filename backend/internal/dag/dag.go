@@ -43,6 +43,24 @@ type Dep struct {
 	Handler Handler
 }
 
+// NodeInfo is a handler's self-description for observability. Kind is an opaque
+// string classifying the node; the DAG is generic and does not define the
+// vocabulary — the consumer (e.g. the agent package) owns the set of kinds.
+type NodeInfo struct {
+	Kind  string
+	Label string
+	// WaitingOn names what a blocked node is waiting on (e.g. a confirmation
+	// reason such as "blp_write_down"). Empty when not applicable.
+	WaitingOn string
+}
+
+// Describer is optionally implemented by a Handler so its node can describe
+// itself to the DAG viewer. Handlers that don't implement it report
+// KindUnknown.
+type Describer interface {
+	Describe() NodeInfo
+}
+
 // NodeState is the lifecycle state of a node in the DAG.
 type NodeState string
 
@@ -74,11 +92,28 @@ type Node struct {
 	Err error
 }
 
+// NodeView is a serializable structural snapshot of a node. It carries no
+// timing: the DAG is time-free, and temporal bookkeeping is the consumer's
+// responsibility (recorded via Observe). The viewer layer composes timestamps
+// onto this structure.
+type NodeView struct {
+	ID        string    `json:"id"`
+	Kind      string    `json:"kind,omitempty"`
+	Label     string    `json:"label,omitempty"`
+	State     NodeState `json:"state"`
+	WaitingOn string    `json:"waiting_on,omitempty"`
+	BlockedBy []string  `json:"blocked_by,omitempty"`
+	Children  []string  `json:"children,omitempty"`
+}
+
 // DAG is a dependency graph of nodes.
 type DAG struct {
 	mu    sync.Mutex
 	nodes map[string]*Node
 	order []*Node // insertion order for NextReady
+
+	// observer, if set, is called whenever a node changes state. See Observe.
+	observer func(NodeView)
 }
 
 // New returns an empty DAG.
@@ -101,11 +136,13 @@ func (d *DAG) Add(id string, handler Handler, parentID string) {
 	}
 	d.nodes[id] = n
 	d.order = append(d.order, n)
+	d.emit(n)
 	if parentID != "" {
 		if parent, ok := d.nodes[parentID]; ok {
 			parent.State = NodeBlocked
 			parent.BlockedBy = append(parent.BlockedBy, id)
 			parent.Children = append(parent.Children, id)
+			d.emit(parent)
 		}
 	}
 }
@@ -124,6 +161,7 @@ func (d *DAG) NextReady() *Node {
 	for _, n := range d.order {
 		if n.State == NodePending {
 			n.State = NodeInProgress
+			d.emit(n)
 			return n
 		}
 	}
@@ -158,6 +196,7 @@ func (d *DAG) settle(id string, f func(*Node)) {
 		return
 	}
 	f(node)
+	d.emit(node)
 	d.removeBlocker(id)
 }
 
@@ -185,8 +224,63 @@ func (d *DAG) removeBlocker(id string) {
 				if len(n.BlockedBy) == 0 {
 					n.State = NodePending
 				}
+				d.emit(n)
 				return
 			}
 		}
 	}
+}
+
+// Observe registers a callback fired whenever a node changes state. The
+// callback runs synchronously under the DAG's lock, so it must not call back
+// into the DAG and must not block (push to a buffered channel and return).
+// A nil fn clears the observer.
+func (d *DAG) Observe(fn func(NodeView)) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.observer = fn
+}
+
+// Snapshot returns a serializable copy of all nodes in insertion order.
+func (d *DAG) Snapshot() []NodeView {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	views := make([]NodeView, len(d.order))
+	for i, n := range d.order {
+		views[i] = d.viewLocked(n)
+	}
+	return views
+}
+
+// Reset clears all nodes, returning the DAG to empty. Used to discard a settled
+// DAG before starting fresh work.
+func (d *DAG) Reset() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.nodes = make(map[string]*Node)
+	d.order = nil
+}
+
+// emit notifies the observer of a node's current state. Called under the mutex.
+func (d *DAG) emit(n *Node) {
+	if d.observer != nil {
+		d.observer(d.viewLocked(n))
+	}
+}
+
+// viewLocked builds a serializable view of a node. Called under the mutex.
+func (d *DAG) viewLocked(n *Node) NodeView {
+	v := NodeView{
+		ID:        n.ID,
+		State:     n.State,
+		BlockedBy: append([]string(nil), n.BlockedBy...),
+		Children:  append([]string(nil), n.Children...),
+	}
+	if desc, ok := n.Handler.(Describer); ok {
+		info := desc.Describe()
+		v.Kind = info.Kind
+		v.Label = info.Label
+		v.WaitingOn = info.WaitingOn
+	}
+	return v
 }
