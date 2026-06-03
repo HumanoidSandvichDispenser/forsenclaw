@@ -57,7 +57,7 @@ func TestValidateContextPayload(t *testing.T) {
 	}{
 		{
 			name:    "missing model",
-			payload: ContextPayload{RFC: "hi"},
+			payload: ContextPayload{Request: "hi"},
 			wantErr: "model is required",
 		},
 		{
@@ -66,8 +66,8 @@ func TestValidateContextPayload(t *testing.T) {
 			wantErr: "at least one content field is required",
 		},
 		{
-			name:    "valid with RFC only",
-			payload: ContextPayload{Model: "test", RFC: "hi"},
+			name:    "valid with Request only",
+			payload: ContextPayload{Model: "test", Request: "hi"},
 			wantErr: "",
 		},
 		{
@@ -180,8 +180,8 @@ func TestInferSync(t *testing.T) {
 	}
 
 	content, usage, err := InferSync(context.Background(), mock, ContextPayload{
-		Model: "test",
-		RFC:   "hi",
+		Model:   "test",
+		Request: "hi",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -297,7 +297,7 @@ func TestRetryingProviderSuccess(t *testing.T) {
 	}
 
 	rp := NewRetryingProvider(mock, RetryConfig{MaxRetries: 2, BaseDelay: 10 * time.Millisecond})
-	ch, err := rp.Infer(context.Background(), ContextPayload{Model: "test", RFC: "hi"})
+	ch, err := rp.Infer(context.Background(), ContextPayload{Model: "test", Request: "hi"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -334,7 +334,7 @@ func TestRetryingProviderRetriesThenSucceeds(t *testing.T) {
 	}
 
 	rp := NewRetryingProvider(customProvider, RetryConfig{MaxRetries: 3, BaseDelay: 10 * time.Millisecond})
-	ch, err := rp.Infer(context.Background(), ContextPayload{Model: "test", RFC: "hi"})
+	ch, err := rp.Infer(context.Background(), ContextPayload{Model: "test", Request: "hi"})
 	if err != nil {
 		t.Fatalf("unexpected error after retries: %v", err)
 	}
@@ -360,7 +360,7 @@ func TestRetryingProviderExhausted(t *testing.T) {
 	}
 
 	rp := NewRetryingProvider(customProvider, RetryConfig{MaxRetries: 2, BaseDelay: 10 * time.Millisecond})
-	_, err := rp.Infer(context.Background(), ContextPayload{Model: "test", RFC: "hi"})
+	_, err := rp.Infer(context.Background(), ContextPayload{Model: "test", Request: "hi"})
 	if err == nil {
 		t.Fatal("expected error after exhausted retries")
 	}
@@ -374,7 +374,7 @@ func TestRetryingProviderNonRetryable(t *testing.T) {
 	}
 
 	rp := NewRetryingProvider(customProvider, RetryConfig{MaxRetries: 3, BaseDelay: 10 * time.Millisecond})
-	_, err := rp.Infer(context.Background(), ContextPayload{Model: "test", RFC: "hi"})
+	_, err := rp.Infer(context.Background(), ContextPayload{Model: "test", Request: "hi"})
 	if err == nil {
 		t.Fatal("expected error for non-retryable status")
 	}
@@ -422,8 +422,8 @@ func TestOpenAICompatibleAdapterInfer(t *testing.T) {
 	}
 
 	ch, err := adapter.Infer(context.Background(), ContextPayload{
-		Model: "gemma",
-		RFC:   "hi",
+		Model:   "gemma",
+		Request: "hi",
 	})
 	if err != nil {
 		t.Fatalf("Infer failed: %v", err)
@@ -462,8 +462,8 @@ func TestOpenAICompatibleAdapterError(t *testing.T) {
 	}
 
 	_, err = adapter.Infer(context.Background(), ContextPayload{
-		Model: "gemma",
-		RFC:   "hi",
+		Model:   "gemma",
+		Request: "hi",
 	})
 	if err == nil {
 		t.Fatal("expected error for 401 response")
@@ -512,7 +512,7 @@ func TestAnthropicAdapterInfer(t *testing.T) {
 	ch, err := adapter.Infer(context.Background(), ContextPayload{
 		Model:        "claude-sonnet",
 		SystemPrompt: "You are a helpful assistant.",
-		RFC:          "hi",
+		Request:      "hi",
 	})
 	if err != nil {
 		t.Fatalf("Infer failed: %v", err)
@@ -582,7 +582,7 @@ func TestOpenAICompatibleAdapter_RoleToolHistory(t *testing.T) {
 			},
 			{Role: RoleTool, Name: "some_tool", ToolCallID: "call_1", Content: "result"},
 		},
-		RFC: "hi",
+		Request: "hi",
 	}
 
 	ch, err := adapter.Infer(context.Background(), payload)
@@ -597,7 +597,7 @@ func TestOpenAICompatibleAdapter_RoleToolHistory(t *testing.T) {
 		t.Fatalf("unmarshal request: %v", err)
 	}
 
-	// Expect: system, assistant (history with tool_calls), tool (history), RFC user.
+	// Expect: system, assistant (history with tool_calls), tool (history), Request user.
 	if len(req.Messages) != 4 {
 		t.Fatalf("expected 4 messages, got %d", len(req.Messages))
 	}
@@ -669,7 +669,7 @@ func TestAnthropicAdapter_RoleToolHistory(t *testing.T) {
 			},
 			{Role: RoleTool, Name: "some_tool", ToolCallID: "call_1", Content: "result"},
 		},
-		RFC: "hi",
+		Request: "hi",
 	}
 
 	ch, err := adapter.Infer(context.Background(), payload)
@@ -686,7 +686,7 @@ func TestAnthropicAdapter_RoleToolHistory(t *testing.T) {
 
 	// Native Anthropic protocol:
 	// - assistant message with tool_use content block
-	// - user message with tool_result content block (merged with RFC user message)
+	// - user message with tool_result content block (merged with Request user message)
 	if len(body.Messages) < 2 {
 		t.Fatalf("expected at least 2 messages, got %d", len(body.Messages))
 	}

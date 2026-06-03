@@ -70,7 +70,7 @@ func (a *AnthropicAdapter) Infer(ctx context.Context, payload ContextPayload) (<
 		}
 	}
 
-	// Build message sequence from payload history and RFC.
+	// Build message sequence from payload history and Request.
 	msgSeq := BuildMessageSequence(payload)
 	for _, msg := range msgSeq {
 		anthMsg := a.serializeContextMessage(msg)

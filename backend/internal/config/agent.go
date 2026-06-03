@@ -39,11 +39,13 @@ type FeatureFlags struct {
 // It may appear in YAML as a shorthand string or a structured mapping.
 //
 // Shorthand:  "tool:invoke/builtin/*"
-//             "tool:invoke/daemon/homeserver/*:require_confirmation"
+//
+//	"tool:invoke/daemon/homeserver/*:require_confirmation"
 //
 // Structured: effect: allow
-//             actions: [tool:invoke]
-//             resources: [builtin/*, mcp/filesystem/*]
+//
+//	actions: [tool:invoke]
+//	resources: [builtin/*, mcp/filesystem/*]
 type Statement struct {
 	Effect    string   `yaml:"effect"`    // "allow" (default), "deny", "require_confirmation"
 	Actions   []string `yaml:"actions"`   // e.g. ["tool:invoke"]

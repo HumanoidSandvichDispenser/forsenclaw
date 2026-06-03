@@ -238,7 +238,6 @@ func TestValidateAgentDefinition_badName(t *testing.T) {
 	}
 }
 
-
 func TestValidateAgentDefinition_badMemoryBudget(t *testing.T) {
 	agent := &AgentDefinition{
 		Name:            "test",

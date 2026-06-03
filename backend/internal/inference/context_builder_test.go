@@ -7,12 +7,12 @@ import (
 
 func TestBuildSystemPrompt(t *testing.T) {
 	payload := ContextPayload{
-		SystemPrompt: "You are helpful.",
-		Memory:       "Key fact.",
-		DailyNotes:   []string{"Note one.", "Note two."},
-		RAGResults: []string{"Result A.", "Result B."},
+		SystemPrompt:  "You are helpful.",
+		Memory:        "Key fact.",
+		DailyNotes:    []string{"Note one.", "Note two."},
+		RAGResults:    []string{"Result A.", "Result B."},
 		CrossRoomFeed: []string{"[#room1 — 5m ago] Alice: Hello"},
-		ToolSchemas: []string{"tool1 schema", "tool2 schema"},
+		ToolSchemas:   []string{"tool1 schema", "tool2 schema"},
 	}
 
 	// Native mode: no tool schemas in system prompt.
@@ -63,7 +63,7 @@ func TestBuildMessageSequence(t *testing.T) {
 			{Role: RoleUser, Content: "Hello"},
 			{Role: RoleAssistant, Content: "Hi there"},
 		},
-		RFC: "How are you?",
+		Request: "How are you?",
 	}
 
 	msgs := BuildMessageSequence(payload)
@@ -98,7 +98,7 @@ func TestBuildMessageSequence_ToolCalls(t *testing.T) {
 				Content:    "results",
 			},
 		},
-		RFC: "Thanks.",
+		Request: "Thanks.",
 	}
 
 	msgs := BuildMessageSequence(payload)
@@ -113,7 +113,44 @@ func TestBuildMessageSequence_ToolCalls(t *testing.T) {
 	}
 }
 
-func TestBuildMessageSequence_NoRFC(t *testing.T) {
+// TestBuildMessageSequence_RequestBeforeCurrentTurn guards the continuation-turn
+// ordering: the Request (triggering user message) must come before the current
+// turn's tool exchanges, not after. If it landed after the tool result, the
+// model would read it as a fresh request and re-call the tool indefinitely.
+func TestBuildMessageSequence_RequestBeforeCurrentTurn(t *testing.T) {
+	payload := ContextPayload{
+		History: []HistoryMessage{
+			{Role: RoleUser, Content: "earlier"},
+		},
+		Request: "search the docs",
+		CurrentTurnHistory: []HistoryMessage{
+			{
+				Role: RoleAssistant,
+				ToolCalls: []ToolCallWire{
+					{ID: "call_1", Type: "function", Function: ToolFunctionWire{Name: "search", Arguments: `{}`}},
+				},
+			},
+			{Role: RoleTool, ToolCallID: "call_1", Name: "search", Content: "results"},
+		},
+	}
+
+	msgs := BuildMessageSequence(payload)
+	if len(msgs) != 4 {
+		t.Fatalf("expected 4 messages, got %d", len(msgs))
+	}
+	// history, Request (user), assistant tool_call, tool result — in that order.
+	if msgs[1].Role != "user" || msgs[1].Content != "search the docs" {
+		t.Fatalf("Request must precede current-turn tool exchanges, got msgs[1]=%+v", msgs[1])
+	}
+	if len(msgs[2].ToolCalls) != 1 {
+		t.Errorf("expected assistant tool call after Request, got %+v", msgs[2])
+	}
+	if msgs[3].Role != "tool" {
+		t.Errorf("expected tool result last, got %+v", msgs[3])
+	}
+}
+
+func TestBuildMessageSequence_NoRequest(t *testing.T) {
 	payload := ContextPayload{
 		History: []HistoryMessage{
 			{Role: RoleUser, Content: "Hello"},

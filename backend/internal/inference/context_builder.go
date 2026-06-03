@@ -55,9 +55,10 @@ func BuildSystemPrompt(payload ContextPayload, toolMode string) string {
 	return b.String()
 }
 
-// BuildMessageSequence returns the ordered message sequence (not including system)
-// from the payload: history messages in order, preserving native tool call
-// fields, followed by the RFC as a final user-role message.
+// BuildMessageSequence returns the ordered message sequence (not including
+// system) from the payload: prior history, then the Request (the triggering user
+// message), then the current turn's in-progress tool exchanges. Native tool call
+// fields are preserved.
 func BuildMessageSequence(payload ContextPayload) []ContextMessage {
 	msgs := make([]ContextMessage, 0, len(payload.History)+len(payload.CurrentTurnHistory)+1)
 
@@ -71,6 +72,19 @@ func BuildMessageSequence(payload ContextPayload) []ContextMessage {
 		})
 	}
 
+	// The Request is the triggering user message and must precede the current
+	// turn's tool exchanges. CurrentTurnHistory holds the assistant's in-progress
+	// response to the Request (tool calls and their results), so it belongs after it.
+	// Appending the Request last would place a stale copy of the user's request after
+	// the tool results on every continuation turn, which the model reads as a
+	// fresh request and answers by re-calling the tool — an infinite loop.
+	if payload.Request != "" {
+		msgs = append(msgs, ContextMessage{
+			Role:    string(RoleUser),
+			Content: payload.Request,
+		})
+	}
+
 	for _, h := range payload.CurrentTurnHistory {
 		msgs = append(msgs, ContextMessage{
 			Role:       string(h.Role),
@@ -78,13 +92,6 @@ func BuildMessageSequence(payload ContextPayload) []ContextMessage {
 			ToolCalls:  h.ToolCalls,
 			ToolCallID: h.ToolCallID,
 			Name:       h.Name,
-		})
-	}
-
-	if payload.RFC != "" {
-		msgs = append(msgs, ContextMessage{
-			Role:    string(RoleUser),
-			Content: payload.RFC,
 		})
 	}
 

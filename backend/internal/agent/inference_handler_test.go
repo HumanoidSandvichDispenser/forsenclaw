@@ -86,7 +86,7 @@ func sseChunk(data string) string {
 // once across a two-turn inference loop (tool call then text response). Without
 // the basePayload cache, Assemble would be called again on the second turn,
 // re-reading room history from the DB (which by then includes the tool
-// call/result), causing duplicates and re-appending the RFC.
+// call/result), causing duplicates and re-appending the Request.
 func TestInferenceLoop_AssembleCalledOnce(t *testing.T) {
 	var inferCalls int32
 	var secondReqBody []byte
@@ -131,7 +131,7 @@ func TestInferenceLoop_AssembleCalledOnce(t *testing.T) {
 	})
 
 	asm := &mockInferenceAssembler{
-		payload: inference.ContextPayload{RFC: "get me a forsen line"},
+		payload: inference.ContextPayload{Request: "get me a forsen line"},
 	}
 	exec := &mockInferenceExecutor{}
 

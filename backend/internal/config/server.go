@@ -145,7 +145,7 @@ func (e EnvString) Resolve() string {
 
 // ToolsConfig configures the agentic tool-call pipeline.
 type ToolsConfig struct {
-	// MaxToolIterations is the hard cap on agentic loop iterations per RFC.
+	// MaxToolIterations is the hard cap on agentic loop iterations per Request.
 	// Default: 10. Must be >= 1 if explicitly set.
 	MaxToolIterations int `yaml:"max_tool_iterations"`
 

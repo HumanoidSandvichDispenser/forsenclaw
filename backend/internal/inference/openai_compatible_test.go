@@ -34,7 +34,7 @@ func TestOpenAICompatibleAdapter_SystemPromptWithContext(t *testing.T) {
 		Model:        "gemma",
 		SystemPrompt: "You are an assistant. Use <thinking> tags.",
 		Memory:       "User said: 5 < 10 && 10 > 5",
-		RFC:          "What about <script>alert(1)</script>?",
+		Request:      "What about <script>alert(1)</script>?",
 	}
 
 	ch, err := adapter.Infer(context.Background(), payload)
@@ -49,7 +49,7 @@ func TestOpenAICompatibleAdapter_SystemPromptWithContext(t *testing.T) {
 	if err := json.Unmarshal([]byte(capturedBody), &req); err != nil {
 		t.Fatalf("failed to unmarshal request body: %v", err)
 	}
-	// Expect 2 messages: system (with context), user RFC.
+	// Expect 2 messages: system (with context), user Request.
 	// History is empty in this test, so no history messages are added.
 	if len(req.Messages) != 2 {
 		t.Fatalf("expected 2 messages, got %d", len(req.Messages))
@@ -73,12 +73,12 @@ func TestOpenAICompatibleAdapter_SystemPromptWithContext(t *testing.T) {
 		t.Errorf("memory content missing in system prompt")
 	}
 
-	// messages[1] is the RFC as a plain user message.
+	// messages[1] is the Request as a plain user message.
 	if req.Messages[1].Role != "user" {
-		t.Errorf("expected RFC message role to be user, got %q", req.Messages[1].Role)
+		t.Errorf("expected Request message role to be user, got %q", req.Messages[1].Role)
 	}
 	if req.Messages[1].Content == nil || *req.Messages[1].Content != "What about <script>alert(1)</script>?" {
-		t.Errorf("RFC message content mismatch: got %v", req.Messages[1].Content)
+		t.Errorf("Request message content mismatch: got %v", req.Messages[1].Content)
 	}
 }
 
@@ -104,7 +104,7 @@ func TestOpenAICompatibleAdapter_SystemPromptNotDuplicated(t *testing.T) {
 	payload := ContextPayload{
 		Model:        "gemma",
 		SystemPrompt: "You are a helpful assistant.",
-		RFC:          "hi",
+		Request:      "hi",
 	}
 
 	ch, err := adapter.Infer(context.Background(), payload)
@@ -156,7 +156,7 @@ func TestOpenAICompatibleAdapter_XMLToolModeHistory(t *testing.T) {
 			},
 			{Role: RoleTool, Name: "some_tool", ToolCallID: "call_1", Content: "result"},
 		},
-		RFC: "hi",
+		Request: "hi",
 	}
 
 	ch, err := adapter.Infer(context.Background(), payload)
@@ -171,7 +171,7 @@ func TestOpenAICompatibleAdapter_XMLToolModeHistory(t *testing.T) {
 		t.Fatalf("unmarshal request: %v", err)
 	}
 
-	// Expect: system, assistant (with XML tool calls), user (tool response), RFC user.
+	// Expect: system, assistant (with XML tool calls), user (tool response), Request user.
 	if len(req.Messages) != 4 {
 		t.Fatalf("expected 4 messages, got %d", len(req.Messages))
 	}
@@ -201,7 +201,7 @@ func TestOpenAICompatibleAdapter_Validation(t *testing.T) {
 	}{
 		{
 			name:    "missing model",
-			payload: ContextPayload{RFC: "hi"},
+			payload: ContextPayload{Request: "hi"},
 			wantErr: "model is required",
 		},
 		{
@@ -210,8 +210,8 @@ func TestOpenAICompatibleAdapter_Validation(t *testing.T) {
 			wantErr: "at least one content field is required",
 		},
 		{
-			name:    "valid with RFC only",
-			payload: ContextPayload{Model: "test", RFC: "hi"},
+			name:    "valid with Request only",
+			payload: ContextPayload{Model: "test", Request: "hi"},
 			wantErr: "",
 		},
 		{

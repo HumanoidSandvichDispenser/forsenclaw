@@ -38,7 +38,7 @@ type InferenceHandler struct {
 
 	// basePayload is the assembled context from the first inference turn.
 	// Cached so that subsequent turns don't re-read room history and re-append
-	// the RFC, which would make the user's message appear twice in context.
+	// the Request, which would make the user's message appear twice in context.
 	basePayload *inference.ContextPayload
 
 	// BLP state — computed at the start of each inference loop turn.

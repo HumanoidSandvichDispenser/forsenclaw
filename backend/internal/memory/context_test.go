@@ -89,9 +89,9 @@ func TestAssembler_Assemble_BasicContext(t *testing.T) {
 	}
 
 	req := agent.Request{
-		ID:     "req-1",
-		Target: "housewife",
-		Source: agent.SourceRoom,
+		ID:      "req-1",
+		Target:  "housewife",
+		Source:  agent.SourceRoom,
 		Payload: agent.RequestPayload{RoomID: r.ID},
 	}
 
@@ -150,11 +150,11 @@ func TestAssembler_Assemble_ClearanceFilter(t *testing.T) {
 		t.Fatalf("Assemble: %v", err)
 	}
 
-	if strings.Contains(payload.RFC, "Secret info") {
-		t.Error("RFC contains above-ceiling message, should have been filtered")
+	if strings.Contains(payload.Request, "Secret info") {
+		t.Error("Request contains above-ceiling message, should have been filtered")
 	}
-	if !strings.Contains(payload.RFC, "Final question") {
-		t.Errorf("RFC missing expected content: %q", payload.RFC)
+	if !strings.Contains(payload.Request, "Final question") {
+		t.Errorf("Request missing expected content: %q", payload.Request)
 	}
 }
 
@@ -173,7 +173,7 @@ func TestAssembler_Assemble_SoftBiba(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AppendMessage: %v", err)
 	}
-	// Final message (becomes RFC, also clearance 2)
+	// Final message (becomes Request, also clearance 2)
 	if _, err := store.AppendMessage(ctx, r.ID, room.Message{
 		Timestamp: time.Now(), RoomID: r.ID,
 		Sender: alice, ClearanceTag: 2, Type: room.MessageText, Content: "Follow-up",
@@ -226,7 +226,7 @@ func TestAssembler_Assemble_RoomHistoryRoles(t *testing.T) {
 		t.Fatalf("Assemble: %v", err)
 	}
 
-	// History: msg-1 (user), msg-2 (assistant). msg-3 becomes the RFC.
+	// History: msg-1 (user), msg-2 (assistant). msg-3 becomes the Request.
 	if len(payload.History) != 2 {
 		t.Fatalf("expected 2 history messages, got %d", len(payload.History))
 	}
@@ -236,8 +236,8 @@ func TestAssembler_Assemble_RoomHistoryRoles(t *testing.T) {
 	if payload.History[1].Role != inference.RoleAssistant {
 		t.Errorf("history[1] role: got %q, want assistant", payload.History[1].Role)
 	}
-	if !strings.Contains(payload.RFC, "How are you?") {
-		t.Errorf("RFC missing last message content: %q", payload.RFC)
+	if !strings.Contains(payload.Request, "How are you?") {
+		t.Errorf("Request missing last message content: %q", payload.Request)
 	}
 }
 
@@ -383,10 +383,10 @@ func TestAssembler_Assemble_CompactionOffset(t *testing.T) {
 		t.Fatalf("Assemble: %v", err)
 	}
 
-	if strings.Contains(payload.RFC, "Compacted") {
-		t.Error("RFC contains compacted messages, should have been skipped")
+	if strings.Contains(payload.Request, "Compacted") {
+		t.Error("Request contains compacted messages, should have been skipped")
 	}
-	if !strings.Contains(payload.RFC, "Visible msg 3") {
-		t.Errorf("RFC missing visible message: %q", payload.RFC)
+	if !strings.Contains(payload.Request, "Visible msg 3") {
+		t.Errorf("Request missing visible message: %q", payload.Request)
 	}
 }

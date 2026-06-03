@@ -190,11 +190,11 @@ type assembledContext struct {
 	TurnBudget string
 
 	// History is the pre-role-assigned room transcript (all but the last
-	// message, which becomes the RFC). Passed directly to ContextPayload.History.
+	// message, which becomes the Request). Passed directly to ContextPayload.History.
 	History []inference.HistoryMessage
 
-	// RFC is the final user request payload (interjections + last message).
-	RFC string
+	// Request is the final user request payload (interjections + last message).
+	Request string
 }
 
 // toContextPayload converts the assembled context into an inference.ContextPayload.
@@ -213,7 +213,7 @@ func (a *assembledContext) toContextPayload() inference.ContextPayload {
 		ToolDefinitions: a.ToolDefinitions,
 		CrossRoomFeed:   a.CrossRoomFeed,
 		History:         a.History,
-		RFC:             a.RFC,
+		Request:         a.Request,
 	}
 }
 
@@ -279,7 +279,7 @@ func (a *Assembler) assemble(ctx context.Context, ag *agent.Agent, req assembleR
 	}
 
 	// 5. Build pre-role-assigned History (all messages except the last text
-	//    message, which becomes the RFC). Tool call/result messages are
+	//    message, which becomes the Request). Tool call/result messages are
 	//    reconstructed as structured HistoryMessages for provider adapters.
 	historyMsgs := req.CurrentRoomHistory
 	if len(historyMsgs) > 0 {
@@ -292,7 +292,7 @@ func (a *Assembler) assemble(ctx context.Context, ag *agent.Agent, req assembleR
 	result.History = sanitizeToolCallHistory(result.History)
 	result.History = trimLeadingNonUserHistory(result.History)
 
-	// 6. Build RFC: interjections + last message from room history.
+	// 6. Build Request: interjections + last message from room history.
 	var rfcContent strings.Builder
 	if len(req.Interjections) > 0 {
 		rfcContent.WriteString("# Interjections (requests during non turns)\n\n")
@@ -310,7 +310,7 @@ func (a *Assembler) assemble(ctx context.Context, ag *agent.Agent, req assembleR
 		rfcContent.WriteString(m.Content)
 		break
 	}
-	result.RFC = rfcContent.String()
+	result.Request = rfcContent.String()
 
 	return result, nil
 }

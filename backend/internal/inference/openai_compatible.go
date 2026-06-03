@@ -375,7 +375,7 @@ type openaiCompatMessage struct {
 }
 
 type openaiTool struct {
-	Type     string               `json:"type"`
+	Type     string                `json:"type"`
 	Function openaiToolFunctionDef `json:"function"`
 }
 
@@ -407,7 +407,7 @@ type openaiCompatStreamChunk struct {
 }
 
 type openaiCompatChoice struct {
-	Index        int                `json:"index"`
+	Index        int               `json:"index"`
 	Delta        openaiCompatDelta `json:"delta"`
 	FinishReason *string           `json:"finish_reason"`
 }

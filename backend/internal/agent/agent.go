@@ -25,9 +25,9 @@ type Agent struct {
 // NewAgent creates a runtime Agent from a loaded definition.
 func NewAgent(def *config.AgentDefinition) (*Agent, error) {
 	return &Agent{
-		Definition:        def,
-		LoadedAt:          time.Now(),
-		Active:            true,
+		Definition: def,
+		LoadedAt:   time.Now(),
+		Active:     true,
 	}, nil
 }
 

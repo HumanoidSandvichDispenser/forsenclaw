@@ -38,7 +38,7 @@ func LoadAgents(agentsDir string, serverCfg *ServerConfig) (map[string]*AgentDef
 			return nil, fmt.Errorf("parsing agent config %s: %w", configPath, err)
 		}
 
-if errs := ValidateAgentDefinition(&agent, serverCfg); len(errs) > 0 {
+		if errs := ValidateAgentDefinition(&agent, serverCfg); len(errs) > 0 {
 			return nil, fmt.Errorf("invalid agent definition %s: %v", configPath, errs)
 		}
 

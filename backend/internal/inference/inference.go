@@ -159,7 +159,7 @@ type ContextPayload struct {
 	CrossRoomFeed      []string         // pre-formatted strings, one per message
 	History            []HistoryMessage // room conversation history, static for the request
 	CurrentTurnHistory []HistoryMessage // tool exchanges accumulated this inference turn
-	RFC                string
+	Request            string
 	Temperature        *float64
 	MaxTokens          *int
 	Stop               []string
@@ -234,7 +234,7 @@ func ValidateContextPayload(payload ContextPayload) error {
 		len(payload.ToolSchemas) > 0 ||
 		len(payload.CrossRoomFeed) > 0 ||
 		len(payload.History) > 0 ||
-		payload.RFC != ""
+		payload.Request != ""
 	if !hasContent {
 		return fmt.Errorf("at least one content field is required")
 	}
