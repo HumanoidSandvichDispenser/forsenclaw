@@ -1,0 +1,159 @@
+// The forsenClaw model: elements and their relationships.
+//
+// The backend is one Go binary; its subsystems are modeled as separate
+// containers so each gets its own zoomable view — a logical decomposition,
+// not a deployment topology. Relationships are declared once, inside the
+// system block, so the container and component views stay consistent.
+model {
+
+  user = person 'User' 'Owns the system. Sends messages into rooms and approves/denies tool confirmations (e.g. clearance write-downs).'
+
+  // --- External systems the model treats as opaque ---
+  google = external 'Google / Gemini' 'LLM provider (OpenAI-compatible endpoint).'
+  openrouter = external 'OpenRouter' 'LLM provider aggregator (OpenAI-compatible).'
+  web = external 'The Web' 'Arbitrary web pages fetched by the webfetch tool.'
+  brave = external 'Brave Search API' 'Web-search backend (api.search.brave.com) for the web_search tool.'
+  mcpServers = external 'MCP Servers' {
+    #planned
+    description 'Externally-hosted tool servers reached over the MCP protocol. Not yet implemented — the MCPClient interface is the seam where a remote adapter would plug in.'
+    style {
+      color muted
+      border dashed
+    }
+  }
+
+  forsenclaw = system 'forsenClaw' {
+    description 'A single Go backend + Vue frontend; rooms are clearance-bounded context containers, agents respond within them.'
+
+    frontend = container 'Frontend' {
+      description 'Room UI, confirmation banners, context-preview modal.'
+      technology 'Vue 3 / TypeScript'
+    }
+
+    api = container 'API' {
+      description 'HTTP (huma) + WebSocket. The only inbound edge; also the outbound edge back to clients.'
+      technology 'Go'
+
+      service = component 'Service' 'Wires dependencies and registers routes.'
+      hub = component 'Hub' 'WebSocket fan-out: broadcasts message.created / message.delta / confirmation.pending to room subscribers.'
+      respWriter = component 'AgentResponseWriter' 'Persists a completed agent message/tool-result, then broadcasts message.created. Implements agent.ResponseWriter.'
+      streamWriter = component 'AgentStreamWriter' 'Broadcasts message.delta tokens during streaming. No persistence.'
+    }
+
+    dispatcher = container 'Dispatcher' {
+      description 'Synchronous router. On message-send, fans the message out to every agent participant as a Request. Batches room messages; enqueues system/event directly.'
+      technology 'Go'
+    }
+
+    agentRuntime = container 'Agent Runtime' {
+      description 'The heart of the loop. One run-loop goroutine per agent, driving a DAG of requests (turns, tool calls, confirmations).'
+      technology 'Go'
+
+      manager = component 'Manager' 'Owns agents + their runtimes; hot-reloads agent definitions from disk.'
+      runtime = component 'AgentRuntime' 'Per-agent run loop. Spawns a goroutine per DAG node; broadcasts idle when all settled.'
+      dag = component 'DAG' 'Generic dependency graph for in-flight requests. NextReady / AllSettled.'
+      infHandler = component 'InferenceHandler' 'Drives a single turn: assemble → infer → execute tool calls → repeat. Applies BLP tool filtering + per-call policy effect (allow/deny/confirm).'
+      confHandler = component 'ConfirmationHandler' 'Pauses a node when policy says require_confirmation (write-down or permission); carries the reason to the UI; resumes on the user decision.'
+    }
+
+    assembler = container 'Assembler' {
+      description 'Builds the context window for a turn: load room history → clearance-filter (BLP) + soft-Biba annotate → assemble memory/notes/history → inject clearance notice.'
+      technology 'Go (internal/memory)'
+    }
+
+    inference = container 'Inference' {
+      description 'Provider abstraction. Renders the assembled payload to a provider request and parses the response.'
+      technology 'Go'
+
+      ctxBuilder = component 'Context Builder' 'BuildSystemPrompt / BuildMessageSequence — shared rendering used by both adapters and the context-preview route.'
+      anthropic = component 'Anthropic adapter' 'Native Anthropic API shape.'
+      openaiCompat = component 'OpenAI-compatible adapter' 'Covers Google + OpenRouter.'
+    }
+
+    mcp = container 'MCP' {
+      description 'Tool dispatch. Resolves a tool ID to its MCPClient and invokes it through the uniform Call interface, then audits. Transport-agnostic — policy lives elsewhere.'
+      technology 'Go'
+
+      registry = component 'Registry' 'Maps tool IDs to their hosting MCPClient; stamps FRSN resource + clearance onto each ToolDefinition in AllDefinitions().'
+      executor = component 'Executor' 'Resolve tool → parse args → MCPClient.Call → audit. No permission gating.'
+    }
+
+    builtinTools = container 'Builtin Tools' {
+      description 'In-process MCPClient implementations. Each runs locally rather than over a transport; the executor invokes them through the same Call interface a remote MCP server would use.'
+      technology 'Go (internal/mcp/tools)'
+
+      webfetch = component 'webfetch' 'Fetches a URL and extracts its readable content.'
+      webSearch = component 'web_search' 'Brave-backed web search.'
+      createRoom = component 'create_room' 'Declassification: seeds a NEW lower-clearance room with a curated summary (clean cut, never copies high-clearance history).'
+      forsenLine = component 'forsen_line' 'Returns a random line. Exercises the tool-call pipeline end to end.'
+    }
+
+    policy = container 'Policy Engine' {
+      description 'Authorization. BLP clearance check (read-up deny, write-down confirm) first, then IAM-style allow/deny/confirm statements. Most-restrictive wins; default deny.'
+      technology 'Go (internal/policy)'
+    }
+
+    store = container 'Store' {
+      description 'Rooms, messages (tree), compaction cursors, audit sink.'
+      technology 'SQLite via GORM'
+    }
+
+    audit = container 'Audit' {
+      description 'Fire-and-forget event pipeline. Buffered channel → sinks (console, SQLite), per-sink kind/level filtering.'
+      technology 'Go'
+    }
+
+    // --- Relationships ---
+
+    user -> frontend 'Sends messages; approves/denies confirmations'
+    frontend -> api 'REST + WebSocket' {
+      technology 'HTTPS / WS'
+    }
+
+    api.service -> dispatcher 'Submits a Request per agent participant on message-send'
+    api.service -> store 'Reads/writes rooms & messages'
+    api.service -> agentRuntime.manager 'Delivers confirmation responses (Respond)'
+    api.respWriter -> store 'Appends agent messages'
+    api.respWriter -> api.hub 'Broadcasts message.created'
+    api.streamWriter -> api.hub 'Broadcasts message.delta'
+
+    dispatcher -> agentRuntime.manager 'Routes room messages to each agent runtime'
+
+    agentRuntime.manager -> agentRuntime.runtime 'Owns one runtime per agent'
+    agentRuntime.runtime -> agentRuntime.dag 'Schedules ready nodes'
+    agentRuntime.runtime -> agentRuntime.infHandler 'Runs each turn node'
+    agentRuntime.infHandler -> assembler 'Builds the context window each turn'
+    agentRuntime.infHandler -> inference 'Runs a model turn'
+    agentRuntime.infHandler -> policy 'Filters tools (BLP) + evaluates per-call effect'
+    agentRuntime.infHandler -> mcp.executor 'Executes approved tool calls'
+    agentRuntime.infHandler -> api.respWriter 'Writes completed responses + tool results'
+    agentRuntime.infHandler -> api.streamWriter 'Streams tokens'
+    agentRuntime.infHandler -> agentRuntime.confHandler 'Pauses on require_confirmation'
+    agentRuntime.infHandler -> audit 'permission.* / confirmation.* events'
+
+    assembler -> store 'Loads windowed history + compaction offset'
+
+    inference.openaiCompat -> google 'Chat completions'
+    inference.openaiCompat -> openrouter 'Chat completions'
+    inference.anthropic -> google 'if Anthropic-native provider configured' {
+      technology 'unused in dev'
+    }
+
+    mcp.registry -> builtinTools 'Registers + resolves tool IDs'
+    mcp.executor -> builtinTools 'MCPClient.Call (in-process)'
+    mcp.executor -> mcpServers 'MCPClient.Call over MCP transport (HTTP/stdio)' {
+      #planned
+      style {
+        line dashed
+        color muted
+      }
+    }
+    mcp.executor -> audit 'tool.* events'
+
+    builtinTools.webfetch -> web 'Fetches & extracts page content'
+    builtinTools.webSearch -> brave 'Web-search query'
+    builtinTools.createRoom -> store 'Seeds the new lower-clearance room'
+
+    audit -> store 'SQLite sink'
+  }
+}

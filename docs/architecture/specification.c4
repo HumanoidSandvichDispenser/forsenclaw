@@ -1,0 +1,44 @@
+// Element kinds and their styling. The C4 levels (system / container /
+// component) are modeled as distinct kinds so each renders with its own
+// colour and so views can filter by kind. `external` is a separate kind for
+// third-party systems we treat as opaque.
+specification {
+
+  element person {
+    style {
+      shape person
+      color indigo
+    }
+  }
+
+  element system {
+    style {
+      color blue
+    }
+  }
+
+  element external {
+    notation 'External system'
+    style {
+      color gray
+      shape rectangle
+    }
+  }
+
+  element container {
+    style {
+      color sky
+    }
+  }
+
+  element component {
+    style {
+      color slate
+      shape rectangle
+    }
+  }
+
+  // Marks elements/relationships that are designed-for but not yet built
+  // (e.g. external MCP servers — the MCPClient seam exists, no adapter does).
+  tag planned
+}

@@ -44,6 +44,25 @@ services:
     networks:
       - dev-network
 
+  likec4:
+    image: likec4/likec4
+    container_name: likec4
+    profiles:
+      - docs
+    init: true
+    command: start --host 0.0.0.0
+    # Containerized file-watching needs polling to pick up edits on the mount.
+    environment:
+      - CHOKIDAR_USEPOLLING=1
+      - CHOKIDAR_INTERVAL=200
+    ports:
+      - "8081:5173"   # viewer
+      - "24678:24678" # hot-reload (HMR)
+    volumes:
+      - ./docs/architecture:/data
+    networks:
+      - dev-network
+
 networks:
   dev-network:
     driver: bridge

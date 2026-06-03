@@ -1,0 +1,60 @@
+// Views at increasing zoom. `include *` pulls in everything visible from the
+// view scope and lets LikeC4 roll relationships up/down automatically, so
+// the container view stays consistent with the component views.
+views {
+
+  view index {
+    title 'L1 — System Context'
+    include *
+    autoLayout LeftRight
+  }
+
+  view containers of forsenclaw {
+    title 'L2 — Containers'
+    include *
+    autoLayout LeftRight
+  }
+
+  view agentRuntime of forsenclaw.agentRuntime {
+    title 'L3 — Agent Runtime (the agent loop)'
+    include *
+    autoLayout LeftRight
+  }
+
+  view mcp of forsenclaw.mcp {
+    title 'L3 — MCP dispatch (registry + executor)'
+    include *
+    autoLayout LeftRight
+  }
+
+  view builtinTools of forsenclaw.builtinTools {
+    title 'L3 — Builtin Tools (in-process MCPClients)'
+    include *
+    autoLayout LeftRight
+  }
+
+  view api of forsenclaw.api {
+    title 'L3 — API (inbound routes + outbound WebSocket writers)'
+    include *
+    autoLayout LeftRight
+  }
+
+  dynamic view sendMessage {
+    title 'Flow — Send message → agent reply'
+
+    user -> forsenclaw.frontend 'Types a message'
+    forsenclaw.frontend -> forsenclaw.api 'POST /api/rooms/{id}/messages'
+    forsenclaw.api -> forsenclaw.store 'Append user message'
+    forsenclaw.api -> forsenclaw.dispatcher 'Submit a Request per agent participant'
+    forsenclaw.dispatcher -> forsenclaw.agentRuntime 'Enqueue on the agent runtime'
+    forsenclaw.agentRuntime -> forsenclaw.assembler 'Assemble context (clearance-filtered)'
+    forsenclaw.agentRuntime -> forsenclaw.policy 'Filter tools by clearance'
+    forsenclaw.agentRuntime -> forsenclaw.inference 'Run a model turn'
+    forsenclaw.inference -> google 'Chat completion'
+    forsenclaw.agentRuntime -> forsenclaw.mcp 'Execute any tool calls (after policy)'
+    forsenclaw.agentRuntime -> forsenclaw.api 'Write response + broadcast'
+    forsenclaw.api -> forsenclaw.frontend 'message.created / message.delta over WebSocket'
+
+    autoLayout LeftRight
+  }
+}
