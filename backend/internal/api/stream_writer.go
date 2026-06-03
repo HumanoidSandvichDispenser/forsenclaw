@@ -26,8 +26,8 @@ func (w *AgentStreamWriter) StreamAgentDelta(
 		Payload: room.MessageDelta{
 			RoomID: roomID,
 			Actor: room.Actor{
-				Type: "agent",
-				ID:   "agent:" + agentName,
+				Type: room.ActorAgent,
+				ID:   room.AgentID(agentName),
 				Name: agentName,
 			},
 			Delta: delta,

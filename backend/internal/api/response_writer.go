@@ -29,17 +29,6 @@ func NewAgentResponseWriter(rooms store.RoomRepository, messages store.MessageRe
 // WriteAgentResponse looks up the room, appends the agent message, and
 // broadcasts a message.created event to subscribers.
 func (w *AgentResponseWriter) WriteAgentResponse(ctx context.Context, roomID int64, agentName string, content string, toolCalls []inference.ToolCallWire, inputTokens, outputTokens int) error {
-	r, err := w.rooms.GetRoom(ctx, roomID)
-	if err != nil {
-		return fmt.Errorf("looking up room %d: %w", roomID, err)
-	}
-
-	actorID := room.AgentID(agentName)
-	sender := r.ParticipantByID(actorID)
-	if sender == nil {
-		return fmt.Errorf("agent %q not found in room %d", actorID, roomID)
-	}
-
 	msgType := room.MessageText
 	var records []room.ToolCallRecord
 	if len(toolCalls) > 0 {
@@ -53,33 +42,30 @@ func (w *AgentResponseWriter) WriteAgentResponse(ctx context.Context, roomID int
 		}
 	}
 
-	msg := room.Message{
-		Timestamp:         time.Now().UTC(),
-		RoomID:            roomID,
-		Sender:            *sender,
-		ClearanceTag:      min(sender.Clearance, r.Clearance),
+	return w.appendAndBroadcast(ctx, roomID, agentName, room.Message{
 		Type:              msgType,
 		Content:           content,
 		ToolCalls:         records,
 		UsageInputTokens:  inputTokens,
 		UsageOutputTokens: outputTokens,
-	}
-
-	id, err := w.messages.AppendMessage(ctx, roomID, msg)
-	if err != nil {
-		return fmt.Errorf("appending message: %w", err)
-	}
-	msg.ID = id
-
-	w.hub.Broadcast(roomID, dispatch.StreamEvent{
-		Type:    "message.created",
-		Payload: msg,
 	})
-	return nil
 }
 
 // WriteToolResult appends a tool result message and broadcasts it.
 func (w *AgentResponseWriter) WriteToolResult(ctx context.Context, roomID int64, agentName string, toolCallID string, toolName string, result string) error {
+	return w.appendAndBroadcast(ctx, roomID, agentName, room.Message{
+		Type:       room.MessageToolResult,
+		Content:    result,
+		ToolCallID: toolCallID,
+		ToolName:   toolName,
+	})
+}
+
+// appendAndBroadcast resolves the agent's participant record in the room, fills
+// in the sender-derived fields (sender, clearance tag, timestamp, room) on the
+// caller-provided message, persists it, and broadcasts a message.created event.
+// Callers supply only the message-type-specific fields.
+func (w *AgentResponseWriter) appendAndBroadcast(ctx context.Context, roomID int64, agentName string, msg room.Message) error {
 	r, err := w.rooms.GetRoom(ctx, roomID)
 	if err != nil {
 		return fmt.Errorf("looking up room %d: %w", roomID, err)
@@ -91,20 +77,14 @@ func (w *AgentResponseWriter) WriteToolResult(ctx context.Context, roomID int64,
 		return fmt.Errorf("agent %q not found in room %d", actorID, roomID)
 	}
 
-	msg := room.Message{
-		Timestamp:    time.Now().UTC(),
-		RoomID:       roomID,
-		Sender:       *sender,
-		ClearanceTag: min(sender.Clearance, r.Clearance),
-		Type:         room.MessageToolResult,
-		Content:      result,
-		ToolCallID:   toolCallID,
-		ToolName:     toolName,
-	}
+	msg.Timestamp = time.Now().UTC()
+	msg.RoomID = roomID
+	msg.Sender = *sender
+	msg.ClearanceTag = min(sender.Clearance, r.Clearance)
 
 	id, err := w.messages.AppendMessage(ctx, roomID, msg)
 	if err != nil {
-		return fmt.Errorf("appending tool result: %w", err)
+		return fmt.Errorf("appending message: %w", err)
 	}
 	msg.ID = id
 
