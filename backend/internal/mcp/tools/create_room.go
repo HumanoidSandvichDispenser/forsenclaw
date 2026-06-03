@@ -122,7 +122,7 @@ func (c *CreateRoomClient) Call(ctx context.Context, toolID string, params map[s
 	if agentName == "" {
 		return "", fmt.Errorf("no calling agent in context")
 	}
-	seeder, err := c.resolver.ResolveActor("agent:" + agentName)
+	seeder, err := c.resolver.ResolveActor(room.AgentID(agentName))
 	if err != nil {
 		return "", fmt.Errorf("resolve calling agent %q: %w", agentName, err)
 	}

@@ -136,16 +136,13 @@ func (svc *Service) resolveParticipants(ids []string) ([]room.Actor, error) {
 
 	for _, id := range ids {
 		// Format: "user:<name>" or "agent:<name>"
-		if len(id) < 6 {
+		typ, name, ok := room.SplitActorID(id)
+		if !ok {
 			return nil, fmt.Errorf("invalid actor ID: %q", id)
 		}
 
-		switch {
-		case id[:5] == "user:":
-			name := id[5:]
-			if name == "" {
-				return nil, fmt.Errorf("invalid user ID: %q", id)
-			}
+		switch typ {
+		case room.ActorUser:
 			actors = append(actors, room.Actor{
 				ID:        id,
 				Type:      room.ActorUser,
@@ -153,11 +150,7 @@ func (svc *Service) resolveParticipants(ids []string) ([]room.Actor, error) {
 				Name:      name,
 			})
 
-		case id[:6] == "agent:":
-			name := id[6:]
-			if name == "" {
-				return nil, fmt.Errorf("invalid agent ID: %q", id)
-			}
+		case room.ActorAgent:
 			ag := svc.agentMgr.Get(name)
 			if ag == nil {
 				return nil, fmt.Errorf("agent %q not found", name)

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -78,7 +77,7 @@ func (svc *Service) sendMessage(ctx context.Context, input *SendMessageRequest) 
 		if !p.IsAgent() {
 			continue
 		}
-		agentName := strings.TrimPrefix(p.ID, "agent:")
+		_, agentName, _ := room.SplitActorID(p.ID)
 		svc.dispatcher.Submit(agent.Request{
 			Target: agentName,
 			Source: agent.SourceRoom,

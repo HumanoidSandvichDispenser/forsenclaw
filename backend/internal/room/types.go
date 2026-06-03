@@ -4,6 +4,7 @@ package room
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -61,6 +62,30 @@ func (a Actor) IsUser() bool { return a.Type == ActorUser }
 
 // IsAgent returns true if this actor is an agent.
 func (a Actor) IsAgent() bool { return a.Type == ActorAgent }
+
+// Actor IDs follow a "<type>:<name>" convention (e.g. "agent:forsen"). These
+// helpers build and parse that scheme so the prefix strings live in one place.
+
+// ActorID builds the canonical "<type>:<name>" identifier.
+func ActorID(t ActorType, name string) string {
+	return string(t) + ":" + name
+}
+
+// AgentID returns the canonical ID for an agent name ("agent:<name>").
+func AgentID(name string) string { return ActorID(ActorAgent, name) }
+
+// UserID returns the canonical ID for a user name ("user:<name>").
+func UserID(name string) string { return ActorID(ActorUser, name) }
+
+// SplitActorID splits "<type>:<name>" into its type and name. ok is false when
+// the id lacks a non-empty type prefix or a non-empty name.
+func SplitActorID(id string) (typ ActorType, name string, ok bool) {
+	i := strings.IndexByte(id, ':')
+	if i <= 0 || i == len(id)-1 {
+		return "", "", false
+	}
+	return ActorType(id[:i]), id[i+1:], true
+}
 
 // ---------------------------------------------------------------------------
 // Message

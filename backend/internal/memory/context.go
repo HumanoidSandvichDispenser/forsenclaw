@@ -317,7 +317,7 @@ func (a *Assembler) assemble(ctx context.Context, ag *agent.Agent, req assembleR
 			}
 		default:
 			role := inference.RoleUser
-			if m.Sender.IsAgent() && m.Sender.ID == "agent:"+ag.Name() {
+			if m.Sender.IsAgent() && m.Sender.ID == room.AgentID(ag.Name()) {
 				role = inference.RoleAssistant
 			}
 			content := m.Content

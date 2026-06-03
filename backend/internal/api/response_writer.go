@@ -34,7 +34,7 @@ func (w *AgentResponseWriter) WriteAgentResponse(ctx context.Context, roomID int
 		return fmt.Errorf("looking up room %d: %w", roomID, err)
 	}
 
-	actorID := "agent:" + agentName
+	actorID := room.AgentID(agentName)
 	sender := r.ParticipantByID(actorID)
 	if sender == nil {
 		return fmt.Errorf("agent %q not found in room %d", actorID, roomID)
@@ -85,7 +85,7 @@ func (w *AgentResponseWriter) WriteToolResult(ctx context.Context, roomID int64,
 		return fmt.Errorf("looking up room %d: %w", roomID, err)
 	}
 
-	actorID := "agent:" + agentName
+	actorID := room.AgentID(agentName)
 	sender := r.ParticipantByID(actorID)
 	if sender == nil {
 		return fmt.Errorf("agent %q not found in room %d", actorID, roomID)

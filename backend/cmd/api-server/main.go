@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -172,7 +171,7 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 		userName = "user"
 	}
 	userActor := roomPkg.Actor{
-		ID:        "user:" + userName,
+		ID:        roomPkg.UserID(userName),
 		Type:      roomPkg.ActorUser,
 		Clearance: 5,
 		Name:      userName,
@@ -356,20 +355,20 @@ type agentActorResolver struct {
 }
 
 func (r *agentActorResolver) ResolveActor(id string) (roomPkg.Actor, error) {
-	switch {
-	case strings.HasPrefix(id, "user:"):
-		name := id[len("user:"):]
-		if name == "" {
-			return roomPkg.Actor{}, fmt.Errorf("invalid user ID: %q", id)
-		}
+	typ, name, ok := roomPkg.SplitActorID(id)
+	if !ok {
+		return roomPkg.Actor{}, fmt.Errorf("invalid actor ID: %q", id)
+	}
+
+	switch typ {
+	case roomPkg.ActorUser:
 		// The configured root user is the only known user today.
 		if id == r.user.ID {
 			return r.user, nil
 		}
 		return roomPkg.Actor{ID: id, Type: roomPkg.ActorUser, Clearance: 5, Name: name}, nil
 
-	case strings.HasPrefix(id, "agent:"):
-		name := id[len("agent:"):]
+	case roomPkg.ActorAgent:
 		ag := r.mgr.Get(name)
 		if ag == nil {
 			return roomPkg.Actor{}, fmt.Errorf("agent %q not found", name)
