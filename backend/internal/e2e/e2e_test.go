@@ -282,6 +282,7 @@ permissions:
 		Executor:       mcpExec,
 		Notifier:       api.NewHubNotifier(hub),
 		ResponseWriter: api.NewAgentResponseWriter(sqliteStore, sqliteStore, hub),
+		DAGStream:      api.NewHubDAGStream(hub),
 	})
 	if err != nil {
 		sqliteStore.Close()
@@ -678,5 +679,126 @@ func TestE2E_CreateRoomDeclassificationDenied(t *testing.T) {
 		if name, _ := r["name"].(string); name == "should not exist" {
 			t.Fatalf("a room was created despite the confirmation being denied")
 		}
+	}
+}
+
+// subscribeAgent subscribes the connection to an agent's DAG-viewer stream.
+func subscribeAgent(t *testing.T, conn *websocket.Conn, name string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	msg, _ := json.Marshal(map[string]any{"action": "subscribe_agent", "agent": name})
+	if err := conn.Write(ctx, websocket.MessageText, msg); err != nil {
+		t.Fatalf("subscribe agent %s: %v", name, err)
+	}
+}
+
+// getAgentDAG fetches the agent's DAG snapshot over REST.
+func getAgentDAG(t *testing.T, serverURL, name string) []map[string]any {
+	t.Helper()
+	resp, err := http.Get(serverURL + "/api/agents/" + name + "/dag")
+	if err != nil {
+		t.Fatalf("get dag: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("get dag: status %d: %s", resp.StatusCode, b)
+	}
+	var result struct {
+		Nodes []map[string]any `json:"nodes"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode dag: %v", err)
+	}
+	return result.Nodes
+}
+
+// awaitDAGState reads dag.update events until one reports the wanted state.
+func awaitDAGState(t *testing.T, conn *websocket.Conn, want string) map[string]any {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for {
+		_, data, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatalf("reading ws waiting for dag.update %q: %v", want, err)
+		}
+		var evt struct {
+			Type    string         `json:"type"`
+			Payload map[string]any `json:"payload"`
+		}
+		if err := json.Unmarshal(data, &evt); err != nil {
+			continue
+		}
+		if evt.Type == "dag.update" && evt.Payload["state"] == want {
+			return evt.Payload
+		}
+	}
+}
+
+// TestE2E_AgentDAGSnapshot verifies the REST snapshot reflects the agent's DAG
+// after a turn: the inference root is retained and shows as resolved with timing.
+func TestE2E_AgentDAGSnapshot(t *testing.T) {
+	env := newE2EEnv(t, nil, nil)
+
+	roomID := createRoom(t, env.serverURL)
+
+	conn := connectWS(t, env.serverURL)
+	subscribeRoom(t, conn, roomID)
+
+	env.infer.enqueue(sseTextResponse("done"))
+	sendMessage(t, env.serverURL, roomID, "user:alice", "hi")
+	awaitEvent(t, conn, "message.created") // agent finished — root resolved
+
+	nodes := getAgentDAG(t, env.serverURL, "testbot")
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 DAG node, got %d: %+v", len(nodes), nodes)
+	}
+	n := nodes[0]
+	if n["kind"] != "inference" {
+		t.Errorf("kind = %v, want inference", n["kind"])
+	}
+	if n["state"] != "resolved" {
+		t.Errorf("state = %v, want resolved", n["state"])
+	}
+	if n["created_at"] == nil || n["settled_at"] == nil {
+		t.Errorf("expected created_at and settled_at set, got %+v", n)
+	}
+}
+
+// TestE2E_AgentDAGStream verifies node-state transitions stream live to a client
+// subscribed to the agent's DAG.
+func TestE2E_AgentDAGStream(t *testing.T) {
+	env := newE2EEnv(t, nil, nil)
+
+	roomID := createRoom(t, env.serverURL)
+
+	conn := connectWS(t, env.serverURL)
+	subscribeAgent(t, conn, "testbot")
+
+	env.infer.enqueue(sseTextResponse("done"))
+	sendMessage(t, env.serverURL, roomID, "user:alice", "hi")
+
+	resolved := awaitDAGState(t, conn, "resolved")
+	if resolved["kind"] != "inference" {
+		t.Errorf("kind = %v, want inference", resolved["kind"])
+	}
+	if id, _ := resolved["id"].(string); id == "" {
+		t.Error("dag.update missing node id")
+	}
+}
+
+// TestE2E_AgentDAGUnknownAgent verifies a 404 for an agent with no runtime.
+func TestE2E_AgentDAGUnknownAgent(t *testing.T) {
+	env := newE2EEnv(t, nil, nil)
+
+	resp, err := http.Get(env.serverURL + "/api/agents/ghost/dag")
+	if err != nil {
+		t.Fatalf("get dag: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 for unknown agent, got %d", resp.StatusCode)
 	}
 }

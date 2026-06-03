@@ -3,6 +3,7 @@ package api
 import (
 	"time"
 
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/agent"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
 )
 
@@ -107,6 +108,20 @@ type ContextToolResponse struct {
 	Name      string `json:"name" doc:"Tool name"`
 	Resource  string `json:"resource" doc:"Tool FRSN resource identifier"`
 	Clearance int    `json:"clearance" doc:"Tool data-classification clearance tier"`
+}
+
+// GetAgentDAGRequest is the input for GET /api/agents/{agent_name}/dag.
+type GetAgentDAGRequest struct {
+	AgentName string `path:"agent_name" validate:"required" doc:"Agent name"`
+}
+
+// GetAgentDAGResponse is the output for GET /api/agents/{agent_name}/dag: the
+// agent's current request DAG, with settled nodes retained until the agent's
+// next request.
+type GetAgentDAGResponse struct {
+	Body struct {
+		Nodes []agent.DAGNode `json:"nodes" doc:"DAG nodes in insertion order"`
+	}
 }
 
 // ---------------------------------------------------------------------------

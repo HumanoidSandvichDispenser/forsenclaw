@@ -188,7 +188,7 @@ func (h *stubRuntimeHandler) Handle(_ context.Context, _ map[string]dag.Result) 
 	return nil, h.result, nil
 }
 
-// --- DAG viewer (slice 2): Describe, timing, snapshot, enqueue reset ---
+// --- DAG viewer: Describe, timing, snapshot, enqueue reset ---
 
 func TestInferenceHandler_Describe(t *testing.T) {
 	if got := (&InferenceHandler{}).Describe(); got.Kind != KindInference {

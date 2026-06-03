@@ -211,6 +211,7 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 		Notifier:       api.NewHubNotifier(hub),
 		ResponseWriter: api.NewAgentResponseWriter(store, store, hub),
 		StreamWriter:   api.NewAgentStreamWriter(hub),
+		DAGStream:      api.NewHubDAGStream(hub),
 	})
 	if err != nil {
 		log.Fatalf("failed to create agent manager: %v", err)

@@ -60,6 +60,7 @@ func NewAPI(router chi.Router, svc *Service) huma.API {
 	registerRoomRoutes(api, svc)
 	registerMessageRoutes(api, svc)
 	registerAgentRoutes(api, svc)
+	registerDAGRoutes(api, svc)
 	registerConfirmationRoutes(api, svc)
 	registerContextPreviewRoutes(api, svc)
 	registerUserRoutes(api, svc)
