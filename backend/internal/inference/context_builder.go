@@ -82,6 +82,7 @@ func BuildMessageSequence(payload ContextPayload) []ContextMessage {
 		msgs = append(msgs, ContextMessage{
 			Role:    string(RoleUser),
 			Content: payload.Request,
+			Name:    payload.RequestName,
 		})
 	}
 

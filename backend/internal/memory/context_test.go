@@ -239,6 +239,58 @@ func TestAssembler_Assemble_RoomHistoryRoles(t *testing.T) {
 	if !strings.Contains(payload.Request, "How are you?") {
 		t.Errorf("Request missing last message content: %q", payload.Request)
 	}
+	if payload.RequestName != "Alice" {
+		t.Errorf("RequestName: got %q, want Alice", payload.RequestName)
+	}
+}
+
+// TestAssembler_Assemble_PendingToolCall covers the assembly state while the
+// agent waits on a confirmation: the transcript ends with the agent's persisted
+// tool call, after the triggering user message. The triggering message must
+// appear only as the Request (not duplicated into History), carry its speaker,
+// and the pending tool call must follow it as current-turn history.
+func TestAssembler_Assemble_PendingToolCall(t *testing.T) {
+	assembler, store, p := newTestAssembler(t)
+	ag := newTestAgent(t, p, "housewife", 5)
+
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5, Name: "Alice"}
+	housewife := room.Actor{ID: "agent:housewife", Type: room.ActorAgent, Clearance: 5, Name: "Housewife"}
+	r := newTestRoom(t, store, 5, alice, housewife)
+
+	ctx := context.Background()
+	msgs := []room.Message{
+		{Timestamp: time.Now(), RoomID: r.ID, Sender: alice, ClearanceTag: 5, Type: room.MessageText, Content: "search the docs"},
+		{Timestamp: time.Now(), RoomID: r.ID, Sender: housewife, ClearanceTag: 5, Type: room.MessageToolCall,
+			ToolCalls: []room.ToolCallRecord{{ID: "call_1", ToolName: "search", Arguments: "{}"}}},
+	}
+	for _, m := range msgs {
+		if _, err := store.AppendMessage(ctx, r.ID, m); err != nil {
+			t.Fatalf("AppendMessage: %v", err)
+		}
+	}
+
+	payload, err := assembler.Assemble(ctx, ag, agent.Request{
+		ID: "req-1", Target: "housewife", Source: agent.SourceRoom,
+		Payload: agent.RequestPayload{RoomID: r.ID},
+	}, nil)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	if !strings.Contains(payload.Request, "search the docs") {
+		t.Errorf("Request missing triggering message: %q", payload.Request)
+	}
+	for _, h := range payload.History {
+		if strings.Contains(h.Content, "search the docs") {
+			t.Errorf("triggering message duplicated into History: %q", h.Content)
+		}
+	}
+	if payload.RequestName != "Alice" {
+		t.Errorf("RequestName: got %q, want Alice", payload.RequestName)
+	}
+	if len(payload.CurrentTurnHistory) != 1 || len(payload.CurrentTurnHistory[0].ToolCalls) != 1 {
+		t.Errorf("expected pending tool call in CurrentTurnHistory, got %+v", payload.CurrentTurnHistory)
+	}
 }
 
 func TestAssembler_Assemble_DailyNotes(t *testing.T) {

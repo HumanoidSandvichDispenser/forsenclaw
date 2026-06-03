@@ -189,12 +189,22 @@ type assembledContext struct {
 	// TurnBudget is the budget notice.
 	TurnBudget string
 
-	// History is the pre-role-assigned room transcript (all but the last
-	// message, which becomes the Request). Passed directly to ContextPayload.History.
+	// History is the pre-role-assigned room transcript up to (not including) the
+	// message that becomes the Request. Passed directly to ContextPayload.History.
 	History []inference.HistoryMessage
+
+	// CurrentTurnHistory holds any tool exchanges that follow the triggering
+	// message in the transcript (e.g. an assistant tool call awaiting
+	// confirmation). Rendered after the Request, mirroring the live inference
+	// order. The live inference path overwrites this with its in-memory turn
+	// state, so it only affects assembly-only consumers such as the preview.
+	CurrentTurnHistory []inference.HistoryMessage
 
 	// Request is the final user request payload (interjections + last message).
 	Request string
+
+	// RequestName is the speaker of the triggering message, for attribution.
+	RequestName string
 }
 
 // toContextPayload converts the assembled context into an inference.ContextPayload.
@@ -205,15 +215,17 @@ func (a *assembledContext) toContextPayload() inference.ContextPayload {
 		systemPrompt += "\n\n" + a.TurnBudget
 	}
 	return inference.ContextPayload{
-		SystemPrompt:    systemPrompt,
-		Memory:          a.Memory,
-		DailyNotes:      a.DailyNotes,
-		RAGResults:      a.RAGResults,
-		ToolSchemas:     a.ToolSchemas,
-		ToolDefinitions: a.ToolDefinitions,
-		CrossRoomFeed:   a.CrossRoomFeed,
-		History:         a.History,
-		Request:         a.Request,
+		SystemPrompt:       systemPrompt,
+		Memory:             a.Memory,
+		DailyNotes:         a.DailyNotes,
+		RAGResults:         a.RAGResults,
+		ToolSchemas:        a.ToolSchemas,
+		ToolDefinitions:    a.ToolDefinitions,
+		CrossRoomFeed:      a.CrossRoomFeed,
+		History:            a.History,
+		CurrentTurnHistory: a.CurrentTurnHistory,
+		Request:            a.Request,
+		RequestName:        a.RequestName,
 	}
 }
 
@@ -278,21 +290,42 @@ func (a *Assembler) assemble(ctx context.Context, ag *agent.Agent, req assembleR
 		result.CurrentRoomHistory = append(result.CurrentRoomHistory, fmt.Sprintf("%s: %s", m.Sender.Name, m.Content))
 	}
 
-	// 5. Build pre-role-assigned History (all messages except the last text
-	//    message, which becomes the Request). Tool call/result messages are
-	//    reconstructed as structured HistoryMessages for provider adapters.
-	historyMsgs := req.CurrentRoomHistory
-	if len(historyMsgs) > 0 {
-		historyMsgs = historyMsgs[:len(historyMsgs)-1]
+	// 5. Locate the triggering message: the last non-tool (text) message, which
+	//    becomes the Request. Splitting at its index — rather than blindly
+	//    dropping the last transcript entry — keeps it out of History even when
+	//    the transcript ends with tool messages (e.g. an assistant tool call
+	//    awaiting confirmation). Dropping only the last entry there would leave
+	//    the triggering message in History and duplicate it against the Request.
+	reqIdx := -1
+	for i := len(req.CurrentRoomHistory) - 1; i >= 0; i-- {
+		m := req.CurrentRoomHistory[i]
+		if m.Type == room.MessageToolCall || m.Type == room.MessageToolResult {
+			continue
+		}
+		reqIdx = i
+		break
 	}
-	result.History = buildHistoryMessages(historyMsgs, room.AgentID(ag.Name()))
 
-	// 5b. Sanitize history: remove incomplete native tool call sequences and
-	//     trim leading non-user messages.
+	agentID := room.AgentID(ag.Name())
+	historyMsgs := req.CurrentRoomHistory
+	var currentTurnMsgs []room.Message
+	if reqIdx >= 0 {
+		historyMsgs = req.CurrentRoomHistory[:reqIdx]
+		currentTurnMsgs = req.CurrentRoomHistory[reqIdx+1:]
+	}
+
+	// History: prior conversation, with incomplete native tool call sequences
+	// removed and leading non-user messages trimmed.
+	result.History = buildHistoryMessages(historyMsgs, agentID)
 	result.History = sanitizeToolCallHistory(result.History)
 	result.History = trimLeadingNonUserHistory(result.History)
 
-	// 6. Build Request: interjections + last message from room history.
+	// CurrentTurnHistory: tool exchanges that follow the triggering message.
+	// Left unsanitized so a still-pending tool call (no result yet) remains
+	// visible to assembly-only consumers like the preview.
+	result.CurrentTurnHistory = buildHistoryMessages(currentTurnMsgs, agentID)
+
+	// 6. Build Request: interjections + the triggering message.
 	var rfcContent strings.Builder
 	if len(req.Interjections) > 0 {
 		rfcContent.WriteString("# Interjections (requests during non turns)\n\n")
@@ -300,15 +333,11 @@ func (a *Assembler) assemble(ctx context.Context, ag *agent.Agent, req assembleR
 			rfcContent.WriteString(fmt.Sprintf("%s: %s\n\n", m.Sender.Name, m.Content))
 		}
 	}
-
-	for i := len(req.CurrentRoomHistory) - 1; i >= 0; i-- {
-		m := req.CurrentRoomHistory[i]
-		if m.Type == room.MessageToolCall || m.Type == room.MessageToolResult {
-			continue
-		}
+	if reqIdx >= 0 {
+		m := req.CurrentRoomHistory[reqIdx]
+		result.RequestName = m.Sender.Name
 		rfcContent.WriteString(fmt.Sprintf("%s: ", m.Sender.Name))
 		rfcContent.WriteString(m.Content)
-		break
 	}
 	result.Request = rfcContent.String()
 

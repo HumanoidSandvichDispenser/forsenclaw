@@ -160,6 +160,7 @@ type ContextPayload struct {
 	History            []HistoryMessage // room conversation history, static for the request
 	CurrentTurnHistory []HistoryMessage // tool exchanges accumulated this inference turn
 	Request            string
+	RequestName        string // speaker of the triggering message, for attribution
 	Temperature        *float64
 	MaxTokens          *int
 	Stop               []string
