@@ -58,6 +58,33 @@ export type AgentResponse = {
     sensitive_model: string;
 };
 
+export type ConfirmationResponse = {
+    /**
+     * Name of the agent waiting for confirmation
+     */
+    agent_name: string;
+    /**
+     * JSON-encoded tool arguments
+     */
+    args: string;
+    /**
+     * Unique node ID — used in the respond endpoint
+     */
+    node_id: string;
+    /**
+     * Why confirmation is required (e.g. blp_write_down, permission_confirmation)
+     */
+    reason: string;
+    /**
+     * Room the confirmation belongs to
+     */
+    room_id: number;
+    /**
+     * Tool the agent wants to call
+     */
+    tool_name: string;
+};
+
 export type ContextMessageResponse = {
     /**
      * Message content
@@ -73,23 +100,51 @@ export type ContextMessageResponse = {
     role: string;
 };
 
+export type ContextToolResponse = {
+    /**
+     * Tool data-classification clearance tier
+     */
+    clearance: number;
+    /**
+     * Tool name
+     */
+    name: string;
+    /**
+     * Tool FRSN resource identifier
+     */
+    resource: string;
+};
+
 export type CreateRoomRequestBody = {
     /**
      * A URL to the JSON Schema for this object.
      */
     readonly $schema?: string;
     /**
-      * Room clearance tier (default 5)
+     * Room clearance tier (default 5)
      */
     clearance: number;
+    /**
+     * Human-readable room name
+     */
+    name?: string;
     /**
      * Actor IDs (user:<name> or agent:<name>)
      */
     participant_ids: Array<string> | null;
-    /**
-     * Protocol-specific configuration (JSON)
-     */
-    protocol_config?: unknown;
+};
+
+export type DagNode = {
+    blocked_by?: Array<string> | null;
+    children?: Array<string> | null;
+    created_at?: string;
+    id: string;
+    kind?: string;
+    label?: string;
+    settled_at?: string;
+    started_at?: string;
+    state: string;
+    waiting_on?: string;
 };
 
 export type ErrorDetail = {
@@ -138,19 +193,15 @@ export type ErrorModel = {
     type?: string;
 };
 
-export type ContextToolResponse = {
+export type GetAgentDagResponseBody = {
     /**
-     * Tool name
+     * A URL to the JSON Schema for this object.
      */
-    name: string;
+    readonly $schema?: string;
     /**
-     * Tool FRSN resource identifier
+     * DAG nodes in insertion order
      */
-    resource: string;
-    /**
-     * Tool data-classification clearance tier
-     */
-    clearance: number;
+    nodes: Array<DagNode> | null;
 };
 
 export type GetContextPreviewResponseBody = {
@@ -179,6 +230,14 @@ export type ListAgentsResponseBody = {
      */
     readonly $schema?: string;
     agents: Array<AgentResponse> | null;
+};
+
+export type ListConfirmationsResponseBody = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    confirmations: Array<ConfirmationResponse> | null;
 };
 
 export type ListMessagesResponseBody = {
@@ -211,9 +270,9 @@ export type MessageResponse = {
      */
     content: string;
     /**
-     * Per-room message number (primary key)
+     * Message ID
      */
-    number: number;
+    id: number;
     /**
      * Room this message belongs to
      */
@@ -227,34 +286,44 @@ export type MessageResponse = {
      */
     timestamp: string;
     /**
+     * Correlating tool call ID for tool_result messages
+     */
+    tool_call_id?: string;
+    /**
+     * Structured tool calls for tool_call messages
+     */
+    tool_calls?: Array<ToolCallRecord> | null;
+    /**
+     * Tool identifier for tool_result messages
+     */
+    tool_name?: string;
+    /**
      * Message type
      */
     type: string;
     /**
      * Token usage for agent responses
      */
-    usage?: { input_tokens: number; output_tokens: number };
-    /**
-     * Structured tool calls for tool_call messages
-     */
-    tool_calls?: Array<{ id?: string; tool_name: string; arguments?: string }>;
-    /**
-     * Correlating tool call ID for tool_result messages
-     */
-    tool_call_id?: string;
-    /**
-     * Tool identifier for tool_result messages
-     */
-    tool_name?: string;
+    usage?: Usage;
 };
 
-export type ConfirmationResponse = {
-    node_id: string;
-    agent_name: string;
-    room_id: number;
-    tool_name: string;
-    args: string;
-    reason: string;
+export type RespondConfirmationRequestBody = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    /**
+     * allow | deny | revise
+     */
+    action: string;
+    /**
+     * Edited JSON arguments (action=allow only)
+     */
+    args?: string;
+    /**
+     * Revision guidance for the agent (action=revise only)
+     */
+    feedback?: string;
 };
 
 export type RoomResponse = {
@@ -263,7 +332,7 @@ export type RoomResponse = {
      */
     readonly $schema?: string;
     /**
-     * Max clearance tier
+     * Room clearance tier
      */
     clearance: number;
     /**
@@ -273,15 +342,15 @@ export type RoomResponse = {
     /**
      * Unique room ID
      */
-    id: string;
+    id: number;
+    /**
+     * Human-readable room name
+     */
+    name: string;
     /**
      * Room participants
      */
     participants: Array<ActorResponse> | null;
-    /**
-     * Protocol configuration
-     */
-    protocol_config?: unknown;
     /**
      * Last update time
      */
@@ -301,6 +370,17 @@ export type SendMessageRequestBody = {
      * Actor ID of the sender
      */
     sender: string;
+};
+
+export type ToolCallRecord = {
+    arguments?: string;
+    id?: string;
+    tool_name: string;
+};
+
+export type Usage = {
+    input_tokens: number;
+    output_tokens: number;
 };
 
 export type UserResponse = {
@@ -355,17 +435,17 @@ export type AgentResponseWritable = {
 
 export type CreateRoomRequestBodyWritable = {
     /**
-      * Room clearance tier (default 5)
+     * Room clearance tier (default 5)
      */
     clearance: number;
+    /**
+     * Human-readable room name
+     */
+    name?: string;
     /**
      * Actor IDs (user:<name> or agent:<name>)
      */
     participant_ids: Array<string> | null;
-    /**
-     * Protocol-specific configuration (JSON)
-     */
-    protocol_config?: unknown;
 };
 
 export type ErrorModelWritable = {
@@ -395,6 +475,13 @@ export type ErrorModelWritable = {
     type?: string;
 };
 
+export type GetAgentDagResponseBodyWritable = {
+    /**
+     * DAG nodes in insertion order
+     */
+    nodes: Array<DagNode> | null;
+};
+
 export type GetContextPreviewResponseBodyWritable = {
     /**
      * Total byte size of assembled message content
@@ -405,10 +492,18 @@ export type GetContextPreviewResponseBodyWritable = {
      */
     compaction_offset: number;
     messages: Array<ContextMessageResponse> | null;
+    /**
+     * Tool definitions the agent would receive
+     */
+    tools: Array<ContextToolResponse> | null;
 };
 
 export type ListAgentsResponseBodyWritable = {
     agents: Array<AgentResponseWritable> | null;
+};
+
+export type ListConfirmationsResponseBodyWritable = {
+    confirmations: Array<ConfirmationResponse> | null;
 };
 
 export type ListMessagesResponseBodyWritable = {
@@ -429,13 +524,13 @@ export type MessageResponseWritable = {
      */
     content: string;
     /**
-     * Unique message ID
+     * Message ID
      */
-    id: string;
+    id: number;
     /**
      * Room this message belongs to
      */
-    room_id: string;
+    room_id: number;
     /**
      * Actor who sent this message
      */
@@ -445,14 +540,45 @@ export type MessageResponseWritable = {
      */
     timestamp: string;
     /**
+     * Correlating tool call ID for tool_result messages
+     */
+    tool_call_id?: string;
+    /**
+     * Structured tool calls for tool_call messages
+     */
+    tool_calls?: Array<ToolCallRecord> | null;
+    /**
+     * Tool identifier for tool_result messages
+     */
+    tool_name?: string;
+    /**
      * Message type
      */
     type: string;
+    /**
+     * Token usage for agent responses
+     */
+    usage?: Usage;
+};
+
+export type RespondConfirmationRequestBodyWritable = {
+    /**
+     * allow | deny | revise
+     */
+    action: string;
+    /**
+     * Edited JSON arguments (action=allow only)
+     */
+    args?: string;
+    /**
+     * Revision guidance for the agent (action=revise only)
+     */
+    feedback?: string;
 };
 
 export type RoomResponseWritable = {
     /**
-     * Max clearance tier
+     * Room clearance tier
      */
     clearance: number;
     /**
@@ -462,15 +588,15 @@ export type RoomResponseWritable = {
     /**
      * Unique room ID
      */
-    id: string;
+    id: number;
+    /**
+     * Human-readable room name
+     */
+    name: string;
     /**
      * Room participants
      */
     participants: Array<ActorResponse> | null;
-    /**
-     * Protocol configuration
-     */
-    protocol_config?: unknown;
     /**
      * Last update time
      */
@@ -527,6 +653,36 @@ export type ListAgentsResponses = {
 };
 
 export type ListAgentsResponse = ListAgentsResponses[keyof ListAgentsResponses];
+
+export type GetAgentDagData = {
+    body?: never;
+    path: {
+        /**
+         * Agent name
+         */
+        agent_name: string;
+    };
+    query?: never;
+    url: '/api/agents/{agent_name}/dag';
+};
+
+export type GetAgentDagErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type GetAgentDagError = GetAgentDagErrors[keyof GetAgentDagErrors];
+
+export type GetAgentDagResponses = {
+    /**
+     * OK
+     */
+    200: GetAgentDagResponseBody;
+};
+
+export type GetAgentDagResponse = GetAgentDagResponses[keyof GetAgentDagResponses];
 
 export type GetAgentData = {
     body?: never;
@@ -592,10 +748,6 @@ export type ListRoomsData = {
          */
         participant?: string;
         /**
-         * Filter by protocol type
-         */
-        protocol?: string;
-        /**
          * Max rooms to return
          */
         limit?: number;
@@ -656,7 +808,7 @@ export type GetRoomData = {
         /**
          * Room ID
          */
-        room_id: string;
+        room_id: number;
     };
     query?: never;
     url: '/api/rooms/{room_id}';
@@ -686,7 +838,7 @@ export type PreviewContextData = {
         /**
          * Room ID
          */
-        room_id: string;
+        room_id: number;
         /**
          * Agent name
          */
@@ -723,13 +875,77 @@ export type PreviewContextResponses = {
 
 export type PreviewContextResponse = PreviewContextResponses[keyof PreviewContextResponses];
 
+export type ListConfirmationsData = {
+    body?: never;
+    path: {
+        /**
+         * Room ID
+         */
+        room_id: number;
+    };
+    query?: never;
+    url: '/api/rooms/{room_id}/confirmations';
+};
+
+export type ListConfirmationsErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type ListConfirmationsError = ListConfirmationsErrors[keyof ListConfirmationsErrors];
+
+export type ListConfirmationsResponses = {
+    /**
+     * OK
+     */
+    200: ListConfirmationsResponseBody;
+};
+
+export type ListConfirmationsResponse = ListConfirmationsResponses[keyof ListConfirmationsResponses];
+
+export type RespondConfirmationData = {
+    body: RespondConfirmationRequestBodyWritable;
+    path: {
+        /**
+         * Room ID
+         */
+        room_id: number;
+        /**
+         * Confirmation node ID
+         */
+        node_id: string;
+    };
+    query?: never;
+    url: '/api/rooms/{room_id}/confirmations/{node_id}';
+};
+
+export type RespondConfirmationErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type RespondConfirmationError = RespondConfirmationErrors[keyof RespondConfirmationErrors];
+
+export type RespondConfirmationResponses = {
+    /**
+     * No Content
+     */
+    204: void;
+};
+
+export type RespondConfirmationResponse = RespondConfirmationResponses[keyof RespondConfirmationResponses];
+
 export type ListMessagesData = {
     body?: never;
     path: {
         /**
          * Room ID
          */
-        room_id: string;
+        room_id: number;
     };
     query?: {
         /**
@@ -768,7 +984,7 @@ export type SendMessageData = {
         /**
          * Room ID
          */
-        room_id: string;
+        room_id: number;
     };
     query?: never;
     url: '/api/rooms/{room_id}/messages';

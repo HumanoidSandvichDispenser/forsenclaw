@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { CreateRoomData, CreateRoomErrors, CreateRoomResponses, GetAgentData, GetAgentErrors, GetAgentResponses, GetMeData, GetMeErrors, GetMeResponses, GetRoomData, GetRoomErrors, GetRoomResponses, ListAgentsData, ListAgentsErrors, ListAgentsResponses, ListMessagesData, ListMessagesErrors, ListMessagesResponses, ListRoomsData, ListRoomsErrors, ListRoomsResponses, PreviewContextData, PreviewContextErrors, PreviewContextResponses, SendMessageData, SendMessageErrors, SendMessageResponses } from './types.gen';
+import type { CreateRoomData, CreateRoomErrors, CreateRoomResponses, GetAgentDagData, GetAgentDagErrors, GetAgentDagResponses, GetAgentData, GetAgentErrors, GetAgentResponses, GetMeData, GetMeErrors, GetMeResponses, GetRoomData, GetRoomErrors, GetRoomResponses, ListAgentsData, ListAgentsErrors, ListAgentsResponses, ListConfirmationsData, ListConfirmationsErrors, ListConfirmationsResponses, ListMessagesData, ListMessagesErrors, ListMessagesResponses, ListRoomsData, ListRoomsErrors, ListRoomsResponses, PreviewContextData, PreviewContextErrors, PreviewContextResponses, RespondConfirmationData, RespondConfirmationErrors, RespondConfirmationResponses, SendMessageData, SendMessageErrors, SendMessageResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -22,6 +22,11 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
  * List loaded agents
  */
 export const listAgents = <ThrowOnError extends boolean = false>(options?: Options<ListAgentsData, ThrowOnError>) => (options?.client ?? client).get<ListAgentsResponses, ListAgentsErrors, ThrowOnError>({ url: '/api/agents', ...options });
+
+/**
+ * Get an agent's current request DAG
+ */
+export const getAgentDag = <ThrowOnError extends boolean = false>(options: Options<GetAgentDagData, ThrowOnError>) => (options.client ?? client).get<GetAgentDagResponses, GetAgentDagErrors, ThrowOnError>({ url: '/api/agents/{agent_name}/dag', ...options });
 
 /**
  * Get agent details
@@ -61,6 +66,23 @@ export const getRoom = <ThrowOnError extends boolean = false>(options: Options<G
 export const previewContext = <ThrowOnError extends boolean = false>(options: Options<PreviewContextData, ThrowOnError>) => (options.client ?? client).get<PreviewContextResponses, PreviewContextErrors, ThrowOnError>({ url: '/api/rooms/{room_id}/agents/{agent_name}/context-preview', ...options });
 
 /**
+ * List pending tool-call confirmations for a room
+ */
+export const listConfirmations = <ThrowOnError extends boolean = false>(options: Options<ListConfirmationsData, ThrowOnError>) => (options.client ?? client).get<ListConfirmationsResponses, ListConfirmationsErrors, ThrowOnError>({ url: '/api/rooms/{room_id}/confirmations', ...options });
+
+/**
+ * Respond to a pending tool-call confirmation
+ */
+export const respondConfirmation = <ThrowOnError extends boolean = false>(options: Options<RespondConfirmationData, ThrowOnError>) => (options.client ?? client).post<RespondConfirmationResponses, RespondConfirmationErrors, ThrowOnError>({
+    url: '/api/rooms/{room_id}/confirmations/{node_id}',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
  * List messages in a room
  */
 export const listMessages = <ThrowOnError extends boolean = false>(options: Options<ListMessagesData, ThrowOnError>) => (options.client ?? client).get<ListMessagesResponses, ListMessagesErrors, ThrowOnError>({ url: '/api/rooms/{room_id}/messages', ...options });
@@ -76,23 +98,3 @@ export const sendMessage = <ThrowOnError extends boolean = false>(options: Optio
         ...options.headers
     }
 });
-
-/**
- * List pending tool-call confirmations for a room
- */
-export const listConfirmations = <ThrowOnError extends boolean = false>(options: Options<{ url: string; path: { room_id: number | string } }, ThrowOnError>) =>
-    (options.client ?? client).get<{ confirmations: import('./types.gen').ConfirmationResponse[] }, unknown, ThrowOnError>({ url: '/api/rooms/{room_id}/confirmations', ...options });
-
-/**
- * Respond to a pending tool-call confirmation
- */
-export const respondConfirmation = <ThrowOnError extends boolean = false>(options: Options<{
-    url: string;
-    path: { room_id: number | string; node_id: string };
-    body: { action: 'allow' | 'deny' | 'revise'; args?: string; feedback?: string };
-}, ThrowOnError>) =>
-    (options.client ?? client).post<void, unknown, ThrowOnError>({
-        url: '/api/rooms/{room_id}/confirmations/{node_id}',
-        ...options,
-        headers: { 'Content-Type': 'application/json', ...options.headers },
-    });

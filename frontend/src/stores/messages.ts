@@ -27,8 +27,7 @@ export const useMessagesStore = defineStore('messages', () => {
   const errorByRoomId = ref<Record<string, string | null>>({});
   const streamingByRoomId = ref<Record<string, StreamingState | null>>({});
 
-  const getMessages = (roomId: string) =>
-    computed(() => byRoomId.value[roomId] ?? []);
+  const getMessages = (roomId: string) => computed(() => byRoomId.value[roomId] ?? []);
 
   function setRoomLoading(roomId: string, value: boolean) {
     loadingByRoomId.value = { ...loadingByRoomId.value, [roomId]: value };
@@ -44,7 +43,7 @@ export const useMessagesStore = defineStore('messages', () => {
     try {
       const res = await listMessages({
         client: clientStore.client,
-        path: { room_id: roomId },
+        path: { room_id: Number(roomId) },
         query: { limit: 200 },
         throwOnError: true,
       });
@@ -64,7 +63,7 @@ export const useMessagesStore = defineStore('messages', () => {
     setRoomError(roomId, null);
     const msg = await sendMessage({
       client: clientStore.client,
-      path: { room_id: roomId },
+      path: { room_id: Number(roomId) },
       body: { sender, content },
       throwOnError: true,
     });

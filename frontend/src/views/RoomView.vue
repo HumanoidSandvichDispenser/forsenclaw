@@ -8,7 +8,11 @@ import RoomHeader from '@/components/room/RoomHeader.vue';
 import ContextPreviewModal from '@/components/room/ContextPreviewModal.vue';
 import RoomMessageItem from '@/components/room/RoomMessageItem.vue';
 import type { MessageResponse } from '@/client';
-import type { MessageCreatedPayload, MessageDeltaPayload, ConfirmationPendingPayload } from '@/composables/useWebSocket';
+import type {
+  MessageCreatedPayload,
+  MessageDeltaPayload,
+  ConfirmationPendingPayload,
+} from '@/composables/useWebSocket';
 import { useWebSocket } from '@/composables/useWebSocket';
 import { useConfirmationsStore } from '@/stores/confirmations';
 import { useMessagesStore } from '@/stores/messages';
@@ -30,7 +34,7 @@ const userStore = useUserStore();
 const ws = useWebSocket();
 
 const roomId = computed(() => String(route.params.roomId ?? ''));
-const room = computed(() => roomsStore.byId.get(roomId.value) ?? null);
+const room = computed(() => roomsStore.byId.get(Number(roomId.value)) ?? null);
 const messageGroups = computed((): MessageGroup[] => {
   const msgs = messagesStore.byRoomId[roomId.value] ?? [];
   const groups: MessageGroup[] = [];
@@ -40,7 +44,7 @@ const messageGroups = computed((): MessageGroup[] => {
     if (m.type === 'tool_call' || m.type === 'tool_result') {
       toolBuffer.push(m);
     } else {
-      groups.push({ key: String(m.number), message: m, toolMessages: toolBuffer });
+      groups.push({ key: String(m.id), message: m, toolMessages: toolBuffer });
       toolBuffer = [];
     }
   }
@@ -55,10 +59,16 @@ const liveStreaming = ref(streaming.value);
 let lingerTimer: ReturnType<typeof setTimeout> | null = null;
 watch(streaming, (next) => {
   if (next != null) {
-    if (lingerTimer) { clearTimeout(lingerTimer); lingerTimer = null; }
+    if (lingerTimer) {
+      clearTimeout(lingerTimer);
+      lingerTimer = null;
+    }
     liveStreaming.value = next;
   } else {
-    lingerTimer = setTimeout(() => { liveStreaming.value = null; lingerTimer = null; }, 400);
+    lingerTimer = setTimeout(() => {
+      liveStreaming.value = null;
+      lingerTimer = null;
+    }, 400);
   }
 });
 
@@ -91,8 +101,7 @@ const previewAgentName = computed(() => {
 });
 
 const isLoading = computed(() => {
-  return messagesStore.loadingByRoomId[roomId.value] &&
-    messageGroups.value.length === 0;
+  return messagesStore.loadingByRoomId[roomId.value] && messageGroups.value.length === 0;
 });
 
 function formatTime(iso: string) {
@@ -131,7 +140,7 @@ onMounted(() => {
         const p = event.payload as MessageCreatedPayload;
         if (String(p.room_id) !== roomId.value) return;
         const msg: MessageResponse = {
-          number: p.number,
+          id: p.id,
           timestamp: p.timestamp,
           room_id: p.room_id,
           sender: p.sender,
@@ -265,10 +274,7 @@ async function send() {
               :mine="g.message.sender.id === meActorId"
               :timestamp-label="formatTime(g.message.timestamp)"
             />
-            <RoomMessageItem
-              v-if="liveStreaming"
-              :streaming="streaming ?? undefined"
-            />
+            <RoomMessageItem v-if="liveStreaming" :streaming="streaming ?? undefined" />
           </div>
         </div>
 
@@ -288,7 +294,6 @@ async function send() {
           @submit="send"
         />
       </section>
-
     </main>
 
     <ContextPreviewModal

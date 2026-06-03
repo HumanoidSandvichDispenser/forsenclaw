@@ -35,7 +35,7 @@ export const useRoomsStore = defineStore('rooms', () => {
     try {
       const room = await getRoom({
         client: clientStore.client,
-        path: { room_id: roomId },
+        path: { room_id: Number(roomId) },
         throwOnError: true,
       });
       const r = (room as any)?.data ?? room;

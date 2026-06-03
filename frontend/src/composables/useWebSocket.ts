@@ -1,9 +1,10 @@
 import { onUnmounted, ref } from 'vue';
 
+import type { DagNode } from '@/client';
 import { useClientStore } from '@/stores/client';
 
 export type MessageCreatedPayload = {
-  number: number;
+  id: number;
   timestamp: string;
   room_id: number;
   sender: { id: string; name: string; type: string; clearance: number };
@@ -32,10 +33,16 @@ export type ConfirmationPendingPayload = {
   reason: string;
 };
 
+// A dag.update event carries a single DAG node-state transition for an agent.
+// The payload is the same DagNode shape returned by the getAgentDag snapshot, so
+// updates merge directly into a loaded snapshot.
+export type DagUpdatePayload = DagNode;
+
 export type WSEvent =
   | { type: 'message.created'; payload: MessageCreatedPayload }
   | { type: 'message.delta'; payload: MessageDeltaPayload }
   | { type: 'confirmation.pending'; payload: ConfirmationPendingPayload }
+  | { type: 'dag.update'; payload: DagUpdatePayload }
   | { type: string; payload?: unknown };
 
 type Callback = (event: WSEvent) => void;
@@ -49,6 +56,7 @@ export function useWebSocket() {
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   const callbacks: Callback[] = [];
   const pendingSubscribes = new Set<number>();
+  const pendingAgentSubscribes = new Set<string>();
 
   function buildURL(): string {
     const base = clientStore.baseUrl.replace(/^http/, 'ws');
@@ -68,6 +76,9 @@ export function useWebSocket() {
       reconnectAttempts.value = 0;
       for (const roomId of pendingSubscribes) {
         socket.send(JSON.stringify({ action: 'subscribe', room_id: roomId }));
+      }
+      for (const name of pendingAgentSubscribes) {
+        socket.send(JSON.stringify({ action: 'subscribe_agent', agent: name }));
       }
     };
 
@@ -119,6 +130,18 @@ export function useWebSocket() {
     ws.value.send(JSON.stringify({ action: 'unsubscribe', room_id: id }));
   }
 
+  function subscribeAgent(name: string) {
+    pendingAgentSubscribes.add(name);
+    if (!ws.value || ws.value.readyState !== WebSocket.OPEN) return;
+    ws.value.send(JSON.stringify({ action: 'subscribe_agent', agent: name }));
+  }
+
+  function unsubscribeAgent(name: string) {
+    pendingAgentSubscribes.delete(name);
+    if (!ws.value || ws.value.readyState !== WebSocket.OPEN) return;
+    ws.value.send(JSON.stringify({ action: 'unsubscribe_agent', agent: name }));
+  }
+
   function onEvent(cb: Callback) {
     callbacks.push(cb);
     return () => {
@@ -148,6 +171,8 @@ export function useWebSocket() {
     disconnect,
     subscribe,
     unsubscribe,
+    subscribeAgent,
+    unsubscribeAgent,
     onEvent,
     connected,
   };
