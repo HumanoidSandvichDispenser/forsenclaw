@@ -178,8 +178,26 @@ type e2eEnv struct {
 	infer     *mockInferenceServer
 }
 
-func newE2EEnv(t *testing.T, mcpClients []mcp.NamedMCPClient, mcpClearances map[string]int) *e2eEnv {
+// e2eOptions tunes a test environment; defaults match the common case.
+type e2eOptions struct {
+	userClearance int
+}
+
+type e2eOption func(*e2eOptions)
+
+// withUserClearance sets the viewing user's clearance (default 5). Used to drive
+// the DAG clearance gate's deny path.
+func withUserClearance(c int) e2eOption {
+	return func(o *e2eOptions) { o.userClearance = c }
+}
+
+func newE2EEnv(t *testing.T, mcpClients []mcp.NamedMCPClient, mcpClearances map[string]int, opts ...e2eOption) *e2eEnv {
 	t.Helper()
+
+	cfg := e2eOptions{userClearance: 5}
+	for _, o := range opts {
+		o(&cfg)
+	}
 
 	dir := t.TempDir()
 	p := paths.NewPathsFromRoots(dir, dir, dir)
@@ -258,7 +276,7 @@ permissions:
 
 	// MCP — always wire the built-in create_room tool (as production does); its
 	// actor resolver is set after the agent manager exists (it backs the resolver).
-	userActor := room.Actor{ID: "user:test", Name: "test", Type: room.ActorUser, Clearance: 5}
+	userActor := room.Actor{ID: "user:test", Name: "test", Type: room.ActorUser, Clearance: cfg.userClearance}
 	createRoomTool := mcpTools.NewCreateRoom(sqliteStore, sqliteStore, userActor)
 	clients := append([]mcp.NamedMCPClient{{Name: "builtin", Client: createRoomTool}}, mcpClients...)
 	clearances := map[string]int{"create_room": 0}
@@ -932,5 +950,20 @@ func TestE2E_AgentDAGUnknownAgent(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("expected 404 for unknown agent, got %d", resp.StatusCode)
+	}
+}
+
+// TestE2E_AgentDAGForbiddenBelowClearance verifies the DAG snapshot is denied to
+// a viewer below the agent's configured clearance (testbot is clearance 5).
+func TestE2E_AgentDAGForbiddenBelowClearance(t *testing.T) {
+	env := newE2EEnv(t, nil, nil, withUserClearance(2))
+
+	resp, err := http.Get(env.serverURL + "/api/agents/testbot/dag")
+	if err != nil {
+		t.Fatalf("get dag: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 for under-cleared viewer, got %d", resp.StatusCode)
 	}
 }

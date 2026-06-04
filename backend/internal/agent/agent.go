@@ -45,6 +45,13 @@ func (a *Agent) Permissions() []config.Statement {
 	return a.Definition.Permissions
 }
 
+// Clearance returns the agent's configured clearance tier.
+func (a *Agent) Clearance() int {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.Definition.Clearance
+}
+
 // UpdateDefinition atomically replaces the agent's definition and re-parses permissions.
 func (a *Agent) UpdateDefinition(def *config.AgentDefinition) error {
 	a.mu.Lock()

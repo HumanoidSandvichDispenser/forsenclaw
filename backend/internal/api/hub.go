@@ -30,13 +30,31 @@ func (n *HubNotifier) NotifyConfirmationPending(roomID int64, c agent.PendingCon
 
 // HubDAGStream adapts Hub to satisfy agent.DAGStreamWriter, broadcasting a
 // node-state transition to clients subscribed to the agent's DAG stream.
-type HubDAGStream struct{ hub *Hub }
+type HubDAGStream struct {
+	hub *Hub
+	// gate decides whether a DAG update for an agent may reach the viewer. nil
+	// means allow all (tests). Set once at startup before serving via
+	// SetClearanceGate, mirroring the create_room resolver wiring; no lock, since
+	// no DAG activity occurs until a request is dispatched after startup.
+	gate func(agentName string) bool
+}
 
 // NewHubDAGStream wraps a Hub as an agent.DAGStreamWriter.
 func NewHubDAGStream(hub *Hub) *HubDAGStream { return &HubDAGStream{hub: hub} }
 
-// StreamDAGUpdate implements agent.DAGStreamWriter.
+// SetClearanceGate installs the clearance predicate. Late-bound because the gate
+// needs the agent manager, which is constructed after this stream.
+func (s *HubDAGStream) SetClearanceGate(gate func(agentName string) bool) {
+	s.gate = gate
+}
+
+// StreamDAGUpdate implements agent.DAGStreamWriter. It drops the update when the
+// viewer is not cleared for the agent's DAG (same rule as the REST snapshot), so
+// the stream can't leak the existence or timing of higher-clearance work.
 func (s *HubDAGStream) StreamDAGUpdate(agentName string, node agent.DAGNode) {
+	if s.gate != nil && !s.gate(agentName) {
+		return
+	}
 	s.hub.BroadcastAgent(agentName, dispatch.StreamEvent{
 		Type:    "dag.update",
 		Payload: node,

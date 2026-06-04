@@ -204,6 +204,7 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 
 	// 5b. Create assembler and agent manager
 	assembler := memory.NewAssembler(p, 0, store, store)
+	dagStream := api.NewHubDAGStream(hub)
 	agentMgr, err := agent.NewManager(p, cfg, agent.ManagerDeps{
 		Registry:       registry,
 		Assembler:      assembler,
@@ -211,7 +212,7 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 		Notifier:       api.NewHubNotifier(hub),
 		ResponseWriter: api.NewAgentResponseWriter(store, store, hub),
 		StreamWriter:   api.NewAgentStreamWriter(hub),
-		DAGStream:      api.NewHubDAGStream(hub),
+		DAGStream:      dagStream,
 	})
 	if err != nil {
 		log.Fatalf("failed to create agent manager: %v", err)
@@ -220,6 +221,14 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 
 	// Wire the create_room actor resolver now that the agent manager exists.
 	createRoomTool.SetResolver(&agentActorResolver{mgr: agentMgr, user: userActor})
+
+	// Gate the DAG stream by clearance: the viewer only receives an agent's DAG
+	// updates at or above the agent's configured clearance (same rule as the REST
+	// snapshot). Wired here because the gate reads agent definitions via the manager.
+	dagStream.SetClearanceGate(func(agentName string) bool {
+		ag := agentMgr.Get(agentName)
+		return ag == nil || userActor.Clearance >= ag.Clearance()
+	})
 
 	// 7. Create dispatcher and start its run loop
 	dispatcher := dispatch.NewDispatcher(agentMgr)
