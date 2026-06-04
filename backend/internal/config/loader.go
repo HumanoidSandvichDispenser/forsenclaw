@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 
@@ -40,6 +41,10 @@ func LoadAgents(agentsDir string, serverCfg *ServerConfig) (map[string]*AgentDef
 
 		if errs := ValidateAgentDefinition(&agent, serverCfg); len(errs) > 0 {
 			return nil, fmt.Errorf("invalid agent definition %s: %v", configPath, errs)
+		}
+
+		for _, w := range LintAgentDefinition(&agent) {
+			log.Printf("warning: agent config %s: %s", configPath, w)
 		}
 
 		if agent.Name != entry.Name() {

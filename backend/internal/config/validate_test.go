@@ -258,3 +258,40 @@ func TestValidateAgentDefinition_badMemoryBudget(t *testing.T) {
 		t.Error("expected memory_budget validation error")
 	}
 }
+
+func TestLintAgentDefinition_FRSN(t *testing.T) {
+	tests := []struct {
+		name      string
+		perms     []Statement
+		wantWarns int
+	}{
+		{
+			name:      "bare tool path is inert and warns",
+			perms:     []Statement{{Actions: []string{"tool:invoke"}, Resources: []string{"builtin/webfetch"}}},
+			wantWarns: 1,
+		},
+		{
+			name:      "frsn resource is fine",
+			perms:     []Statement{{Actions: []string{"tool:invoke"}, Resources: []string{"frsn:tool/builtin/webfetch"}}},
+			wantWarns: 0,
+		},
+		{
+			name:      "double-star wildcard is fine",
+			perms:     []Statement{{Actions: []string{"tool:invoke"}, Resources: []string{"**"}}},
+			wantWarns: 0,
+		},
+		{
+			name:      "non-tool action is not linted",
+			perms:     []Statement{{Actions: []string{"room:create"}, Resources: []string{"builtin/x"}}},
+			wantWarns: 0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			agent := &AgentDefinition{Name: "test", Permissions: tt.perms}
+			if got := len(LintAgentDefinition(agent)); got != tt.wantWarns {
+				t.Errorf("LintAgentDefinition warnings = %d, want %d", got, tt.wantWarns)
+			}
+		})
+	}
+}
