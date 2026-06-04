@@ -279,7 +279,12 @@ func TestToolEffect_BLPReadUp(t *testing.T) {
 }
 
 func TestToolEffect_BLPWriteDown(t *testing.T) {
-	ag, _ := NewAgent(&config.AgentDefinition{Name: "test"})
+	ag, _ := NewAgent(&config.AgentDefinition{
+		Name: "test",
+		Permissions: []config.Statement{
+			{Actions: []string{"tool:invoke"}, Resources: []string{"**"}, Effect: "allow"},
+		},
+	})
 	h := &InferenceHandler{
 		effectiveClearance: 4,
 		toolClearances:     map[string]int{"email_send": 2},
@@ -287,6 +292,20 @@ func TestToolEffect_BLPWriteDown(t *testing.T) {
 	}
 	if got := string(h.toolEffect(callOf("email_send")).Effect); got != "require_confirmation" {
 		t.Errorf("toolEffect(email_send) = %q, want require_confirmation", got)
+	}
+}
+
+func TestToolEffect_WriteDownWithoutGrantDenies(t *testing.T) {
+	ag, _ := NewAgent(&config.AgentDefinition{Name: "test"})
+	h := &InferenceHandler{
+		effectiveClearance: 4,
+		toolClearances:     map[string]int{"email_send": 2},
+		agent:              ag,
+	}
+	// A write-down does not bypass the capability gate: with no grant the
+	// most-restrictive fold keeps the grant's default deny.
+	if got := string(h.toolEffect(callOf("email_send")).Effect); got != "deny" {
+		t.Errorf("toolEffect(email_send) = %q, want deny", got)
 	}
 }
 
@@ -340,15 +359,20 @@ func TestToolEffect_WildcardPermission(t *testing.T) {
 }
 
 func TestToolEffect_BLPMissingFromMap(t *testing.T) {
-	ag, _ := NewAgent(&config.AgentDefinition{Name: "test"})
+	ag, _ := NewAgent(&config.AgentDefinition{
+		Name: "test",
+		Permissions: []config.Statement{
+			{Actions: []string{"tool:invoke"}, Resources: []string{"**"}, Effect: "allow"},
+		},
+	})
 	h := &InferenceHandler{
 		effectiveClearance: 3,
 		toolClearances:     map[string]int{},
 		toolResources:      map[string]string{"unknown": "builtin/unknown"},
 		agent:              ag,
 	}
-	// Missing tool defaults to 0 clearance, which is < effectiveClearance (3)
-	// so it should require_confirmation.
+	// Missing tool defaults to 0 clearance, which is < effectiveClearance (3),
+	// so a granted call is a write-down and requires confirmation.
 	if got := string(h.toolEffect(callOf("unknown")).Effect); got != "require_confirmation" {
 		t.Errorf("toolEffect(unknown) = %q, want require_confirmation", got)
 	}

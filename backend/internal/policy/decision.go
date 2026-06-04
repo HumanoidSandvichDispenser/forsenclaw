@@ -49,3 +49,19 @@ type Decision struct {
 	Effect Effect
 	Reason Reason
 }
+
+// MoreRestrictive returns whichever of the two decisions fails harder, ranking
+// deny > require_confirmation > allow, and keeps the winning decision's Reason
+// so audit and the confirmation UI can explain the outcome. Ties keep the
+// receiver. It is the single combinator the engine folds with: across the
+// sources of one query (grants, resource policy, clearance) and across the
+// actions of a multi-tier call.
+//
+// Because allow is the lowest rank, it is the identity of the fold: a source
+// that has no objection returns allow and never changes the result.
+func (d Decision) MoreRestrictive(other Decision) Decision {
+	if severity(other.Effect) > severity(d.Effect) {
+		return other
+	}
+	return d
+}

@@ -95,10 +95,24 @@ func TestEngine_Evaluate(t *testing.T) {
 			wantReason: ReasonReadUp,
 		},
 		{
-			name:       "BLP write-down requires confirmation",
+			name:       "BLP write-down on a granted action requires confirmation",
+			statements: []config.Statement{allow("**")},
 			query:      Query{Action: "tool:invoke", Resource: "x", SubjectClearance: 4, ResourceClearance: 2},
 			wantEffect: Confirm,
 			wantReason: ReasonWriteDown,
+		},
+		{
+			name:       "BLP write-down without a grant is denied",
+			query:      Query{Action: "tool:invoke", Resource: "x", SubjectClearance: 4, ResourceClearance: 2},
+			wantEffect: Deny,
+			wantReason: ReasonDefaultDeny,
+		},
+		{
+			name:       "explicit deny beats BLP write-down confirm",
+			statements: []config.Statement{deny("**")},
+			query:      Query{Action: "tool:invoke", Resource: "x", SubjectClearance: 4, ResourceClearance: 2},
+			wantEffect: Deny,
+			wantReason: ReasonExplicitDeny,
 		},
 		{
 			name:       "BLP equal clearance falls through to allow",
@@ -121,7 +135,8 @@ func TestEngine_Evaluate(t *testing.T) {
 			wantReason: ReasonAllowed,
 		},
 		{
-			name:       "resource clearance zero below subject is write-down",
+			name:       "granted resource clearance zero below subject is write-down",
+			statements: []config.Statement{allow("**")},
 			query:      Query{Action: "tool:invoke", Resource: "x", SubjectClearance: 3, ResourceClearance: 0},
 			wantEffect: Confirm,
 			wantReason: ReasonWriteDown,
@@ -230,6 +245,100 @@ func TestEngine_EvaluateAll(t *testing.T) {
 				t.Errorf("Reason = %q, want %q", got.Reason, tt.wantReason)
 			}
 		})
+	}
+}
+
+func TestDecision_MoreRestrictive(t *testing.T) {
+	a := Decision{Effect: Allow, Reason: ReasonAllowed}
+	c := Decision{Effect: Confirm, Reason: ReasonWriteDown}
+	d := Decision{Effect: Deny, Reason: ReasonExplicitDeny}
+
+	tests := []struct {
+		name  string
+		left  Decision
+		right Decision
+		want  Decision
+	}{
+		{"deny beats confirm, keeps deny reason", d, c, d},
+		{"deny beats allow", a, d, d},
+		{"confirm beats allow, keeps confirm reason", a, c, c},
+		{"allow vs allow keeps receiver", a, a, a},
+		{"tie keeps receiver", c, Decision{Effect: Confirm, Reason: ReasonPermConfirm}, c},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.left.MoreRestrictive(tt.right)
+			if got != tt.want {
+				t.Errorf("MoreRestrictive = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStatementSet_Defaults(t *testing.T) {
+	q := Query{Action: "tool:invoke", Resource: "builtin/x"}
+
+	// Grants default to deny when nothing matches; a matching allow overrides it.
+	if got := Grants(nil).Evaluate(q); got.Effect != Deny {
+		t.Errorf("empty Grants Effect = %q, want deny", got.Effect)
+	}
+	if got := Grants([]config.Statement{allow("builtin/*")}).Evaluate(q); got.Effect != Allow {
+		t.Errorf("granted Effect = %q, want allow", got.Effect)
+	}
+
+	// Restrictions default to allow (abstain) when nothing matches, but can deny.
+	if got := Restrictions(nil).Evaluate(q); got.Effect != Allow {
+		t.Errorf("empty Restrictions Effect = %q, want allow", got.Effect)
+	}
+	if got := Restrictions([]config.Statement{deny("builtin/*")}).Evaluate(q); got.Effect != Deny {
+		t.Errorf("restricted Effect = %q, want deny", got.Effect)
+	}
+}
+
+func TestClearanceRule(t *testing.T) {
+	r := ClearanceRule{}
+	tests := []struct {
+		name              string
+		subject, resource int
+		want              Effect
+	}{
+		{"zero subject skips check", 0, 5, Allow},
+		{"equal abstains", 3, 3, Allow},
+		{"read-up denies", 3, 5, Deny},
+		{"write-down confirms", 5, 2, Confirm},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := r.Evaluate(Query{SubjectClearance: tt.subject, ResourceClearance: tt.resource})
+			if got.Effect != tt.want {
+				t.Errorf("Effect = %q, want %q", got.Effect, tt.want)
+			}
+		})
+	}
+}
+
+func TestMostRestrictive_ResourceCannotGrant(t *testing.T) {
+	// A resource policy that allows must not rescue an action the agent was
+	// never granted: grants default-deny, the resource abstains-or-allows, and
+	// the most-restrictive fold keeps the deny.
+	q := Query{Action: "tool:invoke", Resource: "builtin/x"}
+	tree := MostRestrictive{
+		Grants(nil),
+		Restrictions([]config.Statement{allow("builtin/*")}),
+		ClearanceRule{},
+	}
+	if got := tree.Evaluate(q); got.Effect != Deny {
+		t.Errorf("Effect = %q, want deny (resource cannot grant)", got.Effect)
+	}
+
+	// A resource policy that denies overrides an agent grant.
+	tree = MostRestrictive{
+		Grants([]config.Statement{allow("builtin/*")}),
+		Restrictions([]config.Statement{deny("builtin/*")}),
+		ClearanceRule{},
+	}
+	if got := tree.Evaluate(q); got.Effect != Deny {
+		t.Errorf("Effect = %q, want deny (resource restricts)", got.Effect)
 	}
 }
 
