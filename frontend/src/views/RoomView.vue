@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 
 import RoomComposer from '@/components/room/RoomComposer.vue';
@@ -8,6 +8,8 @@ import RoomHeader from '@/components/room/RoomHeader.vue';
 import ContextPreviewModal from '@/components/room/ContextPreviewModal.vue';
 import AgentDAGModal from '@/components/room/AgentDAGModal.vue';
 import RoomMessageItem from '@/components/room/RoomMessageItem.vue';
+import DockHost, { type DockPanel } from '@/components/dock/DockHost.vue';
+import AgentInfoPanel from '@/components/dock/AgentInfoPanel.vue';
 import type { MessageResponse } from '@/client';
 import type {
   MessageCreatedPayload,
@@ -101,6 +103,23 @@ const previewAgentName = computed(() => {
   const msgs = messagesStore.byRoomId[roomId.value] ?? [];
   const m = msgs.find((msg) => msg.sender?.id && isAgentId(msg.sender.id));
   return m ? agentNameFromId(m.sender.id) : '';
+});
+
+// Inspection dock panels. Adding a surface here is all it takes to register it;
+// the DockHost renders the rail + active panel. Panels that need clearance gating
+// must enforce it on their backend read path (the DAG panel lands once its gate
+// does).
+const dockPanels = computed<DockPanel[]>(() => {
+  if (!previewAgentName.value) return [];
+  return [
+    {
+      id: 'agent-info',
+      title: 'Agent info',
+      icon: 'ⓘ',
+      component: markRaw(AgentInfoPanel),
+      props: { agentName: previewAgentName.value },
+    },
+  ];
 });
 
 const isLoading = computed(() => {
@@ -307,6 +326,8 @@ async function send() {
           @submit="send"
         />
       </section>
+
+      <DockHost v-if="dockPanels.length" :panels="dockPanels" />
     </main>
 
     <ContextPreviewModal
@@ -334,8 +355,7 @@ async function send() {
 }
 
 .room-main {
-  display: grid;
-  grid-template-columns: 1fr;
+  display: flex;
   min-height: 0;
   flex: 1;
 }
@@ -343,6 +363,7 @@ async function send() {
 .chat {
   display: flex;
   flex-direction: column;
+  flex: 1;
   min-width: 0;
   overflow-y: auto;
 }
