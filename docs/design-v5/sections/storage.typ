@@ -1,4 +1,4 @@
-= Storage Architecture
+= Storage Architecture <storage>
 
 forsenClaw follows the XDG Base Directory Specification. All paths respect
 environment variable overrides (`$XDG_CONFIG_HOME`, `$XDG_DATA_HOME`,

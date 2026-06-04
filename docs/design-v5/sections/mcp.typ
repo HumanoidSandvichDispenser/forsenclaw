@@ -1,4 +1,4 @@
-= MCP Integration
+= MCP Integration <mcp>
 
 MCP (Model Context Protocol) is the universal tool integration surface. All
 external capabilities --- email, calendar, file access, code execution, web
