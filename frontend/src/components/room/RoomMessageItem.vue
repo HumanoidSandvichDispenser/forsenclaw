@@ -4,7 +4,7 @@ import { renderMarkdown, parseContent } from '@/utils/markdown';
 import type { ContentPart, TextPart, ThoughtPart, ToolUsePart } from '@/utils/markdown';
 
 import type { ActorResponse, MessageResponse } from '@/client';
-import type { ToolCallEntry } from '@/stores/messages';
+import { useMessagesStore, type ToolCallEntry } from '@/stores/messages';
 import DisclosureBlock from '@/components/room/DisclosureBlock.vue';
 import RoomMessageSourceModal from '@/components/room/RoomMessageSourceModal.vue';
 
@@ -124,6 +124,51 @@ const displayContent = computed(() => {
 // Source modal (finalized mode only)
 // ---------------------------------------------------------------------------
 const sourceOpen = ref(false);
+
+// ---------------------------------------------------------------------------
+// Branching: edit (fork), retry (regenerate), and sibling navigation.
+// ---------------------------------------------------------------------------
+const messagesStore = useMessagesStore();
+
+const roomId = computed(() => (props.message ? String(props.message.room_id) : ''));
+const isAgent = computed(() => sender.value?.type === 'agent');
+
+// Sibling IDs at this message's fork, ordered; populated only when alternatives
+// exist. Index + count drive the ‹ n/m › navigator.
+const siblingIds = computed(() => props.message?.sibling_ids ?? []);
+const siblingIndex = computed(() =>
+  props.message ? siblingIds.value.indexOf(props.message.id) : -1,
+);
+const hasSiblings = computed(() => siblingIds.value.length > 1);
+
+function goToSibling(offset: number) {
+  const target = siblingIds.value[siblingIndex.value + offset];
+  if (target != null) messagesStore.switchBranchToMessage(roomId.value, target);
+}
+
+const editing = ref(false);
+const draft = ref('');
+
+function startEdit() {
+  draft.value = props.message?.content ?? '';
+  editing.value = true;
+}
+
+function cancelEdit() {
+  editing.value = false;
+}
+
+async function saveEdit() {
+  if (!props.message) return;
+  const content = draft.value.trim();
+  if (!content) return;
+  editing.value = false;
+  await messagesStore.editMessageBranch(roomId.value, props.message.id, content);
+}
+
+function retry() {
+  if (props.message) messagesStore.retryMessageBranch(roomId.value, props.message.id);
+}
 </script>
 
 <template>
@@ -164,31 +209,42 @@ const sourceOpen = ref(false);
         <div v-if="td.result" class="tool-body tool-result">{{ td.result }}</div>
       </DisclosureBlock>
 
+      <!-- Inline editor: forks a sibling with edited content -->
+      <div v-if="editing" class="editor">
+        <textarea v-model="draft" class="editor-input" rows="3" @keydown.esc="cancelEdit" />
+        <div class="editor-actions">
+          <button class="time-btn" type="button" @click="cancelEdit">Cancel</button>
+          <button class="time-btn save" type="button" @click="saveEdit">Save as new branch</button>
+        </div>
+      </div>
+
       <!-- Content parts -->
-      <template v-for="(part, idx) in parseContent(displayContent, isStreaming)" :key="idx">
-        <DisclosureBlock
-          v-if="part.type === 'thought'"
-          :title="(part as ThoughtPart).title"
-          :initial-open="isStreaming"
-          :open="isStreaming"
-          class="thought"
-        >
-          <div class="content" v-html="renderMarkdown((part as ThoughtPart).content)" />
-        </DisclosureBlock>
-        <DisclosureBlock
-          v-else-if="part.type === 'tool_use'"
-          :title="`Used ${(part as ToolUsePart).name}`"
-          class="tool-use"
-        >
-          <div v-if="(part as ToolUsePart).args" class="tool-body">
-            <pre class="tool-args">{{ JSON.stringify((part as ToolUsePart).args, null, 2) }}</pre>
-          </div>
-          <div v-if="(part as ToolUsePart).result" class="tool-body tool-result">
-            {{ (part as ToolUsePart).result }}
-          </div>
-        </DisclosureBlock>
-        <div v-else-if="!isMine" class="content" v-html="renderMarkdown((part as TextPart).content)" />
-        <p v-else class="content">{{ (part as TextPart).content }}</p>
+      <template v-else>
+        <template v-for="(part, idx) in parseContent(displayContent, isStreaming)" :key="idx">
+          <DisclosureBlock
+            v-if="part.type === 'thought'"
+            :title="(part as ThoughtPart).title"
+            :initial-open="isStreaming"
+            :open="isStreaming"
+            class="thought"
+          >
+            <div class="content" v-html="renderMarkdown((part as ThoughtPart).content)" />
+          </DisclosureBlock>
+          <DisclosureBlock
+            v-else-if="part.type === 'tool_use'"
+            :title="`Used ${(part as ToolUsePart).name}`"
+            class="tool-use"
+          >
+            <div v-if="(part as ToolUsePart).args" class="tool-body">
+              <pre class="tool-args">{{ JSON.stringify((part as ToolUsePart).args, null, 2) }}</pre>
+            </div>
+            <div v-if="(part as ToolUsePart).result" class="tool-body tool-result">
+              {{ (part as ToolUsePart).result }}
+            </div>
+          </DisclosureBlock>
+          <div v-else-if="!isMine" class="content" v-html="renderMarkdown((part as TextPart).content)" />
+          <p v-else class="content">{{ (part as TextPart).content }}</p>
+        </template>
       </template>
 
       <!-- Streaming cursor -->
@@ -197,14 +253,36 @@ const sourceOpen = ref(false);
       <!-- Speaker row -->
       <div class="speaker">
         <span class="name">{{ sender?.name }}</span>
-        <div class="side">
-          <template v-if="isStreaming">
-            <span class="typing-label">typing...</span>
-          </template>
-          <template v-else>
-            <button class="time-btn" type="button" @click="sourceOpen = true">View Source</button>
-            <span class="time">{{ props.timestampLabel }}</span>
-          </template>
+        <div class="right">
+          <!-- Branch navigator: always visible when alternatives exist -->
+          <span v-if="!isStreaming && hasSiblings" class="branch-nav">
+            <button
+              class="nav-btn"
+              type="button"
+              :disabled="siblingIndex <= 0"
+              aria-label="Previous version"
+              @click="goToSibling(-1)"
+            >‹</button>
+            <span class="branch-count">{{ siblingIndex + 1 }}/{{ siblingIds.length }}</span>
+            <button
+              class="nav-btn"
+              type="button"
+              :disabled="siblingIndex >= siblingIds.length - 1"
+              aria-label="Next version"
+              @click="goToSibling(1)"
+            >›</button>
+          </span>
+          <div class="side">
+            <template v-if="isStreaming">
+              <span class="typing-label">typing...</span>
+            </template>
+            <template v-else-if="!editing">
+              <button v-if="!isSystem" class="time-btn" type="button" @click="startEdit">Edit</button>
+              <button v-if="isAgent" class="time-btn" type="button" @click="retry">Retry</button>
+              <button class="time-btn" type="button" @click="sourceOpen = true">View Source</button>
+              <span class="time">{{ props.timestampLabel }}</span>
+            </template>
+          </div>
         </div>
       </div>
     </div>
@@ -396,6 +474,12 @@ p.content {
   font-weight: 600;
 }
 
+.right {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
 .side {
   display: flex;
   gap: 0.5rem;
@@ -406,6 +490,66 @@ p.content {
 
 .msg:hover .side {
   opacity: 1;
+}
+
+/* Branch navigator stays visible (not hover-gated) so alternative versions are
+   discoverable. */
+.branch-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  color: var(--fg-muted);
+}
+
+.branch-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.nav-btn {
+  padding: 0 0.2rem;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.nav-btn:hover:not(:disabled) {
+  color: var(--fg-primary);
+}
+
+.nav-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.editor-input {
+  width: 100%;
+  resize: vertical;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.5rem;
+  background: var(--bg-primary);
+  color: var(--fg-primary);
+  font: inherit;
+  font-family: var(--font-body-serif);
+}
+
+.editor-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+.time-btn.save {
+  color: var(--accent-primary);
 }
 
 .typing-label {

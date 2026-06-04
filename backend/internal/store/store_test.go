@@ -735,3 +735,102 @@ func wantContents(t *testing.T, msgs []room.Message, want ...string) {
 		}
 	}
 }
+
+func TestSQLiteStore_GetMessage(t *testing.T) {
+	store, _ := newTestStore(t)
+	defer store.Close()
+
+	ctx := context.Background()
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5, Name: "Alice"}
+	r := newTestRoom(alice)
+	if err := store.CreateRoom(ctx, &r); err != nil {
+		t.Fatalf("CreateRoom: %v", err)
+	}
+	id := appendTestMsg(t, store, r.ID, alice, "Hello")
+
+	got, err := store.GetMessage(ctx, id)
+	if err != nil {
+		t.Fatalf("GetMessage: %v", err)
+	}
+	if got.ID != id || got.Content != "Hello" {
+		t.Errorf("GetMessage: got id=%d content=%q, want id=%d content=Hello", got.ID, got.Content, id)
+	}
+
+	if _, err := store.GetMessage(ctx, 99999); err == nil {
+		t.Error("GetMessage(missing): expected error, got nil")
+	}
+}
+
+// TestSQLiteStore_SetHead_ForkAppendsSibling covers the edit/retry fork
+// primitive: rewinding the head to a fork point makes the next AppendMessage a
+// new sibling rather than extending the current branch.
+func TestSQLiteStore_SetHead_ForkAppendsSibling(t *testing.T) {
+	store, _ := newTestStore(t)
+	defer store.Close()
+
+	ctx := context.Background()
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5, Name: "Alice"}
+	r := newTestRoom(alice)
+	if err := store.CreateRoom(ctx, &r); err != nil {
+		t.Fatalf("CreateRoom: %v", err)
+	}
+
+	// Linear chain A → B (head = B).
+	idA := appendTestMsg(t, store, r.ID, alice, "A")
+	_ = appendTestMsg(t, store, r.ID, alice, "B")
+
+	// Rewind head to A, then append B' — it should become a sibling of B and the
+	// new active branch, so the active transcript is A → B'.
+	if err := store.SetHead(ctx, r.ID, &idA); err != nil {
+		t.Fatalf("SetHead to A: %v", err)
+	}
+	idBprime := appendTestMsg(t, store, r.ID, alice, "B-prime")
+
+	msgs, err := store.GetMessages(ctx, r.ID, ReadOpts{})
+	if err != nil {
+		t.Fatalf("GetMessages: %v", err)
+	}
+	wantContents(t, msgs, "A", "B-prime")
+
+	// B and B' are siblings under A.
+	siblings, err := store.GetSiblings(ctx, idBprime)
+	if err != nil {
+		t.Fatalf("GetSiblings: %v", err)
+	}
+	if len(siblings) != 2 {
+		t.Fatalf("expected 2 siblings under A, got %d", len(siblings))
+	}
+}
+
+// TestSQLiteStore_SetHead_NilForksNewRoot covers forking the root message: a nil
+// head makes the next append a new root.
+func TestSQLiteStore_SetHead_NilForksNewRoot(t *testing.T) {
+	store, _ := newTestStore(t)
+	defer store.Close()
+
+	ctx := context.Background()
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5, Name: "Alice"}
+	r := newTestRoom(alice)
+	if err := store.CreateRoom(ctx, &r); err != nil {
+		t.Fatalf("CreateRoom: %v", err)
+	}
+	_ = appendTestMsg(t, store, r.ID, alice, "root")
+
+	if err := store.SetHead(ctx, r.ID, nil); err != nil {
+		t.Fatalf("SetHead nil: %v", err)
+	}
+	idRoot2 := appendTestMsg(t, store, r.ID, alice, "root2")
+
+	got, err := store.GetMessage(ctx, idRoot2)
+	if err != nil {
+		t.Fatalf("GetMessage: %v", err)
+	}
+	if got.ParentID != nil {
+		t.Errorf("expected new root with nil parent, got parent=%v", *got.ParentID)
+	}
+	msgs, err := store.GetMessages(ctx, r.ID, ReadOpts{})
+	if err != nil {
+		t.Fatalf("GetMessages: %v", err)
+	}
+	wantContents(t, msgs, "root2")
+}

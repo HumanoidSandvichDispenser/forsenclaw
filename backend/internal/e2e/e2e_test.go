@@ -558,6 +558,138 @@ func listMessages(t *testing.T, serverURL string, roomID int64) []map[string]any
 	return result.Messages
 }
 
+// postBranchAction POSTs to a branching endpoint (switch/edit/retry) and fails
+// on a non-200 status. body may be nil for actions with no payload.
+func postBranchAction(t *testing.T, serverURL string, roomID, msgID int64, action string, body any) {
+	t.Helper()
+	var rdr io.Reader
+	if body != nil {
+		b, _ := json.Marshal(body)
+		rdr = bytes.NewReader(b)
+	} else {
+		rdr = bytes.NewReader([]byte("{}"))
+	}
+	url := fmt.Sprintf("%s/api/rooms/%d/messages/%d/%s", serverURL, roomID, msgID, action)
+	resp, err := http.Post(url, "application/json", rdr)
+	if err != nil {
+		t.Fatalf("%s: %v", action, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("%s: status %d: %s", action, resp.StatusCode, b)
+	}
+}
+
+// agentMessageID returns the ID of the first message sent by an agent.
+func agentMessageID(t *testing.T, msgs []map[string]any) int64 {
+	t.Helper()
+	for _, m := range msgs {
+		sender, _ := m["sender"].(map[string]any)
+		typ, _ := sender["type"].(string)
+		if typ == "agent" {
+			return int64(m["id"].(float64))
+		}
+	}
+	t.Fatalf("no agent message found in %d messages", len(msgs))
+	return 0
+}
+
+// TestE2E_RetryAndSwitch sends a message, retries the agent's reply to fork an
+// alternative response, then switches back to the original branch.
+func TestE2E_RetryAndSwitch(t *testing.T) {
+	env := newE2EEnv(t, nil, nil)
+	roomID := createRoom(t, env.serverURL)
+
+	conn := connectWS(t, env.serverURL)
+	subscribeRoom(t, conn, roomID)
+
+	// First turn.
+	env.infer.enqueue(sseTextResponse("first reply"))
+	sendMessage(t, env.serverURL, roomID, "user:alice", "Hi agent")
+	awaitEvent(t, conn, "message.created")
+
+	msgs := listMessages(t, env.serverURL, roomID)
+	wantE2EContents(t, msgs, "Hi agent", "first reply")
+	replyID := agentMessageID(t, msgs)
+
+	// Retry the agent reply → regenerate a sibling response.
+	env.infer.enqueue(sseTextResponse("second reply"))
+	postBranchAction(t, env.serverURL, roomID, replyID, "retry", nil)
+	awaitEvent(t, conn, "message.created")
+
+	msgs = listMessages(t, env.serverURL, roomID)
+	wantE2EContents(t, msgs, "Hi agent", "second reply")
+	// The agent message on the active branch now reports two siblings.
+	newReplyID := agentMessageID(t, msgs)
+	if sibs := siblingIDs(t, msgs, newReplyID); len(sibs) != 2 {
+		t.Fatalf("expected 2 sibling_ids on the regenerated reply, got %d (%v)", len(sibs), sibs)
+	}
+
+	// Switch back to the original reply.
+	postBranchAction(t, env.serverURL, roomID, replyID, "switch", nil)
+	msgs = listMessages(t, env.serverURL, roomID)
+	wantE2EContents(t, msgs, "Hi agent", "first reply")
+}
+
+// TestE2E_EditUserMessage edits a user message, forking a sibling with new
+// content; the agent then responds on the new branch.
+func TestE2E_EditUserMessage(t *testing.T) {
+	env := newE2EEnv(t, nil, nil)
+	roomID := createRoom(t, env.serverURL)
+
+	conn := connectWS(t, env.serverURL)
+	subscribeRoom(t, conn, roomID)
+
+	env.infer.enqueue(sseTextResponse("first reply"))
+	sendMessage(t, env.serverURL, roomID, "user:alice", "Hi agent")
+	awaitEvent(t, conn, "message.created")
+
+	msgs := listMessages(t, env.serverURL, roomID)
+	userMsgID := int64(msgs[0]["id"].(float64))
+
+	// Edit the user message → fork a sibling with new content + a fresh reply.
+	env.infer.enqueue(sseTextResponse("edited reply"))
+	postBranchAction(t, env.serverURL, roomID, userMsgID, "edit",
+		map[string]any{"content": "Hello agent"})
+	awaitEvent(t, conn, "message.created")
+
+	msgs = listMessages(t, env.serverURL, roomID)
+	wantE2EContents(t, msgs, "Hello agent", "edited reply")
+	if sibs := siblingIDs(t, msgs, int64(msgs[0]["id"].(float64))); len(sibs) != 2 {
+		t.Fatalf("expected 2 sibling_ids on the edited user message, got %d", len(sibs))
+	}
+}
+
+// wantE2EContents asserts the ordered content of a message list.
+func wantE2EContents(t *testing.T, msgs []map[string]any, want ...string) {
+	t.Helper()
+	if len(msgs) != len(want) {
+		got := make([]string, len(msgs))
+		for i, m := range msgs {
+			got[i], _ = m["content"].(string)
+		}
+		t.Fatalf("got %d messages %v, want %d %v", len(msgs), got, len(want), want)
+	}
+	for i, w := range want {
+		if c, _ := msgs[i]["content"].(string); c != w {
+			t.Errorf("msgs[%d]: got %q, want %q", i, c, w)
+		}
+	}
+}
+
+// siblingIDs returns the sibling_ids array for the message with the given ID.
+func siblingIDs(t *testing.T, msgs []map[string]any, id int64) []any {
+	t.Helper()
+	for _, m := range msgs {
+		if int64(m["id"].(float64)) == id {
+			sibs, _ := m["sibling_ids"].([]any)
+			return sibs
+		}
+	}
+	return nil
+}
+
 // TestE2E_CreateRoomDeclassification drives the full write-down declassification
 // flow: an agent in a clearance-5 room calls create_room targeting clearance 2,
 // which is a Bell-LaPadula write-down. That must yield a confirmation tagged

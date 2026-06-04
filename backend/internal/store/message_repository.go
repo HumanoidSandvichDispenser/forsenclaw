@@ -62,6 +62,30 @@ func (s *SQLiteStore) AppendMessage(
 	return msg.ID, nil
 }
 
+// GetMessage returns a single message by ID.
+func (s *SQLiteStore) GetMessage(ctx context.Context, id int64) (room.Message, error) {
+	var msg room.Message
+	err := s.db.WithContext(ctx).Where("id = ?", id).First(&msg).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return room.Message{}, fmt.Errorf("message %d not found", id)
+		}
+		return room.Message{}, fmt.Errorf("get message: %w", err)
+	}
+	return msg, nil
+}
+
+// SetHead points the room's active head at an exact message, without walking to
+// the tip of its subtree. This is the fork primitive: edit and retry rewind the
+// head to a fork point so the next appended message becomes a new sibling.
+// (SwitchBranch, by contrast, walks down branch cursors to the subtree tip and
+// is for navigating between existing branches.) A nil head clears it, so a
+// child appended next becomes a new root — used when forking the root message.
+func (s *SQLiteStore) SetHead(ctx context.Context, roomID int64, head *int64) error {
+	return s.db.WithContext(ctx).
+		Exec("UPDATE rooms SET head = ? WHERE id = ?", head, roomID).Error
+}
+
 // GetMessages returns the messages on the active branch of a room by walking
 // up the parent chain from the head. Messages are returned in chronological
 // order (oldest first).

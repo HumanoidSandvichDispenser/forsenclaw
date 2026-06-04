@@ -64,8 +64,14 @@ type RoomRepository interface {
 type MessageRepository interface {
 	AppendMessage(ctx context.Context, roomID int64, msg room.Message) (int64, error)
 	GetMessages(ctx context.Context, roomID int64, opts ReadOpts) ([]room.Message, error)
+	GetMessage(ctx context.Context, id int64) (room.Message, error)
 	GetCompactionOffset(ctx context.Context, agentName string, roomID int64) (int64, error)
 	SetCompactionOffset(ctx context.Context, agentName string, roomID int64, offset int64) error
+
+	// SetHead points the room's active head at an exact message (nil clears it).
+	// This is the fork primitive used by edit/retry; distinct from SwitchBranch,
+	// which walks to a subtree tip.
+	SetHead(ctx context.Context, roomID int64, head *int64) error
 
 	// SwitchBranch sets the active branch to the subtree rooted at messageID.
 	// It updates the branch cursor for messageID's parent and sets the room's

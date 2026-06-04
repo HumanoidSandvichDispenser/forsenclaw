@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { CreateRoomData, CreateRoomErrors, CreateRoomResponses, GetAgentDagData, GetAgentDagErrors, GetAgentDagResponses, GetAgentData, GetAgentErrors, GetAgentResponses, GetMeData, GetMeErrors, GetMeResponses, GetRoomData, GetRoomErrors, GetRoomResponses, ListAgentsData, ListAgentsErrors, ListAgentsResponses, ListConfirmationsData, ListConfirmationsErrors, ListConfirmationsResponses, ListMessagesData, ListMessagesErrors, ListMessagesResponses, ListRoomsData, ListRoomsErrors, ListRoomsResponses, PreviewContextData, PreviewContextErrors, PreviewContextResponses, RespondConfirmationData, RespondConfirmationErrors, RespondConfirmationResponses, SendMessageData, SendMessageErrors, SendMessageResponses } from './types.gen';
+import type { CreateRoomData, CreateRoomErrors, CreateRoomResponses, EditMessageData, EditMessageErrors, EditMessageResponses, GetAgentDagData, GetAgentDagErrors, GetAgentDagResponses, GetAgentData, GetAgentErrors, GetAgentResponses, GetMeData, GetMeErrors, GetMeResponses, GetRoomData, GetRoomErrors, GetRoomResponses, ListAgentsData, ListAgentsErrors, ListAgentsResponses, ListConfirmationsData, ListConfirmationsErrors, ListConfirmationsResponses, ListMessagesData, ListMessagesErrors, ListMessagesResponses, ListRoomsData, ListRoomsErrors, ListRoomsResponses, PreviewContextData, PreviewContextErrors, PreviewContextResponses, RespondConfirmationData, RespondConfirmationErrors, RespondConfirmationResponses, RetryMessageData, RetryMessageErrors, RetryMessageResponses, SendMessageData, SendMessageErrors, SendMessageResponses, SwitchBranchData, SwitchBranchErrors, SwitchBranchResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -98,3 +98,25 @@ export const sendMessage = <ThrowOnError extends boolean = false>(options: Optio
         ...options.headers
     }
 });
+
+/**
+ * Fork a sibling of a message with edited content
+ */
+export const editMessage = <ThrowOnError extends boolean = false>(options: Options<EditMessageData, ThrowOnError>) => (options.client ?? client).post<EditMessageResponses, EditMessageErrors, ThrowOnError>({
+    url: '/api/rooms/{room_id}/messages/{message_id}/edit',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Regenerate an assistant message as a new sibling
+ */
+export const retryMessage = <ThrowOnError extends boolean = false>(options: Options<RetryMessageData, ThrowOnError>) => (options.client ?? client).post<RetryMessageResponses, RetryMessageErrors, ThrowOnError>({ url: '/api/rooms/{room_id}/messages/{message_id}/retry', ...options });
+
+/**
+ * Switch the active branch to a sibling message
+ */
+export const switchBranch = <ThrowOnError extends boolean = false>(options: Options<SwitchBranchData, ThrowOnError>) => (options.client ?? client).post<SwitchBranchResponses, SwitchBranchErrors, ThrowOnError>({ url: '/api/rooms/{room_id}/messages/{message_id}/switch', ...options });

@@ -82,6 +82,49 @@ type ListMessagesResponse struct {
 }
 
 // ---------------------------------------------------------------------------
+// Branching endpoints
+// ---------------------------------------------------------------------------
+
+// SwitchBranchRequest is the input for POST
+// /api/rooms/{room_id}/messages/{message_id}/switch.
+type SwitchBranchRequest struct {
+	RoomID    int64 `path:"room_id"    validate:"required" doc:"Room ID"`
+	MessageID int64 `path:"message_id" validate:"required" doc:"Message to make the active branch at its fork"`
+}
+
+// SwitchBranchResponse is the (empty) output for a branch switch. The client
+// re-fetches the active branch after a successful switch.
+type SwitchBranchResponse struct{}
+
+// EditMessageRequest is the input for POST
+// /api/rooms/{room_id}/messages/{message_id}/edit. It forks a new sibling of the
+// target with edited content; the original is left intact on its own branch.
+type EditMessageRequest struct {
+	RoomID    int64 `path:"room_id"    validate:"required" doc:"Room ID"`
+	MessageID int64 `path:"message_id" validate:"required" doc:"Message to edit (forks a sibling)"`
+	Body      struct {
+		Content string `json:"content" validate:"required" doc:"New message body"`
+	}
+}
+
+// EditMessageResponse returns the newly created sibling message.
+type EditMessageResponse struct {
+	Body MessageResponse
+}
+
+// RetryMessageRequest is the input for POST
+// /api/rooms/{room_id}/messages/{message_id}/retry. It rewinds to the message's
+// fork point and re-runs the authoring agent, producing a new sibling response.
+type RetryMessageRequest struct {
+	RoomID    int64 `path:"room_id"    validate:"required" doc:"Room ID"`
+	MessageID int64 `path:"message_id" validate:"required" doc:"Assistant message to regenerate"`
+}
+
+// RetryMessageResponse is the (empty) output for a retry. The regenerated reply
+// arrives asynchronously over the WebSocket stream.
+type RetryMessageResponse struct{}
+
+// ---------------------------------------------------------------------------
 // Context preview endpoint
 // ---------------------------------------------------------------------------
 
@@ -184,6 +227,7 @@ type MessageResponse struct {
 	ToolCalls    []room.ToolCallRecord `json:"tool_calls,omitempty" doc:"Structured tool calls for tool_call messages"`
 	ToolCallID   string                `json:"tool_call_id,omitempty" doc:"Correlating tool call ID for tool_result messages"`
 	ToolName     string                `json:"tool_name,omitempty" doc:"Tool identifier for tool_result messages"`
+	SiblingIDs   []int64               `json:"sibling_ids,omitempty" doc:"IDs of all messages at this fork (incl. self), ordered; present only when this message has alternative branches"`
 }
 
 // ContextMessageResponse is a simplified message representation for context previews.

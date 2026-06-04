@@ -73,25 +73,7 @@ func (svc *Service) sendMessage(ctx context.Context, input *SendMessageRequest) 
 	}
 
 	// Submit to dispatcher for each agent participant
-	for _, p := range r.Participants {
-		if !p.IsAgent() {
-			continue
-		}
-		_, agentName, _ := room.SplitActorID(p.ID)
-		svc.dispatcher.Submit(agent.Request{
-			Target: agentName,
-			Source: agent.SourceRoom,
-			Payload: agent.RequestPayload{
-				RoomID: r.ID,
-				Messages: []agent.Message{{
-					Sender:    msg.Sender.Name,
-					Content:   msg.Content,
-					Timestamp: msg.Timestamp,
-					Type:      agent.MessageText,
-				}},
-			},
-		})
-	}
+	svc.dispatchToAgents(r, msg)
 
 	resp := &SendMessageResponse{}
 	resp.Body = toMessageResponse(msg)
@@ -125,7 +107,49 @@ func (svc *Service) listMessages(ctx context.Context, input *ListMessagesRequest
 	resp := &ListMessagesResponse{}
 	resp.Body.Messages = make([]MessageResponse, len(msgs))
 	for i, m := range msgs {
-		resp.Body.Messages[i] = toMessageResponse(m)
+		mr := toMessageResponse(m)
+		// Annotate with sibling IDs so the client can render and navigate
+		// alternative branches. Only populated at a real fork (>1 sibling).
+		// Active-branch messages each have a distinct parent, so this is one
+		// lookup per message with no redundancy.
+		if siblings, err := svc.messages.GetSiblings(ctx, m.ID); err == nil && len(siblings) > 1 {
+			ids := make([]int64, len(siblings))
+			for j, s := range siblings {
+				ids[j] = s.ID
+			}
+			mr.SiblingIDs = ids
+		}
+		resp.Body.Messages[i] = mr
 	}
 	return resp, nil
+}
+
+// dispatchToAgents submits a room request to every agent participant — a fan-out
+// turn, as when a user message is sent or edited.
+func (svc *Service) dispatchToAgents(r *room.Room, msg room.Message) {
+	for _, p := range r.Participants {
+		if !p.IsAgent() {
+			continue
+		}
+		_, agentName, _ := room.SplitActorID(p.ID)
+		svc.dispatchToAgent(agentName, r.ID, msg)
+	}
+}
+
+// dispatchToAgent submits a room request to a single agent — used by retry and
+// tool-result edits, where only the turn's authoring agent should re-run.
+func (svc *Service) dispatchToAgent(agentName string, roomID int64, msg room.Message) {
+	svc.dispatcher.Submit(agent.Request{
+		Target: agentName,
+		Source: agent.SourceRoom,
+		Payload: agent.RequestPayload{
+			RoomID: roomID,
+			Messages: []agent.Message{{
+				Sender:    msg.Sender.Name,
+				Content:   msg.Content,
+				Timestamp: msg.Timestamp,
+				Type:      agent.MessageText,
+			}},
+		},
+	})
 }
