@@ -59,6 +59,13 @@ model {
     assembler = container 'Assembler' {
       description 'Builds the context window for a turn: load room history → clearance-filter (BLP) + soft-Biba annotate → assemble memory/notes/history → inject clearance notice.'
       technology 'Go (internal/memory)'
+
+      assemble = component 'Assemble' 'Entry point. Orchestrates the pipeline and returns a ContextPayload (system prompt, history, tools) for the turn.'
+      historyLoader = component 'loadRoomHistory' 'Reads the windowed room history from the store, starting at the agent+room compaction offset.'
+      clearanceFilter = component 'Clearance filter (BLP)' 'Structurally drops messages tagged above the room ceiling — the data is never placed in context (read-up prevention).'
+      bibaAnnotator = component 'Soft-Biba annotator' 'Tags messages from below the ceiling with a trust label, so the model treats lower-clearance input with skepticism (prompt-injection resistance).'
+      noticeInjector = component 'Clearance notice' 'Prepends a notice stating the operating clearance, so the model knows higher-clearance context exists but is absent.'
+      effClearance = component 'EffectiveClearance' 'min(agent, room) — the session clearance floor the inference handler uses for BLP tool gating.'
     }
 
     inference = container 'Inference' {
@@ -91,16 +98,32 @@ model {
     policy = container 'Policy Engine' {
       description 'Authorization. Each source of authority is an evaluator — agent grants, resource-scoped policy, and the BLP clearance rule — folded into one decision, most-restrictive wins (deny > confirm > allow), default deny. Only grants can allow; resource policy and the clearance rule can only restrict, so an allow never overrides a deny, a read-up, or a write-down confirmation.'
       technology 'Go (internal/policy)'
+
+      engine = component 'Engine' 'Holds the agent grants + resource restrictions. Per query, builds the evaluator tree and returns its folded Decision. EvaluateAll runs the two tiers (tool:invoke + data:*) and keeps the most restrictive.'
+      combinator = component 'MostRestrictive' 'A list of evaluators folded with Decision.MoreRestrictive. Seeded at allow (the identity), so an abstaining source never changes the result.'
+      grants = component 'Grants (StatementSet)' 'The agent permissions. The ONLY source that can grant. Among matching statements deny>confirm>allow; default deny when nothing matches.'
+      restrictions = component 'Restrictions (StatementSet)' 'Resource-scoped policy. Same matching, but abstains (allow) when nothing matches — it can only tighten, never grant.'
+      clearanceRule = component 'ClearanceRule (BLP)' 'Structural read-up deny / write-down confirm. Abstains on equal clearance or subject 0. Not overridable by a statement allow.'
+      decision = component 'Decision' 'Effect (allow / deny / require_confirmation) + Reason. MoreRestrictive(other) picks the harder-fail and keeps its reason.'
     }
 
     store = container 'Store' {
       description 'Rooms, messages (tree), compaction cursors, audit sink.'
       technology 'SQLite via GORM'
+
+      rooms = component 'RoomRepository' 'Room metadata CRUD: participants, clearance ceiling, timestamps.'
+      messages = component 'MessageRepository' 'Append + windowed read of the message tree; per agent+room compaction offsets that bound the history walk.'
+      sqlite = component 'SQLiteStore' 'GORM/SQLite implementation backing both repositories. One DB holds rooms, messages, compaction_cursors, and the audit events table.'
     }
 
     audit = container 'Audit' {
       description 'Fire-and-forget event pipeline. Buffered channel → sinks (console, SQLite), per-sink kind/level filtering.'
       technology 'Go'
+
+      logger = component 'Logger' 'Log(event) is non-blocking — it pushes onto a buffered channel; a background loop fans each event to the configured sinks.'
+      filtered = component 'Filtered sink' 'Wraps a sink with SinkConfig: kind globs + a minimum level decide which events that sink actually receives.'
+      consoleSink = component 'ConsoleSink' 'Writes events via log.Printf.'
+      sqliteSink = component 'SQLiteSink' 'Writes events as rows in the SQLite audit table.'
     }
 
     // --- Relationships ---
@@ -111,9 +134,10 @@ model {
     }
 
     api.service -> dispatcher 'Submits a Request per agent participant on message-send'
-    api.service -> store 'Reads/writes rooms & messages'
+    api.service -> store.rooms 'Reads/writes room metadata'
+    api.service -> store.messages 'Reads/writes the transcript'
     api.service -> agentRuntime.manager 'Delivers confirmation responses (Respond)'
-    api.respWriter -> store 'Appends agent messages'
+    api.respWriter -> store.messages 'Appends agent messages + tool results'
     api.respWriter -> api.hub 'Broadcasts message.created'
     api.streamWriter -> api.hub 'Broadcasts message.delta'
 
@@ -122,16 +146,31 @@ model {
     agentRuntime.manager -> agentRuntime.runtime 'Owns one runtime per agent'
     agentRuntime.runtime -> agentRuntime.dag 'Schedules ready nodes'
     agentRuntime.runtime -> agentRuntime.infHandler 'Runs each turn node'
-    agentRuntime.infHandler -> assembler 'Builds the context window each turn'
+    agentRuntime.infHandler -> assembler.assemble 'Builds the context window each turn'
+    agentRuntime.infHandler -> assembler.effClearance 'Computes effective clearance for BLP gating'
     agentRuntime.infHandler -> inference 'Runs a model turn'
-    agentRuntime.infHandler -> policy 'Filters tools (BLP) + evaluates per-call effect'
+    agentRuntime.infHandler -> policy.engine 'Filters tools (BLP) + evaluates per-call effect'
     agentRuntime.infHandler -> mcp.executor 'Executes approved tool calls'
     agentRuntime.infHandler -> api.respWriter 'Writes completed responses + tool results'
     agentRuntime.infHandler -> api.streamWriter 'Streams tokens'
     agentRuntime.infHandler -> agentRuntime.confHandler 'Pauses on require_confirmation'
-    agentRuntime.infHandler -> audit 'permission.* / confirmation.* events'
+    agentRuntime.infHandler -> audit.logger 'permission.* / confirmation.* events'
 
-    assembler -> store 'Loads windowed history + compaction offset'
+    // Policy: engine builds the evaluator tree per query; the combinator folds
+    // the sources into one Decision, most-restrictive winning.
+    policy.engine -> policy.combinator 'Builds {ClearanceRule, Grants, Restrictions} per Evaluate'
+    policy.combinator -> policy.clearanceRule 'Folds'
+    policy.combinator -> policy.grants 'Folds'
+    policy.combinator -> policy.restrictions 'Folds'
+    policy.combinator -> policy.decision 'Most-restrictive of the child Decisions'
+
+    // Assembler pipeline.
+    assembler.assemble -> assembler.historyLoader 'Load windowed history'
+    assembler.historyLoader -> store.messages 'GetMessages at the compaction offset'
+    assembler.historyLoader -> assembler.clearanceFilter 'Drop messages above the ceiling'
+    assembler.clearanceFilter -> assembler.bibaAnnotator 'Annotate messages below the ceiling'
+    assembler.assemble -> assembler.noticeInjector 'Prepend the clearance notice'
+    assembler.effClearance -> store.rooms 'Reads the room ceiling'
 
     inference.openaiCompat -> google 'Chat completions'
     inference.openaiCompat -> openrouter 'Chat completions'
@@ -148,12 +187,20 @@ model {
         color muted
       }
     }
-    mcp.executor -> audit 'tool.* events'
+    mcp.executor -> audit.logger 'tool.* events'
 
     builtinTools.webfetch -> web 'Fetches & extracts page content'
     builtinTools.webSearch -> brave 'Web-search query'
-    builtinTools.createRoom -> store 'Seeds the new lower-clearance room'
+    builtinTools.createRoom -> store.rooms 'Seeds the new lower-clearance room'
 
-    audit -> store 'SQLite sink'
+    // Store: both repositories are backed by the one SQLite implementation.
+    store.rooms -> store.sqlite 'GORM / SQL'
+    store.messages -> store.sqlite 'GORM / SQL'
+
+    // Audit: logger fans each event through a per-sink filter to the sinks.
+    audit.logger -> audit.filtered 'Fans each event (per-sink)'
+    audit.filtered -> audit.consoleSink 'Matched events'
+    audit.filtered -> audit.sqliteSink 'Matched events'
+    audit.sqliteSink -> store.sqlite 'INSERT into the audit table'
   }
 }

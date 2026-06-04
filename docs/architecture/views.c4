@@ -39,6 +39,30 @@ views {
     autoLayout LeftRight
   }
 
+  view policy of forsenclaw.policy {
+    title 'L3 — Policy Engine (evaluators + fold)'
+    include *
+    autoLayout LeftRight
+  }
+
+  view assembler of forsenclaw.assembler {
+    title 'L3 — Assembler (context pipeline)'
+    include *
+    autoLayout LeftRight
+  }
+
+  view store of forsenclaw.store {
+    title 'L3 — Store (repositories + SQLite)'
+    include *
+    autoLayout LeftRight
+  }
+
+  view audit of forsenclaw.audit {
+    title 'L3 — Audit (logger + sinks)'
+    include *
+    autoLayout LeftRight
+  }
+
   dynamic view sendMessage {
     title 'Flow — Send message → agent reply'
 
@@ -54,6 +78,63 @@ views {
     forsenclaw.agentRuntime -> forsenclaw.mcp 'Execute any tool calls (after policy)'
     forsenclaw.agentRuntime -> forsenclaw.api 'Write response + broadcast'
     forsenclaw.api -> forsenclaw.frontend 'message.created / message.delta over WebSocket'
+
+    autoLayout LeftRight
+  }
+
+  dynamic view inferenceTurn {
+    title 'Flow — One inference turn'
+
+    forsenclaw.agentRuntime.runtime -> forsenclaw.agentRuntime.infHandler 'Run the turn node'
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.assembler.assemble 'Assemble context'
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.inference 'Model turn'
+    forsenclaw.inference -> google 'Chat completion'
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.policy.engine 'Authorize each tool call'
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.mcp.executor 'Execute allowed calls'
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.agentRuntime.confHandler 'Pause on require_confirmation'
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.api.respWriter 'Write the final response'
+
+    autoLayout LeftRight
+  }
+
+  dynamic view contextAssembly {
+    title 'Flow — Assembling a turn context'
+
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.assembler.assemble 'Assemble(agent, req, tools)'
+    forsenclaw.assembler.assemble -> forsenclaw.assembler.historyLoader 'Load windowed history'
+    forsenclaw.assembler.historyLoader -> forsenclaw.store.messages 'GetMessages @ compaction offset'
+    forsenclaw.assembler.historyLoader -> forsenclaw.assembler.clearanceFilter 'Drop above ceiling (BLP read-up)'
+    forsenclaw.assembler.clearanceFilter -> forsenclaw.assembler.bibaAnnotator 'Annotate below ceiling (soft Biba)'
+    forsenclaw.assembler.assemble -> forsenclaw.assembler.noticeInjector 'Prepend clearance notice'
+    forsenclaw.assembler.assemble -> forsenclaw.agentRuntime.infHandler 'ContextPayload'
+
+    autoLayout LeftRight
+  }
+
+  dynamic view toolAuthorization {
+    title 'Flow — Authorizing a tool call'
+
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.policy.engine 'Evaluate(tool:invoke, resource, clearances)'
+    forsenclaw.policy.engine -> forsenclaw.policy.combinator 'Build the evaluator tree'
+    forsenclaw.policy.combinator -> forsenclaw.policy.clearanceRule 'BLP: read-up / write-down?'
+    forsenclaw.policy.combinator -> forsenclaw.policy.grants 'Match agent statements'
+    forsenclaw.policy.combinator -> forsenclaw.policy.restrictions 'Match resource policy'
+    forsenclaw.policy.combinator -> forsenclaw.policy.decision 'Fold most-restrictive'
+    forsenclaw.policy.engine -> forsenclaw.agentRuntime.infHandler 'Decision'
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.mcp.executor 'allow → execute'
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.agentRuntime.confHandler 'require_confirmation → pause (deny → tool result "not permitted")'
+
+    autoLayout LeftRight
+  }
+
+  dynamic view auditEvent {
+    title 'Flow — An audit event'
+
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.audit.logger 'Log(event) — non-blocking'
+    forsenclaw.audit.logger -> forsenclaw.audit.filtered 'Background loop fans per sink'
+    forsenclaw.audit.filtered -> forsenclaw.audit.consoleSink 'If kind/level match'
+    forsenclaw.audit.filtered -> forsenclaw.audit.sqliteSink 'If kind/level match'
+    forsenclaw.audit.sqliteSink -> forsenclaw.store.sqlite 'INSERT into the audit table'
 
     autoLayout LeftRight
   }

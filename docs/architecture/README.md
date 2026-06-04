@@ -23,7 +23,15 @@ the container view stays consistent with the component views automatically.
 | `mcp` | Component | Tool dispatch — registry + executor |
 | `builtinTools` | Component | The in-process MCPClient tools |
 | `api` | Component | Inbound routes + outbound WebSocket writers |
+| `policy` | Component | Authorization — evaluators and the most-restrictive fold |
+| `assembler` | Component | The context-assembly pipeline |
+| `store` | Component | Repositories backed by SQLite |
+| `audit` | Component | Logger, per-sink filter, sinks |
 | `sendMessage` | Dynamic | A user message → agent reply, end to end |
+| `inferenceTurn` | Dynamic | One turn: assemble → infer → tools → confirm → write |
+| `contextAssembly` | Dynamic | Building a turn's context window |
+| `toolAuthorization` | Dynamic | How a tool call is allowed, denied, or gated |
+| `auditEvent` | Dynamic | An event flowing to the sinks |
 
 ## Running LikeC4
 
