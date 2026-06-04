@@ -164,6 +164,14 @@ func ValidateAgentDefinition(agent *AgentDefinition, serverCfg *ServerConfig) []
 		}
 	}
 
+	for _, name := range agent.PermissionSets {
+		if serverCfg != nil {
+			if _, ok := serverCfg.PermissionSets[name]; !ok {
+				errs = append(errs, ConfigError{Field: "permission_sets", Message: fmt.Sprintf("references unknown permission set %q", name)})
+			}
+		}
+	}
+
 	if strings.Contains(agent.Name, "/") || strings.Contains(agent.Name, "..") {
 		errs = append(errs, ConfigError{Field: "name", Message: "must not contain / or .."})
 	}
@@ -173,15 +181,33 @@ func ValidateAgentDefinition(agent *AgentDefinition, serverCfg *ServerConfig) []
 
 // LintAgentDefinition returns non-fatal advisories about an agent definition.
 // These surface as warnings rather than load errors so a parseable but
-// questionable config still loads.
-//
-// The one check today catches a tool:invoke permission whose resource is not an
-// FRSN. Tool resources are stamped as frsn:tool/{server}/{tool}, so a bare path
-// like builtin/webfetch matches no tool and leaves the permission silently
-// inert (the agent is then denied by default) — a quiet footgun worth flagging.
+// questionable config still loads. It lints only the agent's own permissions;
+// statements pulled in from permission sets are linted at the set definition
+// (see LintServerConfig) so a shared set's mistake is reported once, not on
+// every agent that references it.
 func LintAgentDefinition(agent *AgentDefinition) []ConfigError {
+	return lintStatements(agent.Permissions, "permissions")
+}
+
+// LintServerConfig returns non-fatal advisories about a server config, currently
+// the FRSN check applied to each permission set's statements.
+func LintServerConfig(cfg *ServerConfig) []ConfigError {
 	var warns []ConfigError
-	for i, stmt := range agent.Permissions {
+	for name, stmts := range cfg.PermissionSets {
+		warns = append(warns, lintStatements(stmts, fmt.Sprintf("permission_sets[%s]", name))...)
+	}
+	return warns
+}
+
+// lintStatements flags a tool:invoke permission whose resource is not an FRSN.
+// Tool resources are stamped as frsn:tool/{server}/{tool}, so a bare path like
+// builtin/webfetch matches no tool and leaves the permission silently inert (the
+// subject is then denied by default) — a quiet footgun worth flagging. fieldPrefix
+// is prepended to the reported field path (e.g. "permissions" or
+// "permission_sets[household]").
+func lintStatements(stmts []Statement, fieldPrefix string) []ConfigError {
+	var warns []ConfigError
+	for i, stmt := range stmts {
 		if !hasToolAction(stmt.Actions) {
 			continue
 		}
@@ -190,7 +216,7 @@ func LintAgentDefinition(agent *AgentDefinition) []ConfigError {
 				continue
 			}
 			warns = append(warns, ConfigError{
-				Field:   fmt.Sprintf("permissions[%d].resources[%d]", i, j),
+				Field:   fmt.Sprintf("%s[%d].resources[%d]", fieldPrefix, i, j),
 				Message: fmt.Sprintf("tool resource %q is not an FRSN (expected frsn:tool/...); it matches no tool, so the permission is inert", res),
 			})
 		}

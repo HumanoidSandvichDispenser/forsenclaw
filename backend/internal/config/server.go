@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"regexp"
 	"strconv"
@@ -59,6 +60,13 @@ type ServerConfig struct {
 	// statement self-scopes through its resource patterns, so a flat list is
 	// enough. Optional.
 	ResourcePolicies []Statement `yaml:"resource_policies,omitempty"`
+
+	// PermissionSets are named, reusable bundles of grant statements that agents
+	// reference by name. At load each referenced set's statements are appended to
+	// the agent's own permissions; they are grants like any other (a deny in a
+	// set vetoes, an allow grants). Sets are flat — a set holds statements, not
+	// references to other sets. Optional.
+	PermissionSets map[string][]Statement `yaml:"permission_sets,omitempty"`
 }
 
 // SystemMax returns the highest configured clearance level, or DefaultSystemMax
@@ -258,6 +266,10 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 
 	if errs := ValidateServerConfig(&cfg); len(errs) > 0 {
 		return nil, fmt.Errorf("invalid server config: %v", errs)
+	}
+
+	for _, w := range LintServerConfig(&cfg) {
+		log.Printf("warning: server config: %s", w)
 	}
 
 	return &cfg, nil

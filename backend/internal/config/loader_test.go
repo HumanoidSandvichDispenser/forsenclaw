@@ -122,6 +122,89 @@ permissions: []
 	}
 }
 
+func TestLoadAgents_permissionSetsFlattened(t *testing.T) {
+	serverCfg := &ServerConfig{
+		Models: map[string]Model{"m": {Provider: "ollama", ProviderModel: "x"}},
+		PermissionSets: map[string][]Statement{
+			"web-tools": {
+				{Actions: []string{"tool:invoke"}, Resources: []string{"frsn:tool/builtin/webfetch"}, Effect: "allow"},
+			},
+		},
+	}
+
+	dir := t.TempDir()
+	agentDir := filepath.Join(dir, "agent")
+	if err := os.MkdirAll(agentDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	agentYAML := []byte(`
+name: agent
+role_description: "test"
+models:
+  primary: m
+  routine: m
+  sensitive: m
+clearance: 1
+permission_sets: [web-tools]
+permissions:
+  - tool:invoke/frsn:tool/builtin/web_search
+`)
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.yaml"), agentYAML, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	agents, err := LoadAgents(dir, serverCfg)
+	if err != nil {
+		t.Fatalf("LoadAgents returned error: %v", err)
+	}
+	// Own statement plus the one flattened from the referenced set.
+	got := agents["agent"].Permissions
+	if len(got) != 2 {
+		t.Fatalf("expected 2 flattened permissions (own + set), got %d: %+v", len(got), got)
+	}
+	foundSet := false
+	for _, s := range got {
+		for _, r := range s.Resources {
+			if r == "frsn:tool/builtin/webfetch" {
+				foundSet = true
+			}
+		}
+	}
+	if !foundSet {
+		t.Errorf("expected the set's webfetch statement flattened into permissions, got %+v", got)
+	}
+}
+
+func TestLoadAgents_unknownPermissionSet(t *testing.T) {
+	serverCfg := &ServerConfig{Models: map[string]Model{"m": {Provider: "ollama", ProviderModel: "x"}}}
+
+	dir := t.TempDir()
+	agentDir := filepath.Join(dir, "agent")
+	if err := os.MkdirAll(agentDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	agentYAML := []byte(`
+name: agent
+role_description: "test"
+models:
+  primary: m
+  routine: m
+  sensitive: m
+clearance: 1
+permission_sets: [does-not-exist]
+permissions: []
+`)
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.yaml"), agentYAML, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadAgents(dir, serverCfg); err == nil {
+		t.Fatal("expected error for unknown permission set reference, got nil")
+	}
+}
+
 func TestLoadAgents_nameMismatch(t *testing.T) {
 	serverCfg := &ServerConfig{Models: map[string]Model{}}
 

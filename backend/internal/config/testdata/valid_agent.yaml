@@ -17,6 +17,9 @@ feature_flags:
 
 clearance: 5
 
+permission_sets:
+  - web-tools
+
 permissions:
   - tool:invoke/frsn:tool/**
   - room:create

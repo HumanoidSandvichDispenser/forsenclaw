@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -293,5 +294,21 @@ func TestLintAgentDefinition_FRSN(t *testing.T) {
 				t.Errorf("LintAgentDefinition warnings = %d, want %d", got, tt.wantWarns)
 			}
 		})
+	}
+}
+
+func TestLintServerConfig_PermissionSetFRSN(t *testing.T) {
+	cfg := &ServerConfig{
+		PermissionSets: map[string][]Statement{
+			"bad":  {{Actions: []string{"tool:invoke"}, Resources: []string{"builtin/webfetch"}}},
+			"good": {{Actions: []string{"tool:invoke"}, Resources: []string{"frsn:tool/builtin/webfetch"}}},
+		},
+	}
+	warns := LintServerConfig(cfg)
+	if len(warns) != 1 {
+		t.Fatalf("expected 1 warning (the bad set), got %d: %+v", len(warns), warns)
+	}
+	if !strings.Contains(warns[0].Field, "permission_sets[bad]") {
+		t.Errorf("warning field = %q, want it scoped to permission_sets[bad]", warns[0].Field)
 	}
 }

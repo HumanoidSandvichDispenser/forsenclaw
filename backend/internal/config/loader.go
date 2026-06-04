@@ -43,8 +43,18 @@ func LoadAgents(agentsDir string, serverCfg *ServerConfig) (map[string]*AgentDef
 			return nil, fmt.Errorf("invalid agent definition %s: %v", configPath, errs)
 		}
 
+		// Lint own permissions before flattening sets in, so a shared set's
+		// mistakes aren't reported against every agent that references it.
 		for _, w := range LintAgentDefinition(&agent) {
 			log.Printf("warning: agent config %s: %s", configPath, w)
+		}
+
+		// Flatten referenced permission sets into the agent's grants. References
+		// are already validated above, so a missing set cannot reach here.
+		if serverCfg != nil {
+			for _, name := range agent.PermissionSets {
+				agent.Permissions = append(agent.Permissions, serverCfg.PermissionSets[name]...)
+			}
 		}
 
 		if agent.Name != entry.Name() {

@@ -260,9 +260,9 @@ Statements may be written in shorthand string form or as structured mappings:
 ```yaml
 permissions:
   # shorthand: action/resource[:effect]
-  - tool:invoke/builtin/webfetch
-  - tool:invoke/mcp/email/*:require_confirmation
-  - tool:invoke/mcp/finances/**:deny
+  - tool:invoke/frsn:tool/builtin/webfetch
+  - tool:invoke/frsn:tool/mcp/email/*:require_confirmation
+  - tool:invoke/frsn:tool/mcp/finances/**:deny
 
   # structured form — multiple actions or resources in one statement
   - effect: require_confirmation
@@ -272,6 +272,34 @@ permissions:
 
 Resource paths use glob patterns (`path.Match` semantics). `**` matches any
 resource path.
+
+=== Permission Sets
+
+Common grants can be defined once as a named set in `hearth.yaml` and referenced
+by name, so the same statements need not be copied across agents:
+
+```yaml
+# hearth.yaml
+permission_sets:
+  web-tools:
+    - tool:invoke/frsn:tool/builtin/webfetch
+    - tool:invoke/frsn:tool/builtin/web_search
+  untrusted:
+    - tool:invoke/frsn:tool/builtin/create_room:deny
+```
+
+```yaml
+# agent.yaml
+permission_sets: [web-tools, untrusted]
+permissions:
+  - tool:invoke/frsn:tool/builtin/calendar_read
+```
+
+A referenced set's statements are merged into the agent's grants at load and are
+grants like any other: an allow grants, a deny vetoes. Because grants resolve
+most restrictive, a deny in any set wins over an allow elsewhere. Sets are flat
+--- a set holds statements, not references to other sets --- so there is no
+inheritance chain to resolve.
 
 === Evaluation Order
 

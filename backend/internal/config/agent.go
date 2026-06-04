@@ -16,6 +16,7 @@ type AgentDefinition struct {
 	Clearance       int          `yaml:"clearance"`
 	MemoryBudget    int          `yaml:"memory_budget,omitempty"`
 	Permissions     []Statement  `yaml:"permissions"`
+	PermissionSets  []string     `yaml:"permission_sets,omitempty"`
 	Timeout         string       `yaml:"timeout,omitempty"`
 	MaxTokens       int          `yaml:"max_tokens,omitempty"`
 	Temperature     *float64     `yaml:"temperature,omitempty"`

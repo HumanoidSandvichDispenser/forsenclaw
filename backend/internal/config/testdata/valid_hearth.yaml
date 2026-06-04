@@ -31,3 +31,17 @@ tools:
     - name: email
       url: "https://example.com/mcp"
       clearance: 2
+
+# Reusable grant bundles agents reference by name. A deny in a set vetoes; an
+# allow grants. Sets hold statements, not references to other sets.
+permission_sets:
+  web-tools:
+    - tool:invoke/frsn:tool/builtin/webfetch
+    - tool:invoke/frsn:tool/builtin/web_search
+  untrusted:
+    - tool:invoke/frsn:tool/builtin/create_room:deny
+
+# Resource-scoped restrictions: a matching deny or require_confirmation tightens
+# a call regardless of the agent's grants; they never grant on their own.
+resource_policies:
+  - tool:invoke/frsn:tool/builtin/create_room:require_confirmation
