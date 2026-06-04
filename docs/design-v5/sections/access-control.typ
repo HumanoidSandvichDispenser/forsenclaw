@@ -281,6 +281,28 @@ resource path.
 + *allow* --- explicit grant.
 + *default deny* --- applies when no statement matches.
 
+=== Sources and Resolution
+
+Authorization draws on more than the agent's own statements. Each source of
+authority is evaluated independently and the most restrictive outcome wins
+(`deny > require_confirmation > allow`):
+
+- *Agent grants* --- the agent's `permissions`. This is the only source that can
+  grant; with no matching grant the result defaults to deny.
+- *Resource policies* --- statements scoped to the resource rather than the
+  agent (`resource_policies` in `hearth.yaml`). They can only restrict: a
+  matching deny or require_confirmation tightens a call, but a resource never
+  grants access the agent's own permissions lack. With no match a resource
+  policy abstains.
+- *Clearance (BLP)* --- the structural read-up / write-down rule. It can only
+  deny or require confirmation, and an `allow` cannot override it.
+
+A resource policy lets a sensitive tool protect itself once, at the resource,
+rather than depending on every agent definition being written correctly. Because
+the agent is the only grant source, the capabilities an agent holds are still
+answered by reading that one agent's `permissions`; resource policies and
+clearance only subtract from it.
+
 === Permission Categories
 
 - `tool:invoke/<server>/<tool>` --- MCP tool dispatch. Server is `builtin` for

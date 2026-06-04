@@ -89,7 +89,7 @@ model {
     }
 
     policy = container 'Policy Engine' {
-      description 'Authorization. Each source of authority is an evaluator — the agent grants and the BLP clearance rule — folded into one decision, most-restrictive wins (deny > confirm > allow), default deny. Grants must allow; the clearance rule can only restrict, so an allow never overrides a read-up deny or write-down confirmation. Resource-scoped policy is the next source to plug in.'
+      description 'Authorization. Each source of authority is an evaluator — agent grants, resource-scoped policy, and the BLP clearance rule — folded into one decision, most-restrictive wins (deny > confirm > allow), default deny. Only grants can allow; resource policy and the clearance rule can only restrict, so an allow never overrides a deny, a read-up, or a write-down confirmation.'
       technology 'Go (internal/policy)'
     }
 

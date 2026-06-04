@@ -233,6 +233,15 @@ func (m *Manager) ConfirmationRegistry() *ConfirmationRegistry {
 	return m.confirmationRegistry
 }
 
+// resourcePolicies returns the server's resource-scoped policy statements, or
+// nil when no server config is set (e.g. in tests).
+func (m *Manager) resourcePolicies() []config.Statement {
+	if m.server == nil {
+		return nil
+	}
+	return m.server.ResourcePolicies
+}
+
 // newEntry creates an agentEntry and starts its runtime goroutine if deps are configured.
 // Must be called with m.mu held.
 func (m *Manager) newEntry(agent *Agent) *agentEntry {
@@ -247,6 +256,7 @@ func (m *Manager) newEntry(agent *Agent) *agentEntry {
 			ResponseWriter:       m.responseWriter,
 			StreamWriter:         m.streamWriter,
 			DAGStream:            m.dagStream,
+			ResourcePolicies:     m.resourcePolicies(),
 		})
 		go e.runtime.Run(m.ctx)
 	}

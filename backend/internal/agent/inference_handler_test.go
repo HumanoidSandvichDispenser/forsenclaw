@@ -358,6 +358,50 @@ func TestToolEffect_WildcardPermission(t *testing.T) {
 	}
 }
 
+func TestToolEffect_ResourcePolicyRestricts(t *testing.T) {
+	// Agent is broadly granted; the resource policy tightens a specific tool.
+	wildcard := config.Statement{Actions: []string{"tool:invoke"}, Resources: []string{"**"}, Effect: "allow"}
+
+	tests := []struct {
+		name       string
+		resPolicy  []config.Statement
+		wantEffect string
+	}{
+		{
+			name:       "no resource policy leaves the grant intact",
+			wantEffect: "allow",
+		},
+		{
+			name:       "resource policy deny overrides the grant",
+			resPolicy:  []config.Statement{{Actions: []string{"tool:invoke"}, Resources: []string{"frsn:tool/builtin/email_send"}, Effect: "deny"}},
+			wantEffect: "deny",
+		},
+		{
+			name:       "resource policy confirm overrides the grant",
+			resPolicy:  []config.Statement{{Actions: []string{"tool:invoke"}, Resources: []string{"frsn:tool/builtin/email_send"}, Effect: "require_confirmation"}},
+			wantEffect: "require_confirmation",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ag, _ := NewAgent(&config.AgentDefinition{
+				Name:        "test",
+				Permissions: []config.Statement{wildcard},
+			})
+			h := &InferenceHandler{
+				agent:              ag,
+				effectiveClearance: 3,
+				toolClearances:     map[string]int{"email_send": 3}, // equal: BLP abstains
+				toolResources:      map[string]string{"email_send": "frsn:tool/builtin/email_send"},
+				resourcePolicies:   tt.resPolicy,
+			}
+			if got := string(h.toolEffect(callOf("email_send")).Effect); got != tt.wantEffect {
+				t.Errorf("toolEffect(email_send) = %q, want %q", got, tt.wantEffect)
+			}
+		})
+	}
+}
+
 func TestToolEffect_BLPMissingFromMap(t *testing.T) {
 	ag, _ := NewAgent(&config.AgentDefinition{
 		Name: "test",

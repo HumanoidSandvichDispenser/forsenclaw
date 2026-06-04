@@ -52,6 +52,13 @@ type ServerConfig struct {
 	// restricted: 3}). Optional — when empty, only integer clearances are used
 	// and SystemMax falls back to DefaultSystemMax.
 	ClearanceLevels map[string]int `yaml:"clearance_levels,omitempty"`
+
+	// ResourcePolicies are statements attached to resources rather than agents.
+	// They can only restrict: a matching deny or require_confirmation tightens a
+	// call, but they never grant access an agent's own permissions lack. Each
+	// statement self-scopes through its resource patterns, so a flat list is
+	// enough. Optional.
+	ResourcePolicies []Statement `yaml:"resource_policies,omitempty"`
 }
 
 // SystemMax returns the highest configured clearance level, or DefaultSystemMax

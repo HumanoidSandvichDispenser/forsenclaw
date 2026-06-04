@@ -145,7 +145,7 @@ func TestEngine_Evaluate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			e := NewEngine(tt.statements)
+			e := NewEngine(tt.statements, nil)
 			got := e.Evaluate(tt.query)
 			if got.Effect != tt.wantEffect {
 				t.Errorf("Effect = %q, want %q", got.Effect, tt.wantEffect)
@@ -236,7 +236,7 @@ func TestEngine_EvaluateAll(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			e := NewEngine(tt.statements)
+			e := NewEngine(tt.statements, nil)
 			got := e.EvaluateAll(tt.queries...)
 			if got.Effect != tt.wantEffect {
 				t.Errorf("Effect = %q, want %q", got.Effect, tt.wantEffect)

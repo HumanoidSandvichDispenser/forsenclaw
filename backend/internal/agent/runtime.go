@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/config"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/dag"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
 )
@@ -67,6 +68,7 @@ type RuntimeDeps struct {
 	ResponseWriter       ResponseWriter
 	StreamWriter         StreamWriter
 	DAGStream            DAGStreamWriter
+	ResourcePolicies     []config.Statement
 }
 
 // AgentRuntime drives the request DAG for a single agent.
@@ -87,6 +89,10 @@ type AgentRuntime struct {
 	responseWriter ResponseWriter
 	streamWriter   StreamWriter
 	dagStream      DAGStreamWriter
+
+	// resourcePolicies are restriction-only statements scoped to resources,
+	// passed into each request's policy engine alongside the agent's grants.
+	resourcePolicies []config.Statement
 
 	// now supplies the clock for node timing; overridable in tests. The dag
 	// package is time-free, so the runtime owns when transitions happened.
@@ -118,6 +124,7 @@ func NewAgentRuntime(agent *Agent, deps RuntimeDeps) *AgentRuntime {
 		responseWriter:       deps.ResponseWriter,
 		streamWriter:         deps.StreamWriter,
 		dagStream:            deps.DAGStream,
+		resourcePolicies:     deps.ResourcePolicies,
 		now:                  time.Now,
 		timing:               make(map[string]*nodeTiming),
 		work:                 make(chan struct{}, 1),
@@ -149,6 +156,7 @@ func (r *AgentRuntime) Enqueue(req Request) {
 		notifier:             r.notifier,
 		streamWriter:         r.streamWriter,
 		responseWriter:       r.responseWriter,
+		resourcePolicies:     r.resourcePolicies,
 	}, "")
 	r.mu.Unlock()
 	r.pulse()

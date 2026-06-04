@@ -144,15 +144,18 @@ func severity(e Effect) int {
 	}
 }
 
-// Engine evaluates queries against a fixed set of permission statements
-// (typically an agent's grants).
+// Engine evaluates queries against an agent's grant statements and the
+// resource-scoped restriction statements.
 type Engine struct {
-	grants []config.Statement
+	grants       []config.Statement
+	restrictions []config.Statement
 }
 
-// NewEngine returns an Engine backed by the given grant statements.
-func NewEngine(grants []config.Statement) *Engine {
-	return &Engine{grants: grants}
+// NewEngine returns an Engine backed by the given grant statements (an agent's
+// permissions) and resource-scoped restriction statements. Restrictions may be
+// nil, in which case only grants and the clearance rule apply.
+func NewEngine(grants, restrictions []config.Statement) *Engine {
+	return &Engine{grants: grants, restrictions: restrictions}
 }
 
 // EvaluateAll decides a set of queries that must ALL pass for an action to
@@ -176,9 +179,9 @@ func (e *Engine) EvaluateAll(queries ...Query) Decision {
 
 // Evaluate decides a Query by combining every source of authority and taking
 // the most restrictive outcome: the clearance rule, the agent's grants (which
-// must allow), and — once wired — a resource's own policy. Grants default to
-// deny, so an action no source grants is denied; the clearance rule and
-// resource policy can only tighten that, never loosen it.
+// must allow), and the resource's own policy. Grants default to deny, so an
+// action no source grants is denied; the clearance rule and resource policy can
+// only tighten that, never loosen it.
 //
 // The clearance rule is folded first so its specific reason (read-up /
 // write-down) survives a tie against the generic default-deny: when an action
@@ -188,5 +191,6 @@ func (e *Engine) Evaluate(q Query) Decision {
 	return MostRestrictive{
 		ClearanceRule{},
 		Grants(e.grants),
+		Restrictions(e.restrictions),
 	}.Evaluate(q)
 }

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/audit"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/config"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/dag"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/policy"
@@ -47,8 +48,13 @@ type InferenceHandler struct {
 	toolResources      map[string]string
 	toolDataActions    map[string][]string
 
-	// policy evaluates per-call authorization (permissions + BLP). Built from
-	// the agent's permission statements at the start of the inference loop.
+	// resourcePolicies are restriction-only statements scoped to resources,
+	// combined with the agent's grants when building the policy engine.
+	resourcePolicies []config.Statement
+
+	// policy evaluates per-call authorization (permissions + resource policy +
+	// BLP). Built from the agent's grants and the resource policies at the start
+	// of the inference loop.
 	policy *policy.Engine
 }
 
@@ -151,7 +157,7 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 			h.toolResources[t.Name] = t.Resource
 			h.toolDataActions[t.Name] = t.DataActions
 		}
-		h.policy = policy.NewEngine(h.agent.Permissions())
+		h.policy = policy.NewEngine(h.agent.Permissions(), h.resourcePolicies)
 
 		if h.basePayload == nil {
 			assembled, err := h.assembler.Assemble(ctx, h.agent, h.req, tools)
@@ -300,7 +306,7 @@ func (h *InferenceHandler) toolEffect(call inference.ToolCallWire) policy.Decisi
 	// Lazily build the engine so direct-constructed handlers (e.g. in tests)
 	// that never enter the inference loop still evaluate correctly.
 	if h.policy == nil {
-		h.policy = policy.NewEngine(h.agent.Permissions())
+		h.policy = policy.NewEngine(h.agent.Permissions(), h.resourcePolicies)
 	}
 	toolName := call.Function.Name
 	resource := h.toolResources[toolName]
