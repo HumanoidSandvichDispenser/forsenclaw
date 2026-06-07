@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
+import { PhCaretRight } from '@phosphor-icons/vue';
 
 const props = defineProps<{
   title: string;
@@ -11,10 +12,13 @@ const props = defineProps<{
 
 const isOpen = ref(props.initialOpen ?? false);
 
-watch(() => props.open, (val, prev) => {
-  if (val === undefined || val === prev) return;
-  if (val !== isOpen.value) isOpen.value = val;
-});
+watch(
+  () => props.open,
+  (val, prev) => {
+    if (val === undefined || val === prev) return;
+    if (val !== isOpen.value) isOpen.value = val;
+  },
+);
 
 function onEnter(el: Element) {
   const e = el as HTMLElement;
@@ -50,9 +54,16 @@ function onAfterLeave(el: Element) {
 <template>
   <div class="disclosure" :class="{ open: isOpen }">
     <button class="disclosure-summary" type="button" @click="isOpen = !isOpen">
+      <PhCaretRight class="disclosure-caret" :size="12" weight="bold" />
       <slot name="title">{{ props.title }}</slot>
     </button>
-    <Transition :css="false" @enter="onEnter" @after-enter="onAfterEnter" @leave="onLeave" @after-leave="onAfterLeave">
+    <Transition
+      :css="false"
+      @enter="onEnter"
+      @after-enter="onAfterEnter"
+      @leave="onLeave"
+      @after-leave="onAfterLeave"
+    >
       <div v-if="isOpen" class="disclosure-body">
         <slot />
       </div>
@@ -81,15 +92,12 @@ function onAfterLeave(el: Element) {
   width: 100%;
 }
 
-.disclosure-summary::before {
-  content: '▶';
+.disclosure-caret {
   flex-shrink: 0;
-  font-size: 0.55em;
-  line-height: 1;
   transition: transform 0.2s ease;
 }
 
-.disclosure.open .disclosure-summary::before {
+.disclosure.open .disclosure-caret {
   transform: rotate(90deg);
 }
 

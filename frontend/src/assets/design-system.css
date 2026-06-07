@@ -276,3 +276,14 @@ pre {
 .text-accent {
   color: var(--accent-primary);
 }
+
+/* Square icon control; override --icon-button-size for a different footprint. */
+.icon-button {
+  --icon-button-size: 2.25rem;
+  width: var(--icon-button-size);
+  height: var(--icon-button-size);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  cursor: pointer;
+}

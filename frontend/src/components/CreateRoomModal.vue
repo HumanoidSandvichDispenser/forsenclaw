@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watchEffect } from 'vue';
+import { PhX } from '@phosphor-icons/vue';
 
 import { useAgentsStore } from '@/stores/agents';
 import { useRoomsStore } from '@/stores/rooms';
@@ -48,7 +49,10 @@ async function onSubmit() {
   try {
     const agentName = selectedAgent.value;
     if (!agentName) throw new Error('Select an agent');
-    const room = await roomsStore.createFreeformRoom([`user:${userName.value || 'local'}`, `agent:${agentName}`]);
+    const room = await roomsStore.createFreeformRoom([
+      `user:${userName.value || 'local'}`,
+      `agent:${agentName}`,
+    ]);
     emit('created', room.id);
     emit('close');
   } catch (e) {
@@ -69,7 +73,9 @@ function onCancel() {
       <div class="modal" role="dialog" aria-modal="true" aria-label="Create Room">
         <header class="header">
           <h2 class="h2">Create Room</h2>
-          <button class="icon-btn" type="button" @click="onCancel" aria-label="Close">✕</button>
+          <button class="icon-button icon-btn" type="button" @click="onCancel" aria-label="Close">
+            <PhX :size="18" weight="light" />
+          </button>
         </header>
 
         <form class="body" @submit.prevent="onSubmit">
@@ -81,7 +87,9 @@ function onCancel() {
           <label class="field">
             <span class="label">Agent</span>
             <select v-model="selectedAgent" class="input" :disabled="agentsStore.loading">
-              <option v-for="opt in agentOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              <option v-for="opt in agentOptions" :key="opt.value" :value="opt.value">
+                {{ opt.label }}
+              </option>
             </select>
           </label>
 
@@ -128,7 +136,7 @@ function onCancel() {
 }
 
 .icon-btn {
-  padding: 0.25rem 0.5rem;
+  --icon-button-size: 2rem;
   border: 1px solid var(--border-default);
   border-radius: 0.5rem;
   background: var(--bg-primary);

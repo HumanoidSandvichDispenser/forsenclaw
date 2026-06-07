@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, type Component } from 'vue';
+import { PhX } from '@phosphor-icons/vue';
 import { useDock } from '@/composables/useDock';
 
 // A DockPanel registers an inspection surface with the dock. Adding a panel is
@@ -7,7 +8,7 @@ import { useDock } from '@/composables/useDock';
 export interface DockPanel {
   id: string;
   title: string;
-  icon: string;
+  icon: Component;
   component: Component;
   props?: Record<string, unknown>;
   // live shows an activity indicator on the rail icon (e.g. a DAG with nodes
@@ -30,11 +31,13 @@ const activePanel = computed(() => props.panels.find((p) => p.id === activeId.va
       <header class="dock-panel-header">
         <span class="dock-panel-title">{{ activePanel.title }}</span>
         <button
-          class="dock-close"
+          class="icon-button dock-close"
           type="button"
           aria-label="Close panel"
           @click="toggle(activePanel.id)"
-        >×</button>
+        >
+          <PhX :size="16" weight="light" />
+        </button>
       </header>
       <div class="dock-panel-body">
         <component :is="activePanel.component" v-bind="activePanel.props" />
@@ -45,7 +48,7 @@ const activePanel = computed(() => props.panels.find((p) => p.id === activeId.va
       <button
         v-for="p in panels"
         :key="p.id"
-        class="rail-btn"
+        class="icon-button rail-btn"
         :class="{ active: p.id === activeId }"
         type="button"
         :title="p.title"
@@ -53,7 +56,12 @@ const activePanel = computed(() => props.panels.find((p) => p.id === activeId.va
         :aria-pressed="p.id === activeId"
         @click="toggle(p.id)"
       >
-        <span class="rail-icon">{{ p.icon }}</span>
+        <component
+          :is="p.icon"
+          class="rail-icon"
+          :size="20"
+          :weight="p.id === activeId ? 'regular' : 'light'"
+        />
         <span v-if="p.live" class="rail-live" aria-hidden="true" />
       </button>
     </nav>
@@ -91,16 +99,10 @@ const activePanel = computed(() => props.panels.find((p) => p.id === activeId.va
 }
 
 .dock-close {
-  width: 1.5rem;
-  height: 1.5rem;
-  display: grid;
-  place-items: center;
+  --icon-button-size: 1.5rem;
   border: 0;
   background: transparent;
   color: var(--fg-muted);
-  font-size: var(--body-lg-size);
-  line-height: 1;
-  cursor: pointer;
 }
 
 .dock-close:hover {
@@ -123,15 +125,10 @@ const activePanel = computed(() => props.panels.find((p) => p.id === activeId.va
 
 .rail-btn {
   position: relative;
-  width: 2.25rem;
-  height: 2.25rem;
-  display: grid;
-  place-items: center;
   border: 1px solid transparent;
   border-radius: 0.5rem;
   background: transparent;
   color: var(--fg-tertiary);
-  cursor: pointer;
 }
 
 .rail-btn:hover {
@@ -146,8 +143,7 @@ const activePanel = computed(() => props.panels.find((p) => p.id === activeId.va
 }
 
 .rail-icon {
-  font-size: var(--body-size);
-  line-height: 1;
+  display: block;
 }
 
 .rail-live {

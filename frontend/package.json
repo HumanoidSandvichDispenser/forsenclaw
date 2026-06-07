@@ -18,6 +18,7 @@
     "openapi-generate": "openapi-ts -i 'http://localhost:8000/openapi.json' -o src/client"
   },
   "dependencies": {
+    "@phosphor-icons/vue": "^2.2.1",
     "pinia": "^3.0.4",
     "rehype-katex": "^7.0.1",
     "rehype-stringify": "^10.0.1",

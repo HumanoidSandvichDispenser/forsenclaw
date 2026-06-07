@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { PhGear } from '@phosphor-icons/vue';
+
 defineProps<{
   participantCount: number;
   title: string;
@@ -19,8 +21,13 @@ defineEmits<{
     </div>
 
     <div class="actions">
-      <button class="settings" type="button" aria-label="Room settings" @click="$emit('settings')">
-        ⚙
+      <button
+        class="icon-button"
+        type="button"
+        aria-label="Room settings"
+        @click="$emit('settings')"
+      >
+        <PhGear :size="20" weight="light" />
       </button>
     </div>
   </header>
@@ -64,12 +71,5 @@ defineEmits<{
   display: flex;
   align-items: center;
   gap: 0.5rem;
-}
-
-.settings {
-  width: 2.25rem;
-  height: 2.25rem;
-  display: grid;
-  place-items: center;
 }
 </style>

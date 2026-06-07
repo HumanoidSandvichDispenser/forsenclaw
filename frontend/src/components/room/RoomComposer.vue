@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { PhPaperPlaneTilt } from '@phosphor-icons/vue';
+
 defineProps<{
   error: string | null;
   modelValue: string;
@@ -21,7 +23,9 @@ defineEmits<{
       :value="modelValue"
       @input="$emit('update:modelValue', ($event.target as HTMLInputElement).value)"
     />
-    <button class="send" type="submit" :disabled="sending || !modelValue.trim()">→</button>
+    <button class="icon-button send" type="submit" :disabled="sending || !modelValue.trim()">
+      <PhPaperPlaneTilt :size="18" weight="light" />
+    </button>
     <p v-if="error" class="error composer-error">{{ error }}</p>
   </form>
 </template>
@@ -45,9 +49,7 @@ defineEmits<{
 }
 
 .send {
-  width: 2.4rem;
-  height: 2.4rem;
-  padding: 0;
+  --icon-button-size: 2.4rem;
 }
 
 .composer-error {

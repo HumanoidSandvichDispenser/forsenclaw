@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { PhX } from '@phosphor-icons/vue';
+
 defineProps<{
   open: boolean;
   label: string;
@@ -23,7 +25,14 @@ const emit = defineEmits<{
       >
         <header class="header">
           <div class="header-main"><slot name="header" /></div>
-          <button class="icon-btn" type="button" aria-label="Close" @click="emit('close')">✕</button>
+          <button
+            class="icon-button icon-btn"
+            type="button"
+            aria-label="Close"
+            @click="emit('close')"
+          >
+            <PhX :size="18" weight="light" />
+          </button>
         </header>
         <div class="content"><slot /></div>
       </div>
@@ -68,7 +77,7 @@ const emit = defineEmits<{
 }
 
 .icon-btn {
-  padding: 0.25rem 0.5rem;
+  --icon-button-size: 2rem;
   border: 1px solid var(--border-default);
   border-radius: 0.5rem;
   background: var(--bg-primary);

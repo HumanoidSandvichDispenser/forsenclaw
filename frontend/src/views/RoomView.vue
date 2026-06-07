@@ -10,6 +10,7 @@ import DockHost, { type DockPanel } from '@/components/dock/DockHost.vue';
 import AgentInfoPanel from '@/components/dock/AgentInfoPanel.vue';
 import AgentDAGPanel from '@/components/dock/AgentDAGPanel.vue';
 import ContextPreviewPanel from '@/components/dock/ContextPreviewPanel.vue';
+import { PhInfo, PhTreeStructure, PhFileText } from '@phosphor-icons/vue';
 import type { MessageResponse } from '@/client';
 import type {
   MessageCreatedPayload,
@@ -115,14 +116,14 @@ const dockPanels = computed<DockPanel[]>(() => {
     {
       id: 'agent-info',
       title: 'Agent info',
-      icon: 'ⓘ',
+      icon: markRaw(PhInfo),
       component: markRaw(AgentInfoPanel),
       props: { agentName: previewAgentName.value },
     },
     {
       id: 'dag',
       title: 'Request DAG',
-      icon: '⛓',
+      icon: markRaw(PhTreeStructure),
       component: markRaw(AgentDAGPanel),
       props: { agentName: previewAgentName.value },
       live: agentDag.liveCount.value > 0,
@@ -130,7 +131,7 @@ const dockPanels = computed<DockPanel[]>(() => {
     {
       id: 'context',
       title: 'Context preview',
-      icon: '☰',
+      icon: markRaw(PhFileText),
       component: markRaw(ContextPreviewPanel),
       props: { roomId: roomId.value, agentName: previewAgentName.value },
     },

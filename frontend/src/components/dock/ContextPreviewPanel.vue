@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue';
 
+import { PhArrowClockwise } from '@phosphor-icons/vue';
+
 import { previewContext } from '@/client';
 import type { GetContextPreviewResponseBody } from '@/client';
 import { useClientStore } from '@/stores/client';
@@ -52,7 +54,15 @@ function fmtBytes(n: number): string {
   <div class="preview-panel">
     <div class="sub">
       <span v-if="agentName" class="agent">{{ agentName }}</span>
-      <button class="refresh" type="button" :disabled="loading" @click="load">↻</button>
+      <button
+        class="icon-button refresh"
+        type="button"
+        :disabled="loading"
+        @click="load"
+        aria-label="Refresh"
+      >
+        <PhArrowClockwise :size="15" weight="light" />
+      </button>
     </div>
 
     <div v-if="data" class="stats">
@@ -110,15 +120,11 @@ function fmtBytes(n: number): string {
 }
 
 .refresh {
-  width: 1.6rem;
-  height: 1.6rem;
-  display: grid;
-  place-items: center;
+  --icon-button-size: 1.6rem;
   border: 1px solid var(--border-subtle);
   border-radius: 0.4rem;
   background: var(--bg-primary);
   color: var(--fg-secondary);
-  cursor: pointer;
 }
 
 .refresh:hover:not(:disabled) {
