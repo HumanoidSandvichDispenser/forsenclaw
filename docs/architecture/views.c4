@@ -1,83 +1,144 @@
 // Views at increasing zoom. `include *` pulls in everything visible from the
-// view scope and lets LikeC4 roll relationships up/down automatically, so
-// the container view stays consistent with the component views.
+// view scope; L1–L3 exclude the L4 `code` kind so the structural views stay at
+// component granularity, and dedicated L4 views show a component's internals.
+// Dynamic views use leaf actors + exact (simplified) call shapes so they render
+// cleanly as sequence diagrams.
 views {
 
   view index {
     title 'L1 — System Context'
     include *
+    exclude element.kind == code
     autoLayout LeftRight
   }
 
   view containers of forsenclaw {
     title 'L2 — Containers'
     include *
+    exclude element.kind == code
     autoLayout LeftRight
   }
+
+  // --- L3: components per container (code excluded) ---
 
   view agentRuntime of forsenclaw.agentRuntime {
     title 'L3 — Agent Runtime (the agent loop)'
     include *
+    exclude element.kind == code
+    autoLayout LeftRight
+  }
+
+  view tools of forsenclaw.tools {
+    title 'L3 — Tool Execution (unified Executor + Tool interface)'
+    include *
+    exclude element.kind == code
     autoLayout LeftRight
   }
 
   view mcp of forsenclaw.mcp {
-    title 'L3 — MCP dispatch (registry + executor)'
+    title 'L3 — MCP (registry + Tool adapter)'
     include *
+    exclude element.kind == code
+    autoLayout LeftRight
+  }
+
+  view memory of forsenclaw.memory {
+    title 'L3 — Memory & Compaction (compactor + native tools)'
+    include *
+    exclude element.kind == code
     autoLayout LeftRight
   }
 
   view builtinTools of forsenclaw.builtinTools {
     title 'L3 — Builtin Tools (in-process MCPClients)'
     include *
+    exclude element.kind == code
     autoLayout LeftRight
   }
 
   view api of forsenclaw.api {
     title 'L3 — API (inbound routes + outbound WebSocket writers)'
     include *
+    exclude element.kind == code
     autoLayout LeftRight
   }
 
   view policy of forsenclaw.policy {
     title 'L3 — Policy Engine (evaluators + fold)'
     include *
+    exclude element.kind == code
     autoLayout LeftRight
   }
 
   view assembler of forsenclaw.assembler {
     title 'L3 — Assembler (context pipeline)'
     include *
+    exclude element.kind == code
     autoLayout LeftRight
   }
 
   view store of forsenclaw.store {
     title 'L3 — Store (repositories + SQLite)'
     include *
+    exclude element.kind == code
     autoLayout LeftRight
   }
 
   view audit of forsenclaw.audit {
     title 'L3 — Audit (logger + sinks)'
     include *
+    exclude element.kind == code
     autoLayout LeftRight
   }
+
+  // --- L4: code-level views (one per code-bearing component) ---
+
+  view l4_executor of forsenclaw.tools.toolExecutor {
+    title 'L4 — tool.Executor (methods)'
+    include *
+    autoLayout TopBottom
+  }
+
+  view l4_tool of forsenclaw.tools.toolIface {
+    title 'L4 — tool.Tool (interface)'
+    include *
+    autoLayout TopBottom
+  }
+
+  view l4_infHandler of forsenclaw.agentRuntime.infHandler {
+    title 'L4 — InferenceHandler (turn methods)'
+    include *
+    autoLayout TopBottom
+  }
+
+  view l4_compactor of forsenclaw.memory.compactor {
+    title 'L4 — Compactor (methods)'
+    include *
+    autoLayout TopBottom
+  }
+
+  // ---------------------------------------------------------------------------
+  // Dynamic views (render as sequence diagrams). Leaf actors only; labels are
+  // simplified-but-exact call shapes.
+  // ---------------------------------------------------------------------------
 
   dynamic view sendMessage {
     title 'Flow — Send message → agent reply'
 
-    user -> forsenclaw.frontend 'Types a message'
-    forsenclaw.frontend -> forsenclaw.api 'POST /api/rooms/{id}/messages'
-    forsenclaw.api -> forsenclaw.store 'Append user message'
-    forsenclaw.api -> forsenclaw.dispatcher 'Submit a Request per agent participant'
-    forsenclaw.dispatcher -> forsenclaw.agentRuntime 'Enqueue on the agent runtime'
-    forsenclaw.agentRuntime -> forsenclaw.assembler 'Assemble context (clearance-filtered)'
-    forsenclaw.agentRuntime -> forsenclaw.policy 'Filter tools by clearance'
-    forsenclaw.agentRuntime -> forsenclaw.inference 'Run a model turn'
-    forsenclaw.inference -> google 'Chat completion'
-    forsenclaw.agentRuntime -> forsenclaw.mcp 'Execute any tool calls (after policy)'
-    forsenclaw.agentRuntime -> forsenclaw.api 'Write response + broadcast'
-    forsenclaw.api -> forsenclaw.frontend 'message.created / message.delta over WebSocket'
+    user -> forsenclaw.frontend 'types a message'
+    forsenclaw.frontend -> forsenclaw.api.service 'POST /api/rooms/{id}/messages'
+    forsenclaw.api.service -> forsenclaw.store.messages 'AppendMessage(roomID, msg)'
+    forsenclaw.api.service -> forsenclaw.dispatcher 'Dispatch(roomID, msg)'
+    forsenclaw.dispatcher -> forsenclaw.agentRuntime.manager 'enqueue per participant'
+    forsenclaw.agentRuntime.manager -> forsenclaw.agentRuntime.runtime 'Enqueue(Request)'
+    forsenclaw.agentRuntime.runtime -> forsenclaw.agentRuntime.infHandler 'Handle(ctx, childResults)'
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.assembler.assemble 'Assemble(ctx, ag, req, tools)'
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.inference.openaiCompat 'Infer(ctx, payload)'
+    forsenclaw.inference.openaiCompat -> google 'POST /chat/completions'
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.tools.toolExecutor 'Execute(ctx, inv, call)'
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.api.respWriter 'WriteAgentResponse(...)'
+    forsenclaw.api.respWriter -> forsenclaw.api.hub 'broadcast message.created'
+    forsenclaw.api.hub -> forsenclaw.frontend 'message.created / message.delta (WS)'
 
     autoLayout LeftRight
   }
@@ -85,14 +146,15 @@ views {
   dynamic view inferenceTurn {
     title 'Flow — One inference turn'
 
-    forsenclaw.agentRuntime.runtime -> forsenclaw.agentRuntime.infHandler 'Run the turn node'
-    forsenclaw.agentRuntime.infHandler -> forsenclaw.assembler.assemble 'Assemble context'
-    forsenclaw.agentRuntime.infHandler -> forsenclaw.inference 'Model turn'
-    forsenclaw.inference -> google 'Chat completion'
-    forsenclaw.agentRuntime.infHandler -> forsenclaw.policy.engine 'Authorize each tool call'
-    forsenclaw.agentRuntime.infHandler -> forsenclaw.mcp.executor 'Execute allowed calls'
-    forsenclaw.agentRuntime.infHandler -> forsenclaw.agentRuntime.confHandler 'Pause on require_confirmation'
-    forsenclaw.agentRuntime.infHandler -> forsenclaw.api.respWriter 'Write the final response'
+    forsenclaw.agentRuntime.runtime -> forsenclaw.agentRuntime.infHandler 'Handle(ctx, childResults)'
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.assembler.assemble 'Assemble(ctx, ag, req, tools)'
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.inference.openaiCompat 'Infer(ctx, payload)'
+    forsenclaw.inference.openaiCompat -> google 'POST /chat/completions'
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.policy.engine 'EvaluateAll(queries...)'
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.tools.toolExecutor 'Execute(ctx, inv, call)'
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.agentRuntime.confHandler 'yield Dep on require_confirmation'
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.api.respWriter 'WriteAgentResponse(...)'
+    forsenclaw.agentRuntime.runtime -> forsenclaw.memory.compactor 'MaybeCompact(ctx, ag, roomID)'
 
     autoLayout LeftRight
   }
@@ -100,13 +162,29 @@ views {
   dynamic view contextAssembly {
     title 'Flow — Assembling a turn context'
 
-    forsenclaw.agentRuntime.infHandler -> forsenclaw.assembler.assemble 'Assemble(agent, req, tools)'
-    forsenclaw.assembler.assemble -> forsenclaw.assembler.historyLoader 'Load windowed history'
-    forsenclaw.assembler.historyLoader -> forsenclaw.store.messages 'GetMessages @ compaction offset'
-    forsenclaw.assembler.historyLoader -> forsenclaw.assembler.clearanceFilter 'Drop above ceiling (BLP read-up)'
-    forsenclaw.assembler.clearanceFilter -> forsenclaw.assembler.bibaAnnotator 'Annotate below ceiling (soft Biba)'
-    forsenclaw.assembler.assemble -> forsenclaw.assembler.noticeInjector 'Prepend clearance notice'
-    forsenclaw.assembler.assemble -> forsenclaw.agentRuntime.infHandler 'ContextPayload'
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.assembler.assemble 'Assemble(ctx, ag, req, tools)'
+    forsenclaw.assembler.assemble -> forsenclaw.assembler.memoryReader 'readMemoryUpTo(name, operating)'
+    forsenclaw.assembler.memoryReader -> forsenclaw.agentData 'ReadMemory + ReadDailyNotes (flat, c1..cN)'
+    forsenclaw.assembler.assemble -> forsenclaw.assembler.historyLoader 'loadRoomHistory(ctx, ag, roomID)'
+    forsenclaw.assembler.historyLoader -> forsenclaw.store.messages 'GetMessages(roomID, ReadOpts{CompactionID})'
+    forsenclaw.assembler.historyLoader -> forsenclaw.assembler.clearanceFilter 'drop tag > ceiling (BLP read-up)'
+    forsenclaw.assembler.clearanceFilter -> forsenclaw.assembler.bibaAnnotator 'annotate tag < ceiling (soft Biba)'
+    forsenclaw.assembler.assemble -> forsenclaw.assembler.noticeInjector 'prepend clearance notice'
+    forsenclaw.assembler.assemble -> forsenclaw.agentRuntime.infHandler 'return ContextPayload'
+
+    autoLayout LeftRight
+  }
+
+  dynamic view toolExecution {
+    title 'Flow — Executing a tool call (unified Executor)'
+
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.agentRuntime.infHandler 'inv := invocation()'
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.tools.toolExecutor 'Execute(ctx, inv, call)'
+    forsenclaw.tools.toolExecutor -> forsenclaw.mcp.adapter 'Invoke(ctx, inv, params) — MCP tool'
+    forsenclaw.mcp.adapter -> forsenclaw.builtinTools 'MCPClient.Call(ctx, name, params)'
+    forsenclaw.tools.toolExecutor -> forsenclaw.memory.noteTool 'Invoke(ctx, inv, params) — native tool'
+    forsenclaw.tools.toolExecutor -> forsenclaw.audit.logger 'Log(tool.invoked / tool.failed)'
+    forsenclaw.tools.toolExecutor -> forsenclaw.agentRuntime.infHandler 'return result'
 
     autoLayout LeftRight
   }
@@ -114,15 +192,101 @@ views {
   dynamic view toolAuthorization {
     title 'Flow — Authorizing a tool call'
 
-    forsenclaw.agentRuntime.infHandler -> forsenclaw.policy.engine 'Evaluate(tool:invoke, resource, clearances)'
-    forsenclaw.policy.engine -> forsenclaw.policy.combinator 'Build the evaluator tree'
-    forsenclaw.policy.combinator -> forsenclaw.policy.clearanceRule 'BLP: read-up / write-down?'
-    forsenclaw.policy.combinator -> forsenclaw.policy.grants 'Match agent statements'
-    forsenclaw.policy.combinator -> forsenclaw.policy.restrictions 'Match resource policy'
-    forsenclaw.policy.combinator -> forsenclaw.policy.decision 'Fold most-restrictive'
-    forsenclaw.policy.engine -> forsenclaw.agentRuntime.infHandler 'Decision'
-    forsenclaw.agentRuntime.infHandler -> forsenclaw.mcp.executor 'allow → execute'
-    forsenclaw.agentRuntime.infHandler -> forsenclaw.agentRuntime.confHandler 'require_confirmation → pause (deny → tool result "not permitted")'
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.policy.engine 'EvaluateAll(tool:invoke + data:* queries)'
+    forsenclaw.policy.engine -> forsenclaw.policy.combinator 'build {ClearanceRule, Grants, Restrictions}'
+    forsenclaw.policy.combinator -> forsenclaw.policy.clearanceRule 'ClearanceCheck(subject, resource)'
+    forsenclaw.policy.combinator -> forsenclaw.policy.grants 'match agent statements'
+    forsenclaw.policy.combinator -> forsenclaw.policy.restrictions 'match resource policy'
+    forsenclaw.policy.combinator -> forsenclaw.policy.decision 'fold MoreRestrictive'
+    forsenclaw.policy.engine -> forsenclaw.agentRuntime.infHandler 'return Decision'
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.tools.toolExecutor 'allow → Execute(ctx, inv, call)'
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.agentRuntime.confHandler 'require_confirmation → yield Dep'
+
+    autoLayout LeftRight
+  }
+
+  dynamic view confirmationFlow {
+    title 'Flow — Write-down confirmation round-trip'
+
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.policy.engine 'EvaluateAll(...) = require_confirmation'
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.agentRuntime.confHandler 'yield ConfirmationHandler Dep'
+    forsenclaw.agentRuntime.confHandler -> forsenclaw.api.hub 'broadcast confirmation.pending'
+    forsenclaw.api.hub -> forsenclaw.frontend 'confirmation banner (WS)'
+    user -> forsenclaw.frontend 'approve / deny / revise'
+    forsenclaw.frontend -> forsenclaw.api.service 'POST confirmation decision'
+    forsenclaw.api.service -> forsenclaw.agentRuntime.manager 'Respond(nodeID, decision)'
+    forsenclaw.agentRuntime.manager -> forsenclaw.agentRuntime.runtime 'resolve confirmation node'
+    forsenclaw.agentRuntime.runtime -> forsenclaw.agentRuntime.infHandler 'Handle(ctx, childResults) — resume'
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.tools.toolExecutor 'approved → Execute(ctx, inv, call)'
+
+    autoLayout LeftRight
+  }
+
+  dynamic view autoCompaction {
+    title 'Flow — Auto compaction after a turn'
+
+    forsenclaw.agentRuntime.runtime -> forsenclaw.memory.compactor 'MaybeCompact(ctx, ag, roomID)'
+    forsenclaw.memory.compactor -> forsenclaw.store.messages 'GetMessages(roomID, ReadOpts{CompactionID}) — over trigger?'
+    forsenclaw.memory.compactor -> forsenclaw.inference.openaiCompat 'InferSync(routine, payload) — summarize dropped'
+    forsenclaw.inference.openaiCompat -> google 'POST /chat/completions'
+    forsenclaw.memory.compactor -> forsenclaw.agentData 'WriteDailyNote(c{operating}/, summary)'
+    forsenclaw.memory.compactor -> forsenclaw.store.messages 'SetCompactionOffset(ctx, ag, roomID, id)'
+
+    autoLayout LeftRight
+  }
+
+  dynamic view manualCompactionRest {
+    title 'Flow — On-demand compaction (REST)'
+
+    user -> forsenclaw.frontend 'request compaction'
+    forsenclaw.frontend -> forsenclaw.api.service 'POST /api/rooms/{id}/compact {agent, target}'
+    forsenclaw.api.service -> forsenclaw.memory.compactor 'Compact(ctx, ag, roomID, target)'
+    forsenclaw.memory.compactor -> forsenclaw.store.messages 'drop oldest to target; SetCompactionOffset'
+
+    autoLayout LeftRight
+  }
+
+  dynamic view manualCompactionTool {
+    title 'Flow — On-demand compaction (agent compact tool)'
+
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.tools.toolExecutor 'Execute(ctx, inv, compact)'
+    forsenclaw.tools.toolExecutor -> forsenclaw.memory.compactTool 'Invoke(ctx, inv, {target})'
+    forsenclaw.memory.compactTool -> forsenclaw.memory.compactor 'Compact(ctx, ag, inv.RoomID, target)'
+    forsenclaw.memory.compactor -> forsenclaw.store.messages 'drop oldest to target; SetCompactionOffset'
+
+    autoLayout LeftRight
+  }
+
+  dynamic view agentNote {
+    title 'Flow — Agent writes a daily note'
+
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.policy.engine 'EvaluateAll(note: memory:write)'
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.tools.toolExecutor 'Execute(ctx, inv, note)'
+    forsenclaw.tools.toolExecutor -> forsenclaw.memory.noteTool 'Invoke(ctx, inv, {content})'
+    forsenclaw.memory.noteTool -> forsenclaw.agentData 'WriteDailyNote(c{operating}/memory/today.md, content)'
+
+    autoLayout LeftRight
+  }
+
+  dynamic view clearanceMemoryRead {
+    title 'Flow — Reading clearance-split memory'
+
+    forsenclaw.assembler.assemble -> forsenclaw.assembler.memoryReader 'readMemoryUpTo(name, operating)'
+    forsenclaw.assembler.memoryReader -> forsenclaw.agentData 'ReadMemory(flat) + ReadMemory(c1..cN)'
+    forsenclaw.assembler.memoryReader -> forsenclaw.agentData 'ReadDailyNotes(c1..cN) — levels above never opened'
+    forsenclaw.assembler.memoryReader -> forsenclaw.assembler.assemble 'concat + Truncate(budget)'
+
+    autoLayout LeftRight
+  }
+
+  dynamic view declassification {
+    title 'Flow — Declassification via create_room'
+
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.policy.engine 'create_room below clearance → write-down confirm'
+    forsenclaw.agentRuntime.infHandler -> forsenclaw.tools.toolExecutor 'Execute(ctx, inv, create_room)'
+    forsenclaw.tools.toolExecutor -> forsenclaw.mcp.adapter 'Invoke(ctx, inv, params)'
+    forsenclaw.mcp.adapter -> forsenclaw.builtinTools 'Call(create_room, {name, ceiling, summary})'
+    forsenclaw.builtinTools -> forsenclaw.store.rooms 'CreateRoom(lower ceiling, summary only)'
 
     autoLayout LeftRight
   }
@@ -130,11 +294,11 @@ views {
   dynamic view auditEvent {
     title 'Flow — An audit event'
 
-    forsenclaw.agentRuntime.infHandler -> forsenclaw.audit.logger 'Log(event) — non-blocking'
-    forsenclaw.audit.logger -> forsenclaw.audit.filtered 'Background loop fans per sink'
-    forsenclaw.audit.filtered -> forsenclaw.audit.consoleSink 'If kind/level match'
-    forsenclaw.audit.filtered -> forsenclaw.audit.sqliteSink 'If kind/level match'
-    forsenclaw.audit.sqliteSink -> forsenclaw.store.sqlite 'INSERT into the audit table'
+    forsenclaw.tools.toolExecutor -> forsenclaw.audit.logger 'Log(event) — non-blocking'
+    forsenclaw.audit.logger -> forsenclaw.audit.filtered 'background loop fans per sink'
+    forsenclaw.audit.filtered -> forsenclaw.audit.consoleSink 'if kind/level match'
+    forsenclaw.audit.filtered -> forsenclaw.audit.sqliteSink 'if kind/level match'
+    forsenclaw.audit.sqliteSink -> forsenclaw.store.sqlite 'INSERT into audit table'
 
     autoLayout LeftRight
   }

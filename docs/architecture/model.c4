@@ -52,7 +52,13 @@ model {
       manager = component 'Manager' 'Owns agents + their runtimes; hot-reloads agent definitions from disk.'
       runtime = component 'AgentRuntime' 'Per-agent run loop. Spawns a goroutine per DAG node; broadcasts idle when all settled.'
       dag = component 'DAG' 'Generic dependency graph for in-flight requests. NextReady / AllSettled.'
-      infHandler = component 'InferenceHandler' 'Drives a single turn: assemble → infer → execute tool calls → repeat. Applies BLP tool filtering + per-call policy effect (allow/deny/confirm).'
+      infHandler = component 'InferenceHandler' {
+        description 'Drives a single turn: assemble → infer → execute tool calls → repeat. Applies BLP tool filtering + per-call policy effect (allow/deny/confirm).'
+        inferenceLoop = code 'inferenceLoop(ctx) ([]Dep, *Result, error)' 'Compute effective clearance; filter tools; infer; for each call run toolEffect then Execute, or yield a confirmation Dep.'
+        invocationFn = code 'invocation() tool.Invocation' 'Build the principal: agent, configured + operating clearance, room.'
+        toolEffectFn = code 'toolEffect(call) policy.Decision' 'Two-tier authz; self-leveled tools use effective clearance as the resource clearance.'
+        filterTools = code 'filterToolsByClearance(tools, eff)' 'Drop read-up tools, annotate write-downs; self-leveled tools pass untouched.'
+      }
       confHandler = component 'ConfirmationHandler' 'Pauses a node when policy says require_confirmation (write-down or permission); carries the reason to the UI; resumes on the user decision.'
     }
 
@@ -61,6 +67,7 @@ model {
       technology 'Go (internal/memory)'
 
       assemble = component 'Assemble' 'Entry point. Orchestrates the pipeline and returns a ContextPayload (system prompt, history, tools) for the turn.'
+      memoryReader = component 'readMemoryUpTo' 'Aggregates MEMORY.md + daily notes across the legacy flat dir plus clearance dirs c1..cN at the operating clearance, then truncates to the agent budget. A level above operating clearance is never opened (true filtered view).'
       historyLoader = component 'loadRoomHistory' 'Reads the windowed room history from the store, starting at the agent+room compaction offset.'
       clearanceFilter = component 'Clearance filter (BLP)' 'Structurally drops messages tagged above the room ceiling — the data is never placed in context (read-up prevention).'
       bibaAnnotator = component 'Soft-Biba annotator' 'Tags messages from below the ceiling with a trust label, so the model treats lower-clearance input with skepticism (prompt-injection resistance).'
@@ -77,12 +84,52 @@ model {
       openaiCompat = component 'OpenAI-compatible adapter' 'Covers Google + OpenRouter.'
     }
 
+    tools = container 'Tool Execution' {
+      description 'The unified tool boundary. One Executor dispatches a call to its Tool by name and audits it; MCP-backed tools and native in-process tools both satisfy the same Tool interface, so there is no native-vs-MCP branch.'
+      technology 'Go (internal/tool)'
+
+      toolExecutor = component 'Executor' {
+        description 'Resolve Tool by name → decode args → Tool.Invoke(Invocation, params) → audit. No permission gating (that happened upstream). Satisfies agent.ToolExecutor + ResourceClearanceResolver.'
+        execute = code 'Execute(ctx, inv, call) (string, error)' 'Look up tools[call.Function.Name]; decode args; t.Invoke(ctx, inv, params); audit tool.invoked / tool.failed.'
+        allDefs = code 'AllDefinitions() []ToolDefinition' 'Definitions of every registered tool, for context injection.'
+        resolveClr = code 'ResolveResourceClearance(call) (int, bool)' 'If the resolved tool is a DynamicClearance, derive a per-call clearance from args.'
+        decode = code 'decodeParams(call) map[string]string' 'Unmarshal JSON args into a flat string map.'
+      }
+      invocation = code 'Invocation{AgentName, ConfiguredClearance, OperatingClearance, RoomID}' 'Typed principal for a call. Data, not the agent object — serializable across a future host/worker boundary.'
+      toolIface = component 'Tool (interface)' {
+        description 'The single abstraction MCP adapters and native tools implement. SelfLeveled tools act at the caller clearance.'
+        defn = code 'Definition() ToolDefinition' 'Schema for context injection + gating.'
+        invoke = code 'Invoke(ctx, Invocation, params) (string, error)' 'Run the tool on behalf of the principal.'
+      }
+    }
+
     mcp = container 'MCP' {
-      description 'Tool dispatch. Resolves a tool ID to its MCPClient and invokes it through the uniform Call interface, then audits. Transport-agnostic — policy lives elsewhere.'
+      description 'MCP tool registry + the adapter that presents each MCP tool as a Tool. Transport-agnostic — policy and dispatch live elsewhere.'
       technology 'Go'
 
       registry = component 'Registry' 'Maps tool IDs to their hosting MCPClient; stamps FRSN resource + clearance onto each ToolDefinition in AllDefinitions().'
-      executor = component 'Executor' 'Resolve tool → parse args → MCPClient.Call → audit. No permission gating.'
+      adapter = component 'Adapter (Tools / registryTool)' 'Wraps each registry MCPClient as a tool.Tool and bridges DynamicClearance. Replaces the retired mcp.Executor.'
+    }
+
+    memory = container 'Memory & Compaction' {
+      description 'Memory-side services in internal/memory beyond the assembler: the compactor and the native note/compact tools. Write at the operating clearance into the per-clearance data dirs.'
+      technology 'Go (internal/memory)'
+
+      compactor = component 'Compactor' {
+        description 'Post-turn (auto) + on-demand compaction. Drops oldest messages past the trigger, summarizes via the routine model into daily notes, advances the offset. Hard-drops when daily notes are off.'
+        maybeCompact = code 'MaybeCompact(ctx, ag, roomID) error' 'Auto path: compact to the configured target if over the configured trigger (no-op if trigger ≤ 0).'
+        compactExplicit = code 'Compact(ctx, ag, roomID, target) error' 'On-demand: force compaction to an explicit target (target ≤ 0 → config default).'
+        compactCore = code 'compact(ctx, ag, roomID, trigger, target) error' 'Drop oldest until under target; always keep the latest message; SetCompactionOffset.'
+        summarize = code 'summarize(ctx, ag, msgs) (string, error)' 'ResolveTier(def, TierRoutine) → InferSync(payload) over the dropped messages.'
+      }
+      noteTool = component 'note tool' {
+        description 'Native Tool. Appends an observation to the agent daily notes at the operating clearance.'
+        noteInvoke = code 'Invoke(ctx, inv, params)' 'WriteDailyNote(AgentClearanceDir(inv.AgentName, inv.OperatingClearance), content).'
+      }
+      compactTool = component 'compact tool' {
+        description 'Native Tool. Forces compaction of the current room to a target; resolves the agent via the manager for its model/flags.'
+        compactInvoke = code 'Invoke(ctx, inv, params)' 'resolve(inv.AgentName) → Compactor.Compact(ctx, ag, inv.RoomID, target).'
+      }
     }
 
     builtinTools = container 'Builtin Tools' {
@@ -126,6 +173,11 @@ model {
       sqliteSink = component 'SQLiteSink' 'Writes events as rows in the SQLite audit table.'
     }
 
+    agentData = container 'Agent Data (disk)' {
+      description 'Per-agent files under XDG data: MEMORY.md and daily notes, split into c<N>/ directories by clearance. Read aggregated c1..cN at the operating clearance; written at the operating clearance. A legacy flat MEMORY.md is still read as an always-visible baseline.'
+      technology 'Filesystem (XDG data)'
+    }
+
     // --- Relationships ---
 
     user -> frontend 'Sends messages; approves/denies confirmations'
@@ -137,6 +189,7 @@ model {
     api.service -> store.rooms 'Reads/writes room metadata'
     api.service -> store.messages 'Reads/writes the transcript'
     api.service -> agentRuntime.manager 'Delivers confirmation responses (Respond)'
+    api.service -> memory.compactor 'POST /api/rooms/{id}/compact (on-demand)'
     api.respWriter -> store.messages 'Appends agent messages + tool results'
     api.respWriter -> api.hub 'Broadcasts message.created'
     api.streamWriter -> api.hub 'Broadcasts message.delta'
@@ -150,11 +203,12 @@ model {
     agentRuntime.infHandler -> assembler.effClearance 'Computes effective clearance for BLP gating'
     agentRuntime.infHandler -> inference 'Runs a model turn'
     agentRuntime.infHandler -> policy.engine 'Filters tools (BLP) + evaluates per-call effect'
-    agentRuntime.infHandler -> mcp.executor 'Executes approved tool calls'
+    agentRuntime.infHandler -> tools.toolExecutor 'Executes approved calls (Invocation + call)'
     agentRuntime.infHandler -> api.respWriter 'Writes completed responses + tool results'
     agentRuntime.infHandler -> api.streamWriter 'Streams tokens'
     agentRuntime.infHandler -> agentRuntime.confHandler 'Pauses on require_confirmation'
     agentRuntime.infHandler -> audit.logger 'permission.* / confirmation.* events'
+    agentRuntime.runtime -> memory.compactor 'MaybeCompact after a turn settles'
 
     // Policy: engine builds the evaluator tree per query; the combinator folds
     // the sources into one Decision, most-restrictive winning.
@@ -165,6 +219,8 @@ model {
     policy.combinator -> policy.decision 'Most-restrictive of the child Decisions'
 
     // Assembler pipeline.
+    assembler.assemble -> assembler.memoryReader 'Aggregate memory + notes (c1..cN)'
+    assembler.memoryReader -> agentData 'Read MEMORY.md + daily notes at operating clearance'
     assembler.assemble -> assembler.historyLoader 'Load windowed history'
     assembler.historyLoader -> store.messages 'GetMessages at the compaction offset'
     assembler.historyLoader -> assembler.clearanceFilter 'Drop messages above the ceiling'
@@ -178,16 +234,31 @@ model {
       technology 'unused in dev'
     }
 
+    // Tool execution: one Executor dispatches to Tools — MCP tools via the
+    // adapter, native tools directly. Permission gating already happened in the
+    // inference handler; the executor only invokes + audits.
+    tools.toolExecutor -> mcp.adapter 'Invoke MCP-backed tools'
+    tools.toolExecutor -> memory.noteTool 'Invoke note'
+    tools.toolExecutor -> memory.compactTool 'Invoke compact'
+    tools.toolExecutor -> audit.logger 'tool.* events'
+
     mcp.registry -> builtinTools 'Registers + resolves tool IDs'
-    mcp.executor -> builtinTools 'MCPClient.Call (in-process)'
-    mcp.executor -> mcpServers 'MCPClient.Call over MCP transport (HTTP/stdio)' {
+    mcp.registry -> mcp.adapter 'Tools(): wrap each MCPClient as a tool.Tool'
+    mcp.adapter -> builtinTools 'MCPClient.Call (in-process)'
+    mcp.adapter -> mcpServers 'MCPClient.Call over MCP transport (HTTP/stdio)' {
       #planned
       style {
         line dashed
         color muted
       }
     }
-    mcp.executor -> audit.logger 'tool.* events'
+
+    // Native tools (internal/memory) write at the operating clearance.
+    memory.noteTool -> agentData 'Append daily note at operating clearance'
+    memory.compactTool -> memory.compactor 'Compact(room, target)'
+    memory.compactor -> store.messages 'Read window + advance compaction offset'
+    memory.compactor -> inference 'Summarize dropped messages (routine model)'
+    memory.compactor -> agentData 'Write compaction summary into daily notes'
 
     builtinTools.webfetch -> web 'Fetches & extracts page content'
     builtinTools.webSearch -> brave 'Web-search query'

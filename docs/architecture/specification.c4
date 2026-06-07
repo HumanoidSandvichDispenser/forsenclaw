@@ -38,6 +38,17 @@ specification {
     }
   }
 
+  // L4 — code-level nodes (types, methods, functions) nested under a component.
+  // Distinct colour so L3 views read clearly when a component is expanded.
+  element code {
+    notation 'Code (type / method)'
+    style {
+      color green
+      shape rectangle
+      opacity 25%
+    }
+  }
+
   // Marks elements/relationships that are designed-for but not yet built
   // (e.g. external MCP servers — the MCPClient seam exists, no adapter does).
   tag planned
