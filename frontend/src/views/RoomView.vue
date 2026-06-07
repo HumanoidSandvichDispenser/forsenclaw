@@ -5,11 +5,11 @@ import { useRoute } from 'vue-router';
 import RoomComposer from '@/components/room/RoomComposer.vue';
 import ConfirmationBanner from '@/components/room/ConfirmationBanner.vue';
 import RoomHeader from '@/components/room/RoomHeader.vue';
-import ContextPreviewModal from '@/components/room/ContextPreviewModal.vue';
-import AgentDAGModal from '@/components/room/AgentDAGModal.vue';
 import RoomMessageItem from '@/components/room/RoomMessageItem.vue';
 import DockHost, { type DockPanel } from '@/components/dock/DockHost.vue';
 import AgentInfoPanel from '@/components/dock/AgentInfoPanel.vue';
+import AgentDAGPanel from '@/components/dock/AgentDAGPanel.vue';
+import ContextPreviewPanel from '@/components/dock/ContextPreviewPanel.vue';
 import type { MessageResponse } from '@/client';
 import type {
   MessageCreatedPayload,
@@ -18,6 +18,7 @@ import type {
   AgentErrorPayload,
 } from '@/composables/useWebSocket';
 import { useWebSocket } from '@/composables/useWebSocket';
+import { bindAgentDag, useAgentDag } from '@/composables/useAgentDag';
 import { useConfirmationsStore } from '@/stores/confirmations';
 import { useMessagesStore } from '@/stores/messages';
 import { useRoomsStore } from '@/stores/rooms';
@@ -92,8 +93,7 @@ const meActorId = computed(() => {
 
 const members = computed(() => room.value?.participants ?? []);
 
-const showPreview = ref(false);
-const showDAG = ref(false);
+const agentDag = useAgentDag();
 
 // The agent to preview. Prefer a participant, but fall back to scanning message
 // senders so the affordance works even if participants haven't loaded.
@@ -107,8 +107,8 @@ const previewAgentName = computed(() => {
 
 // Inspection dock panels. Adding a surface here is all it takes to register it;
 // the DockHost renders the rail + active panel. Panels that need clearance gating
-// must enforce it on their backend read path (the DAG panel lands once its gate
-// does).
+// must enforce it on their backend read path (the DAG read is gated REST + WS;
+// the panel shows a calm "not cleared" state on 403).
 const dockPanels = computed<DockPanel[]>(() => {
   if (!previewAgentName.value) return [];
   return [
@@ -119,8 +119,27 @@ const dockPanels = computed<DockPanel[]>(() => {
       component: markRaw(AgentInfoPanel),
       props: { agentName: previewAgentName.value },
     },
+    {
+      id: 'dag',
+      title: 'Request DAG',
+      icon: '⛓',
+      component: markRaw(AgentDAGPanel),
+      props: { agentName: previewAgentName.value },
+      live: agentDag.liveCount.value > 0,
+    },
+    {
+      id: 'context',
+      title: 'Context preview',
+      icon: '☰',
+      component: markRaw(ContextPreviewPanel),
+      props: { roomId: roomId.value, agentName: previewAgentName.value },
+    },
   ];
 });
+
+// Bind the shared DAG state to the room's agent over the existing room socket, so
+// the rail's live dot tracks in-flight nodes even while the panel is collapsed.
+watch(previewAgentName, (name) => bindAgentDag(ws, name), { immediate: true });
 
 const isLoading = computed(() => {
   return messagesStore.loadingByRoomId[roomId.value] && messageGroups.value.length === 0;
@@ -224,6 +243,7 @@ onBeforeUnmount(() => {
   }
   if (unsubEvent) unsubEvent();
   if (lingerTimer) clearTimeout(lingerTimer);
+  bindAgentDag(ws, '');
 });
 
 watch(roomId, (newId, oldId) => {
@@ -280,10 +300,7 @@ async function send() {
     <RoomHeader
       :title="members.map((m) => m.name).join(' · ') || roomId"
       :participant-count="members.length"
-      :agent-name="previewAgentName"
       @settings="() => {}"
-      @preview="showPreview = true"
-      @dag="showDAG = true"
     />
 
     <main class="room-main">
@@ -329,21 +346,6 @@ async function send() {
 
       <DockHost v-if="dockPanels.length" :panels="dockPanels" />
     </main>
-
-    <ContextPreviewModal
-      v-if="showPreview && previewAgentName"
-      :open="showPreview"
-      :room-id="roomId"
-      :agent-name="previewAgentName"
-      @close="showPreview = false"
-    />
-
-    <AgentDAGModal
-      v-if="showDAG && previewAgentName"
-      :open="showDAG"
-      :agent-name="previewAgentName"
-      @close="showDAG = false"
-    />
   </section>
 </template>
 
