@@ -9,6 +9,7 @@ import (
 
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/agent"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/dispatch"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/memory"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/store"
 )
@@ -18,6 +19,13 @@ import (
 // compact route reports the feature as unavailable.
 type Compactor interface {
 	Compact(ctx context.Context, ag *agent.Agent, roomID int64, target int) error
+	Stats(ctx context.Context, ag *agent.Agent, roomID int64) (memory.CompactionStats, error)
+}
+
+// MemoryReader reads an agent's memory + daily notes by clearance level.
+// Satisfied by *memory.Inspector; may be nil (e.g. in tests).
+type MemoryReader interface {
+	Inspect(name string, maxClearance int, includeFlat bool) ([]memory.ClearanceLevel, error)
 }
 
 // Service holds all dependencies for the API handlers.
@@ -29,6 +37,7 @@ type Service struct {
 	assembler  agent.Assembler
 	executor   agent.ToolExecutor
 	compactor  Compactor
+	memory     MemoryReader
 	hub        *Hub
 	user       room.Actor
 }
@@ -44,6 +53,7 @@ func NewService(
 	assembler agent.Assembler,
 	executor agent.ToolExecutor,
 	compactor Compactor,
+	memReader MemoryReader,
 	h *Hub,
 	user room.Actor,
 ) *Service {
@@ -55,6 +65,7 @@ func NewService(
 		assembler:  assembler,
 		executor:   executor,
 		compactor:  compactor,
+		memory:     memReader,
 		hub:        h,
 		user:       user,
 	}
@@ -74,6 +85,7 @@ func NewAPI(router chi.Router, svc *Service) huma.API {
 	registerCompactRoutes(api, svc)
 	registerBranchRoutes(api, svc)
 	registerAgentRoutes(api, svc)
+	registerAgentMemoryRoutes(api, svc)
 	registerDAGRoutes(api, svc)
 	registerConfirmationRoutes(api, svc)
 	registerContextPreviewRoutes(api, svc)

@@ -137,7 +137,7 @@ permissions: []
 
 	assembler := memory.NewAssembler(p, 0, store, store)
 
-	svc := NewService(dispatcher, store, store, agentMgr, assembler, nil, nil, hub, room.Actor{
+	svc := NewService(dispatcher, store, store, agentMgr, assembler, nil, nil, nil, hub, room.Actor{
 		ID:        "user:test",
 		Type:      room.ActorUser,
 		Clearance: 5,

@@ -246,7 +246,7 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 	dispatcher := dispatch.NewDispatcher(agentMgr)
 
 	// 8. Create service and API
-	svc := api.NewService(dispatcher, store, store, agentMgr, assembler, toolExecutor, compactor, hub, userActor)
+	svc := api.NewService(dispatcher, store, store, agentMgr, assembler, toolExecutor, compactor, memory.NewInspector(p), hub, userActor)
 
 	router := chi.NewRouter()
 	router.Use(middleware.Logger)

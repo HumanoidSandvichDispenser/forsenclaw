@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { CreateRoomData, CreateRoomErrors, CreateRoomResponses, EditMessageData, EditMessageErrors, EditMessageResponses, GetAgentDagData, GetAgentDagErrors, GetAgentDagResponses, GetAgentData, GetAgentErrors, GetAgentResponses, GetMeData, GetMeErrors, GetMeResponses, GetRoomData, GetRoomErrors, GetRoomResponses, ListAgentsData, ListAgentsErrors, ListAgentsResponses, ListConfirmationsData, ListConfirmationsErrors, ListConfirmationsResponses, ListMessagesData, ListMessagesErrors, ListMessagesResponses, ListRoomsData, ListRoomsErrors, ListRoomsResponses, PreviewContextData, PreviewContextErrors, PreviewContextResponses, RespondConfirmationData, RespondConfirmationErrors, RespondConfirmationResponses, RetryMessageData, RetryMessageErrors, RetryMessageResponses, SendMessageData, SendMessageErrors, SendMessageResponses, SwitchBranchData, SwitchBranchErrors, SwitchBranchResponses } from './types.gen';
+import type { CompactRoomData, CompactRoomErrors, CompactRoomResponses, CreateRoomData, CreateRoomErrors, CreateRoomResponses, EditMessageData, EditMessageErrors, EditMessageResponses, GetAgentDagData, GetAgentDagErrors, GetAgentDagResponses, GetAgentData, GetAgentErrors, GetAgentMemoryData, GetAgentMemoryErrors, GetAgentMemoryResponses, GetAgentResponses, GetCompactionStatsData, GetCompactionStatsErrors, GetCompactionStatsResponses, GetMeData, GetMeErrors, GetMeResponses, GetRoomData, GetRoomErrors, GetRoomResponses, ListAgentsData, ListAgentsErrors, ListAgentsResponses, ListConfirmationsData, ListConfirmationsErrors, ListConfirmationsResponses, ListMessagesData, ListMessagesErrors, ListMessagesResponses, ListRoomsData, ListRoomsErrors, ListRoomsResponses, PreviewContextData, PreviewContextErrors, PreviewContextResponses, RespondConfirmationData, RespondConfirmationErrors, RespondConfirmationResponses, RetryMessageData, RetryMessageErrors, RetryMessageResponses, SendMessageData, SendMessageErrors, SendMessageResponses, SwitchBranchData, SwitchBranchErrors, SwitchBranchResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -27,6 +27,11 @@ export const listAgents = <ThrowOnError extends boolean = false>(options?: Optio
  * Get an agent's current request DAG
  */
 export const getAgentDag = <ThrowOnError extends boolean = false>(options: Options<GetAgentDagData, ThrowOnError>) => (options.client ?? client).get<GetAgentDagResponses, GetAgentDagErrors, ThrowOnError>({ url: '/api/agents/{agent_name}/dag', ...options });
+
+/**
+ * Inspect an agent's memory and daily notes by clearance
+ */
+export const getAgentMemory = <ThrowOnError extends boolean = false>(options: Options<GetAgentMemoryData, ThrowOnError>) => (options.client ?? client).get<GetAgentMemoryResponses, GetAgentMemoryErrors, ThrowOnError>({ url: '/api/agents/{agent_name}/memory', ...options });
 
 /**
  * Get agent details
@@ -64,6 +69,23 @@ export const getRoom = <ThrowOnError extends boolean = false>(options: Options<G
  * Preview agent context window
  */
 export const previewContext = <ThrowOnError extends boolean = false>(options: Options<PreviewContextData, ThrowOnError>) => (options.client ?? client).get<PreviewContextResponses, PreviewContextErrors, ThrowOnError>({ url: '/api/rooms/{room_id}/agents/{agent_name}/context-preview', ...options });
+
+/**
+ * Compact an agent's transcript in a room
+ */
+export const compactRoom = <ThrowOnError extends boolean = false>(options: Options<CompactRoomData, ThrowOnError>) => (options.client ?? client).post<CompactRoomResponses, CompactRoomErrors, ThrowOnError>({
+    url: '/api/rooms/{room_id}/compact',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Report an agent's compaction state for a room
+ */
+export const getCompactionStats = <ThrowOnError extends boolean = false>(options: Options<GetCompactionStatsData, ThrowOnError>) => (options.client ?? client).get<GetCompactionStatsResponses, GetCompactionStatsErrors, ThrowOnError>({ url: '/api/rooms/{room_id}/compaction', ...options });
 
 /**
  * List pending tool-call confirmations for a room

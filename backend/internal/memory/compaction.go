@@ -146,6 +146,43 @@ func (c *Compactor) compact(ctx context.Context, ag *agent.Agent, roomID int64, 
 	return c.messages.SetCompactionOffset(ctx, ag.Name(), roomID, boundaryID)
 }
 
+// CompactionStats describes the current compaction state of an agent's
+// transcript in a room: where the compaction cursor sits and how large the live
+// (post-cursor) transcript is, alongside the configured thresholds.
+type CompactionStats struct {
+	Offset   int64 // cursor: messages at or before this ID are compacted away
+	Messages int   // live message count after the cursor
+	Bytes    int   // total content bytes of the live transcript
+	Trigger  int   // configured auto-compaction trigger (0 = disabled)
+	Target   int   // configured compaction target
+}
+
+// Stats reports the agent's compaction state for the room without changing
+// anything: the cursor position and the size of the live transcript that would
+// be subject to the next compaction.
+func (c *Compactor) Stats(ctx context.Context, ag *agent.Agent, roomID int64) (CompactionStats, error) {
+	stats := CompactionStats{Trigger: c.trigger, Target: c.target}
+	if roomID == 0 || c.messages == nil {
+		return stats, nil
+	}
+
+	offset, err := c.messages.GetCompactionOffset(ctx, ag.Name(), roomID)
+	if err != nil {
+		return stats, fmt.Errorf("get compaction offset: %w", err)
+	}
+	msgs, err := c.messages.GetMessages(ctx, roomID, store.ReadOpts{CompactionID: offset})
+	if err != nil {
+		return stats, fmt.Errorf("get messages: %w", err)
+	}
+
+	stats.Offset = offset
+	stats.Messages = len(msgs)
+	for _, m := range msgs {
+		stats.Bytes += len(m.Content)
+	}
+	return stats, nil
+}
+
 // summarize condenses the dropped messages with the agent's routine model.
 func (c *Compactor) summarize(ctx context.Context, ag *agent.Agent, msgs []room.Message) (string, error) {
 	provider, modelID, err := c.registry.ResolveTier(ag.Definition, inference.TierRoutine)

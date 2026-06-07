@@ -10,7 +10,8 @@ import DockHost, { type DockPanel } from '@/components/dock/DockHost.vue';
 import AgentInfoPanel from '@/components/dock/AgentInfoPanel.vue';
 import AgentDAGPanel from '@/components/dock/AgentDAGPanel.vue';
 import ContextPreviewPanel from '@/components/dock/ContextPreviewPanel.vue';
-import { PhInfo, PhTreeStructure, PhFileText } from '@phosphor-icons/vue';
+import MemoryNotesPanel from '@/components/dock/MemoryNotesPanel.vue';
+import { PhInfo, PhTreeStructure, PhFileText, PhBrain } from '@phosphor-icons/vue';
 import type { MessageResponse } from '@/client';
 import type {
   MessageCreatedPayload,
@@ -133,6 +134,13 @@ const dockPanels = computed<DockPanel[]>(() => {
       title: 'Context preview',
       icon: markRaw(PhFileText),
       component: markRaw(ContextPreviewPanel),
+      props: { roomId: roomId.value, agentName: previewAgentName.value },
+    },
+    {
+      id: 'memory',
+      title: 'Memory & notes',
+      icon: markRaw(PhBrain),
+      component: markRaw(MemoryNotesPanel),
       props: { roomId: roomId.value, agentName: previewAgentName.value },
     },
   ];

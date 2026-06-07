@@ -315,7 +315,7 @@ permissions:
 	dispatcher := dispatch.NewDispatcher(agentMgr)
 
 	// API service + router + real HTTP server
-	svc := api.NewService(dispatcher, sqliteStore, sqliteStore, agentMgr, assembler, mcpExec, nil, hub, userActor)
+	svc := api.NewService(dispatcher, sqliteStore, sqliteStore, agentMgr, assembler, mcpExec, nil, nil, hub, userActor)
 	router := chi.NewRouter()
 	router.Use(api.AuthMiddleware("test"))
 	api.NewAPI(router, svc)
