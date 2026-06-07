@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 
-import { getMe, type UserResponse } from '@/client';
+import { getMe } from '@/client';
 import { useClientStore } from '@/stores/client';
 
 export const useUserStore = defineStore('user', () => {
