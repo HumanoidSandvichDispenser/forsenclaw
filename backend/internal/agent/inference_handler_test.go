@@ -15,6 +15,7 @@ import (
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/dag"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/policy"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/tool"
 )
 
 // recordingExecutor records Execute calls and can supply a per-call resource
@@ -27,7 +28,7 @@ type recordingExecutor struct {
 
 func (e *recordingExecutor) AllDefinitions() []inference.ToolDefinition { return nil }
 
-func (e *recordingExecutor) Execute(_ context.Context, call inference.ToolCallWire) (string, error) {
+func (e *recordingExecutor) Execute(_ context.Context, _ tool.Invocation, call inference.ToolCallWire) (string, error) {
 	e.executed = append(e.executed, call)
 	if e.result == "" {
 		return "ok", nil
@@ -73,7 +74,7 @@ func (m *mockInferenceExecutor) AllDefinitions() []inference.ToolDefinition {
 	}
 }
 
-func (m *mockInferenceExecutor) Execute(_ context.Context, _ inference.ToolCallWire) (string, error) {
+func (m *mockInferenceExecutor) Execute(_ context.Context, _ tool.Invocation, _ inference.ToolCallWire) (string, error) {
 	return "tool_result_content", nil
 }
 

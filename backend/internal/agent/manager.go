@@ -32,6 +32,7 @@ type ManagerDeps struct {
 	ResponseWriter ResponseWriter
 	StreamWriter   StreamWriter
 	DAGStream      DAGStreamWriter
+	Compactor      Compactor
 }
 
 // Manager loads, tracks, and hot-reloads agent definitions from disk.
@@ -52,6 +53,7 @@ type Manager struct {
 	responseWriter       ResponseWriter
 	streamWriter         StreamWriter
 	dagStream            DAGStreamWriter
+	compactor            Compactor
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -73,6 +75,7 @@ func NewManager(p *paths.Paths, serverCfg *config.ServerConfig, deps ManagerDeps
 		responseWriter:       deps.ResponseWriter,
 		streamWriter:         deps.StreamWriter,
 		dagStream:            deps.DAGStream,
+		compactor:            deps.Compactor,
 		ctx:                  ctx,
 		cancel:               cancel,
 	}
@@ -256,6 +259,7 @@ func (m *Manager) newEntry(agent *Agent) *agentEntry {
 			ResponseWriter:       m.responseWriter,
 			StreamWriter:         m.streamWriter,
 			DAGStream:            m.dagStream,
+			Compactor:            m.compactor,
 			ResourcePolicies:     m.resourcePolicies(),
 		})
 		go e.runtime.Run(m.ctx)

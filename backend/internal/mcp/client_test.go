@@ -8,15 +8,16 @@ import (
 
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/audit"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/tool"
 )
 
 // --- mock types ---
 
 type mockMCPClient struct {
-	toolIDs   []string
-	response  string
-	err       error
-	callCount int
+	toolIDs    []string
+	response   string
+	err        error
+	callCount  int
 	lastParams map[string]string
 }
 
@@ -28,6 +29,18 @@ func (m *mockMCPClient) Call(_ context.Context, _ string, params map[string]stri
 
 func (m *mockMCPClient) ToolIDs() []string { return m.toolIDs }
 func (m *mockMCPClient) Healthy() bool     { return true }
+
+// NativeDefinitions makes the mock a ToolDescriber so its tools are enumerable
+// by the registry (and thus dispatchable through the unified executor).
+func (m *mockMCPClient) NativeDefinitions() []inference.ToolDefinition {
+	defs := make([]inference.ToolDefinition, len(m.toolIDs))
+	for i, id := range m.toolIDs {
+		defs[i] = inference.ToolDefinition{Name: id}
+	}
+	return defs
+}
+
+func (m *mockMCPClient) XMLSchemas() []string { return nil }
 
 // recordingSink captures audit events for test assertions.
 type recordingSink struct {
@@ -215,7 +228,7 @@ func TestParseToolCalls_NoToolCalls(t *testing.T) {
 	}
 }
 
-// --- AC-5: Executor — calls MCP and returns result ---
+// --- AC-5: MCP tools run through the unified executor and return the result ---
 
 func TestExecutor_CallsMCP(t *testing.T) {
 	client := &mockMCPClient{
@@ -223,9 +236,9 @@ func TestExecutor_CallsMCP(t *testing.T) {
 		response: "search results",
 	}
 	reg := NewRegistry([]NamedMCPClient{{Name: "test", Client: client}}, nil)
-	exec := NewExecutor(reg, audit.Nop())
+	exec := tool.NewExecutor(audit.Nop(), Tools(reg)...)
 
-	result, err := exec.Execute(context.Background(), wireCall("web_search", `{"q":"golang"}`))
+	result, err := exec.Execute(context.Background(), tool.Invocation{}, wireCall("web_search", `{"q":"golang"}`))
 	if err != nil {
 		t.Fatalf("expected success, got error: %v", err)
 	}
@@ -240,19 +253,19 @@ func TestExecutor_CallsMCP(t *testing.T) {
 	}
 }
 
-// --- AC-6: Executor — unknown tool returns error ---
+// --- AC-6: unknown tool returns error ---
 
 func TestExecutor_UnknownTool_ReturnsError(t *testing.T) {
 	reg := NewRegistry([]NamedMCPClient{}, nil)
-	exec := NewExecutor(reg, audit.Nop())
+	exec := tool.NewExecutor(audit.Nop(), Tools(reg)...)
 
-	_, err := exec.Execute(context.Background(), wireCall("nonexistent", `{}`))
+	_, err := exec.Execute(context.Background(), tool.Invocation{}, wireCall("nonexistent", `{}`))
 	if err == nil {
 		t.Fatal("expected error for unknown tool")
 	}
 }
 
-// --- AC-7: Executor — MCP client error propagates ---
+// --- AC-7: MCP client error propagates ---
 
 func TestExecutor_MCPError_Propagates(t *testing.T) {
 	client := &mockMCPClient{
@@ -260,9 +273,9 @@ func TestExecutor_MCPError_Propagates(t *testing.T) {
 		err:     fmt.Errorf("connection refused"),
 	}
 	reg := NewRegistry([]NamedMCPClient{{Name: "test", Client: client}}, nil)
-	exec := NewExecutor(reg, audit.Nop())
+	exec := tool.NewExecutor(audit.Nop(), Tools(reg)...)
 
-	_, err := exec.Execute(context.Background(), wireCall("web_search", `{}`))
+	_, err := exec.Execute(context.Background(), tool.Invocation{}, wireCall("web_search", `{}`))
 	if err == nil {
 		t.Fatal("expected error when MCP call fails")
 	}
@@ -271,7 +284,7 @@ func TestExecutor_MCPError_Propagates(t *testing.T) {
 	}
 }
 
-// --- AC-8: Executor — audit events written ---
+// --- AC-8: audit events written, attributed from the invocation principal ---
 
 func TestExecutor_AuditEvents(t *testing.T) {
 	sink := &recordingSink{}
@@ -279,10 +292,9 @@ func TestExecutor_AuditEvents(t *testing.T) {
 
 	t.Run("success logs KindToolInvoked", func(t *testing.T) {
 		client := &mockMCPClient{toolIDs: []string{"web_search"}, response: "ok"}
-		exec := NewExecutor(NewRegistry([]NamedMCPClient{{Name: "test", Client: client}}, nil), logger)
-		ctx := audit.WithAgentID(context.Background(), "agent42")
+		exec := tool.NewExecutor(logger, Tools(NewRegistry([]NamedMCPClient{{Name: "test", Client: client}}, nil))...)
 
-		exec.Execute(ctx, wireCall("web_search", `{}`)) //nolint:errcheck
+		exec.Execute(context.Background(), tool.Invocation{AgentName: "agent42"}, wireCall("web_search", `{}`)) //nolint:errcheck
 		logger.Close()
 
 		if len(sink.events) == 0 {
@@ -301,9 +313,9 @@ func TestExecutor_AuditEvents(t *testing.T) {
 		sink2 := &recordingSink{}
 		logger2 := audit.NewLogger([]audit.SinkConfig{{Sink: sink2, MinLevel: audit.LevelDebug}})
 		client := &mockMCPClient{toolIDs: []string{"web_search"}, err: fmt.Errorf("boom")}
-		exec := NewExecutor(NewRegistry([]NamedMCPClient{{Name: "test", Client: client}}, nil), logger2)
+		exec := tool.NewExecutor(logger2, Tools(NewRegistry([]NamedMCPClient{{Name: "test", Client: client}}, nil))...)
 
-		exec.Execute(context.Background(), wireCall("web_search", `{}`)) //nolint:errcheck
+		exec.Execute(context.Background(), tool.Invocation{}, wireCall("web_search", `{}`)) //nolint:errcheck
 		logger2.Close()
 
 		if len(sink2.events) == 0 {

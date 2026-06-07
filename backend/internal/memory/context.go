@@ -40,7 +40,8 @@ func NewAssembler(p *paths.Paths, memBudget int, rooms store.RoomRepository, mes
 // returns a ContextPayload ready for inference.
 func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req agent.Request, tools []inference.ToolDefinition) (inference.ContextPayload, error) {
 	var history []room.Message
-	effectiveClearance := 5 // default: full clearance when no room context
+	// No room context means the agent operates at its configured ceiling.
+	effectiveClearance := ag.Definition.Clearance
 
 	if req.Payload.RoomID != 0 && a.rooms != nil && a.messages != nil {
 		var err error
@@ -52,6 +53,7 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req agent.Req
 
 	assembled, err := a.assemble(ctx, ag, assembleRequest{
 		RoomID:             req.Payload.RoomID,
+		EffectiveClearance: effectiveClearance,
 		CurrentRoomHistory: history,
 		ToolDefinitions:    tools,
 	})
@@ -138,6 +140,11 @@ type crossRoomMessage struct {
 type assembleRequest struct {
 	// RoomID is the target room for this invocation.
 	RoomID int64
+
+	// EffectiveClearance is the operating clearance for this invocation
+	// (min(agent, room), or the agent's configured clearance with no room). It
+	// bounds which per-clearance memory and daily-note levels are read.
+	EffectiveClearance int
 
 	// CrossRoomFeed is recent messages from other rooms the agent participates in.
 	CrossRoomFeed []crossRoomMessage
@@ -229,6 +236,53 @@ func (a *assembledContext) toContextPayload() inference.ContextPayload {
 	}
 }
 
+// memoryDirsUpTo returns the data directories to read for an agent operating at
+// the given clearance, lowest first: the legacy flat dir (an unleveled baseline
+// kept readable for agents predating the clearance split) followed by clearance
+// levels 1..clearance. Levels above the operating clearance are never opened, so
+// the result is a true filtered view rather than a redacted one.
+func (a *Assembler) memoryDirsUpTo(name string, clearance int) []string {
+	dirs := []string{a.paths.AgentDataDir(name)}
+	for lvl := 1; lvl <= clearance; lvl++ {
+		dirs = append(dirs, a.paths.AgentClearanceDir(name, lvl))
+	}
+	return dirs
+}
+
+// readMemoryUpTo concatenates MEMORY.md across memoryDirsUpTo, lowest level
+// first. Truncation to the agent budget is applied by the caller on the whole.
+func (a *Assembler) readMemoryUpTo(name string, clearance int) (string, error) {
+	var b strings.Builder
+	for _, dir := range a.memoryDirsUpTo(name, clearance) {
+		content, err := ReadMemory(dir)
+		if err != nil {
+			return "", err
+		}
+		if content == "" {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(content)
+	}
+	return b.String(), nil
+}
+
+// readDailyNotesUpTo gathers today's and yesterday's notes across
+// memoryDirsUpTo, lowest level first.
+func (a *Assembler) readDailyNotesUpTo(name string, clearance int) ([]DailyNote, error) {
+	var notes []DailyNote
+	for _, dir := range a.memoryDirsUpTo(name, clearance) {
+		dirNotes, err := ReadDailyNotes(dir, true)
+		if err != nil {
+			return nil, err
+		}
+		notes = append(notes, dirNotes...)
+	}
+	return notes, nil
+}
+
 func (a *Assembler) memoryBudgetForAgent(ag *agent.Agent) int {
 	if ag != nil && ag.Definition != nil && ag.Definition.MemoryBudget > 0 {
 		return ag.Definition.MemoryBudget
@@ -249,8 +303,9 @@ func (a *Assembler) assemble(ctx context.Context, ag *agent.Agent, req assembleR
 		RAGResults:      []string{},
 	}
 
-	// 1. MEMORY.md
-	memContent, err := ReadMemory(a.paths.AgentDataDir(ag.Name()))
+	// 1. MEMORY.md — aggregated over the legacy flat file plus clearance levels
+	//    1..operating, then truncated as a whole to the agent's budget.
+	memContent, err := a.readMemoryUpTo(ag.Name(), req.EffectiveClearance)
 	if err != nil {
 		return nil, fmt.Errorf("read memory: %w", err)
 	}
@@ -263,9 +318,9 @@ func (a *Assembler) assemble(ctx context.Context, ag *agent.Agent, req assembleR
 	}
 	result.Memory = memContent
 
-	// 2. Daily notes (today + yesterday)
+	// 2. Daily notes (today + yesterday), aggregated over the same levels.
 	if ag.Definition.FeatureFlags.DailyNotes {
-		notes, err := ReadDailyNotes(a.paths.AgentDataDir(ag.Name()), true)
+		notes, err := a.readDailyNotesUpTo(ag.Name(), req.EffectiveClearance)
 		if err != nil {
 			return nil, fmt.Errorf("read daily notes: %w", err)
 		}

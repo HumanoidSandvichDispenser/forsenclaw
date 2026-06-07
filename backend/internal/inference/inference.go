@@ -135,6 +135,12 @@ type ToolDefinition struct {
 	// Clearance is the data classification tier for this tool.
 	// Populated by the registry at construction from config.
 	Clearance int
+	// SelfLeveled marks a tool that operates at the caller's operating
+	// clearance rather than a fixed classification (e.g. a native note/compact
+	// tool that writes at the level the agent is acting at). For such tools the
+	// effective clearance is used as the resource clearance, so they are neither
+	// read-up filtered nor flagged as write-downs. Clearance is ignored.
+	SelfLeveled bool
 }
 
 // ContextMessage is a message in the conversation sequence built from a ContextPayload.

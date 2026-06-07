@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
@@ -11,6 +13,13 @@ import (
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/store"
 )
 
+// Compactor compacts an agent's transcript in a room down to a target size.
+// Satisfied by *memory.Compactor; may be nil (e.g. in tests), in which case the
+// compact route reports the feature as unavailable.
+type Compactor interface {
+	Compact(ctx context.Context, ag *agent.Agent, roomID int64, target int) error
+}
+
 // Service holds all dependencies for the API handlers.
 type Service struct {
 	dispatcher *dispatch.Dispatcher
@@ -19,6 +28,7 @@ type Service struct {
 	agentMgr   *agent.Manager
 	assembler  agent.Assembler
 	executor   agent.ToolExecutor
+	compactor  Compactor
 	hub        *Hub
 	user       room.Actor
 }
@@ -33,6 +43,7 @@ func NewService(
 	m *agent.Manager,
 	assembler agent.Assembler,
 	executor agent.ToolExecutor,
+	compactor Compactor,
 	h *Hub,
 	user room.Actor,
 ) *Service {
@@ -43,6 +54,7 @@ func NewService(
 		agentMgr:   m,
 		assembler:  assembler,
 		executor:   executor,
+		compactor:  compactor,
 		hub:        h,
 		user:       user,
 	}
@@ -59,6 +71,7 @@ func NewAPI(router chi.Router, svc *Service) huma.API {
 	// Register REST operations
 	registerRoomRoutes(api, svc)
 	registerMessageRoutes(api, svc)
+	registerCompactRoutes(api, svc)
 	registerBranchRoutes(api, svc)
 	registerAgentRoutes(api, svc)
 	registerDAGRoutes(api, svc)

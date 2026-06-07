@@ -10,6 +10,7 @@ import (
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/dag"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/policy"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/tool"
 )
 
 // confirmationEntry tracks a tool call that was yielded for user confirmation.
@@ -47,6 +48,7 @@ type InferenceHandler struct {
 	toolClearances     map[string]int
 	toolResources      map[string]string
 	toolDataActions    map[string][]string
+	toolSelfLeveled    map[string]bool
 
 	// resourcePolicies are restriction-only statements scoped to resources,
 	// combined with the agent's grants when building the policy engine.
@@ -121,7 +123,7 @@ func (h *InferenceHandler) applyConfirmations(ctx context.Context, childResults 
 			if result.EditedArgs != "" {
 				call.Function.Arguments = result.EditedArgs
 			}
-			toolResult, err := h.executor.Execute(ctx, call)
+			toolResult, err := h.executor.Execute(ctx, h.invocation(), call)
 			if err != nil {
 				return fmt.Errorf("executing tool %q: %w", call.Function.Name, err)
 			}
@@ -153,9 +155,11 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 		tools, h.toolClearances = filterToolsByClearance(allTools, h.effectiveClearance)
 		h.toolResources = make(map[string]string, len(allTools))
 		h.toolDataActions = make(map[string][]string, len(allTools))
+		h.toolSelfLeveled = make(map[string]bool, len(allTools))
 		for _, t := range allTools {
 			h.toolResources[t.Name] = t.Resource
 			h.toolDataActions[t.Name] = t.DataActions
+			h.toolSelfLeveled[t.Name] = t.SelfLeveled
 		}
 		h.policy = policy.NewEngine(h.agent.Permissions(), h.resourcePolicies)
 
@@ -240,7 +244,7 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 			decision := h.toolEffect(tc)
 			switch decision.Effect {
 			case policy.Allow:
-				toolResult, err := h.executor.Execute(ctx, tc)
+				toolResult, err := h.executor.Execute(ctx, h.invocation(), tc)
 				if err != nil {
 					return nil, nil, fmt.Errorf("executing tool %q: %w", tc.Function.Name, err)
 				}
@@ -293,6 +297,17 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 	}
 }
 
+// invocation builds the principal for a tool call from the handler's current
+// turn state: the calling agent, its operating clearance, and the room.
+func (h *InferenceHandler) invocation() tool.Invocation {
+	return tool.Invocation{
+		AgentName:           h.agent.Name(),
+		ConfiguredClearance: h.agent.Definition.Clearance,
+		OperatingClearance:  h.effectiveClearance,
+		RoomID:              h.req.Payload.RoomID,
+	}
+}
+
 // toolEffect returns the combined BLP + permission Decision for a tool call by
 // delegating to the policy engine. Two-tier authorization: the tool's capability
 // action ("tool:invoke") AND each data-level action it declares must all pass;
@@ -311,6 +326,11 @@ func (h *InferenceHandler) toolEffect(call inference.ToolCallWire) policy.Decisi
 	toolName := call.Function.Name
 	resource := h.toolResources[toolName]
 	clearance := h.toolClearances[toolName]
+	if h.toolSelfLeveled[toolName] {
+		// A self-leveled tool acts at the caller's clearance, so its resource
+		// clearance is the effective clearance: never a read-up or write-down.
+		clearance = h.effectiveClearance
+	}
 	if resolver, ok := h.executor.(ResourceClearanceResolver); ok {
 		if c, ok := resolver.ResolveResourceClearance(call); ok {
 			clearance = c
@@ -344,6 +364,13 @@ func filterToolsByClearance(tools []inference.ToolDefinition, effectiveClearance
 	var filtered []inference.ToolDefinition
 	for _, t := range tools {
 		clearances[t.Name] = t.Clearance
+		if t.SelfLeveled {
+			// Self-leveled tools act at the caller's clearance — never dropped
+			// or annotated. Record the effective clearance for downstream gating.
+			clearances[t.Name] = effectiveClearance
+			filtered = append(filtered, t)
+			continue
+		}
 		if d, ok := policy.ClearanceCheck(effectiveClearance, t.Clearance); ok {
 			switch d.Reason {
 			case policy.ReasonReadUp:

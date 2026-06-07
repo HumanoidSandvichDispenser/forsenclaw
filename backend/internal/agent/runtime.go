@@ -9,6 +9,7 @@ import (
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/config"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/dag"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/tool"
 )
 
 // ResponseWriter persists completed agent responses to the room transcript.
@@ -43,11 +44,18 @@ type Assembler interface {
 	EffectiveClearance(ctx context.Context, agent *Agent, roomID int64) (int, error)
 }
 
+// Compactor compacts an agent's transcript for a room after a turn settles.
+// Defined here as an interface to avoid an import cycle with the memory package.
+type Compactor interface {
+	MaybeCompact(ctx context.Context, agent *Agent, roomID int64) error
+}
+
 // ToolExecutor executes tool calls and supplies tool definitions.
-// Defined here as an interface to avoid a direct dependency on the mcp package.
+// Defined here as an interface to avoid a direct dependency on the tool package's
+// concrete executor.
 type ToolExecutor interface {
 	AllDefinitions() []inference.ToolDefinition
-	Execute(ctx context.Context, call inference.ToolCallWire) (string, error)
+	Execute(ctx context.Context, inv tool.Invocation, call inference.ToolCallWire) (string, error)
 }
 
 // ResourceClearanceResolver is optionally implemented by a ToolExecutor to
@@ -68,6 +76,7 @@ type RuntimeDeps struct {
 	ResponseWriter       ResponseWriter
 	StreamWriter         StreamWriter
 	DAGStream            DAGStreamWriter
+	Compactor            Compactor
 	ResourcePolicies     []config.Statement
 }
 
@@ -89,6 +98,9 @@ type AgentRuntime struct {
 	responseWriter ResponseWriter
 	streamWriter   StreamWriter
 	dagStream      DAGStreamWriter
+
+	// compactor runs after a root inference node resolves; may be nil.
+	compactor Compactor
 
 	// resourcePolicies are restriction-only statements scoped to resources,
 	// passed into each request's policy engine alongside the agent's grants.
@@ -124,6 +136,7 @@ func NewAgentRuntime(agent *Agent, deps RuntimeDeps) *AgentRuntime {
 		responseWriter:       deps.ResponseWriter,
 		streamWriter:         deps.StreamWriter,
 		dagStream:            deps.DAGStream,
+		compactor:            deps.Compactor,
 		resourcePolicies:     deps.ResourcePolicies,
 		now:                  time.Now,
 		timing:               make(map[string]*nodeTiming),
@@ -320,18 +333,27 @@ func (r *AgentRuntime) runNode(ctx context.Context, node *dag.Node) {
 			log.Printf("agent %s: node %s failed: %v", r.agent.Name(), node.ID, err)
 		case result != nil:
 			r.dag.Resolve(node.ID, *result)
-			if ih, ok := node.Handler.(*InferenceHandler); ok && r.responseWriter != nil && result.Content != "" {
-				werr := r.responseWriter.WriteAgentResponse(
-					ctx,
-					ih.req.Payload.RoomID,
-					r.agent.Name(),
-					result.Content,
-					nil,
-					result.InputTokens,
-					result.OutputTokens,
-				)
-				if werr != nil {
-					log.Printf("agent %s: failed to write response: %v", r.agent.Name(), werr)
+			if ih, ok := node.Handler.(*InferenceHandler); ok {
+				if r.responseWriter != nil && result.Content != "" {
+					werr := r.responseWriter.WriteAgentResponse(
+						ctx,
+						ih.req.Payload.RoomID,
+						r.agent.Name(),
+						result.Content,
+						nil,
+						result.InputTokens,
+						result.OutputTokens,
+					)
+					if werr != nil {
+						log.Printf("agent %s: failed to write response: %v", r.agent.Name(), werr)
+					}
+				}
+				// The turn has settled; compact the transcript if it has grown
+				// past the configured trigger. Best-effort — never fail the turn.
+				if r.compactor != nil && ih.req.Payload.RoomID != 0 {
+					if cerr := r.compactor.MaybeCompact(ctx, r.agent, ih.req.Payload.RoomID); cerr != nil {
+						log.Printf("agent %s: compaction failed: %v", r.agent.Name(), cerr)
+					}
 				}
 			}
 		default:

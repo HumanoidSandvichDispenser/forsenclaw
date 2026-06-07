@@ -11,6 +11,7 @@ import (
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/mcp"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/tool"
 )
 
 const createRoomToolID = "create_room"
@@ -242,4 +243,4 @@ func (c *CreateRoomClient) XMLSchemas() []string { return nil }
 
 var _ mcp.MCPClient = (*CreateRoomClient)(nil)
 var _ mcp.ToolDescriber = (*CreateRoomClient)(nil)
-var _ mcp.DynamicClearance = (*CreateRoomClient)(nil)
+var _ tool.DynamicClearance = (*CreateRoomClient)(nil)

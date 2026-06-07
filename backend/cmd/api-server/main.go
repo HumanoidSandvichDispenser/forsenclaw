@@ -28,6 +28,7 @@ import (
 	roomPkg "github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/search"
 	storedb "github.com/humanoidsandvichdispenser/hearth/backend/internal/store"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/tool"
 )
 
 func main() {
@@ -196,31 +197,42 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 		auditLogger.Close()
 		auditCleanup()
 	}()
-	mcpExecutor := mcp.NewExecutor(mcpRegistry, auditLogger)
-
 	// 5. Create WebSocket hub (before manager so we can pass the notifier adapter)
 	hub := api.NewHub()
 	go hub.Run()
 
-	// 5b. Create assembler and agent manager
+	// 5b. Create assembler, compactor, and the unified tool executor (MCP tools
+	// plus native tools sharing one execution path), then the agent manager.
 	assembler := memory.NewAssembler(p, 0, store, store)
+	compactor := memory.NewCompactor(
+		p, store, store, registry,
+		cfg.Context.CompactionTrigger, cfg.Context.CompactionTarget,
+	)
+	compactTool := memory.NewCompactTool(compactor)
+	toolExecutor := tool.NewExecutor(
+		auditLogger,
+		append(mcp.Tools(mcpRegistry), memory.NewNoteTool(p), compactTool)...,
+	)
 	dagStream := api.NewHubDAGStream(hub)
 	agentMgr, err := agent.NewManager(p, cfg, agent.ManagerDeps{
 		Registry:       registry,
 		Assembler:      assembler,
-		Executor:       mcpExecutor,
+		Executor:       toolExecutor,
 		Notifier:       api.NewHubNotifier(hub),
 		ResponseWriter: api.NewAgentResponseWriter(store, store, hub),
 		StreamWriter:   api.NewAgentStreamWriter(hub),
 		DAGStream:      dagStream,
+		Compactor:      compactor,
 	})
 	if err != nil {
 		log.Fatalf("failed to create agent manager: %v", err)
 	}
 	defer agentMgr.Close()
 
-	// Wire the create_room actor resolver now that the agent manager exists.
+	// Wire the create_room actor resolver and the compact tool's agent lookup
+	// now that the agent manager exists (both back onto it).
 	createRoomTool.SetResolver(&agentActorResolver{mgr: agentMgr, user: userActor})
+	compactTool.SetResolver(agentMgr.Get)
 
 	// Gate the DAG stream by clearance: the viewer only receives an agent's DAG
 	// updates at or above the agent's configured clearance (same rule as the REST
@@ -234,7 +246,7 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 	dispatcher := dispatch.NewDispatcher(agentMgr)
 
 	// 8. Create service and API
-	svc := api.NewService(dispatcher, store, store, agentMgr, assembler, mcpExecutor, hub, userActor)
+	svc := api.NewService(dispatcher, store, store, agentMgr, assembler, toolExecutor, compactor, hub, userActor)
 
 	router := chi.NewRouter()
 	router.Use(middleware.Logger)

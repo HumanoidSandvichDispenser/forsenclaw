@@ -31,6 +31,7 @@ import (
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/paths"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/room"
 	storedb "github.com/humanoidsandvichdispenser/hearth/backend/internal/store"
+	"github.com/humanoidsandvichdispenser/hearth/backend/internal/tool"
 )
 
 // ---------------------------------------------------------------------------
@@ -284,7 +285,7 @@ permissions:
 		clearances[k] = v
 	}
 	mcpReg := mcp.NewRegistry(clients, clearances)
-	mcpExec := mcp.NewExecutor(mcpReg, audit.Nop())
+	mcpExec := tool.NewExecutor(audit.Nop(), mcp.Tools(mcpReg)...)
 
 	// Hub
 	hub := api.NewHub()
@@ -314,7 +315,7 @@ permissions:
 	dispatcher := dispatch.NewDispatcher(agentMgr)
 
 	// API service + router + real HTTP server
-	svc := api.NewService(dispatcher, sqliteStore, sqliteStore, agentMgr, assembler, mcpExec, hub, userActor)
+	svc := api.NewService(dispatcher, sqliteStore, sqliteStore, agentMgr, assembler, mcpExec, nil, hub, userActor)
 	router := chi.NewRouter()
 	router.Use(api.AuthMiddleware("test"))
 	api.NewAPI(router, svc)

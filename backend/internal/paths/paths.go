@@ -1,6 +1,7 @@
 package paths
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -51,6 +52,14 @@ func (p *Paths) AgentConfigDir(name string) string {
 
 func (p *Paths) AgentDataDir(name string) string {
 	return filepath.Join(p.DataRoot, "agents", name)
+}
+
+// AgentClearanceDir returns the data directory holding an agent's memory and
+// daily notes for a single clearance level. Assembly reads levels 1..N at
+// operating clearance N, so a level's contents are a true filtered view: an
+// agent operating below a level never opens that level's files.
+func (p *Paths) AgentClearanceDir(name string, clearance int) string {
+	return filepath.Join(p.AgentDataDir(name), fmt.Sprintf("c%d", clearance))
 }
 
 func (p *Paths) AgentsConfigDir() string {
