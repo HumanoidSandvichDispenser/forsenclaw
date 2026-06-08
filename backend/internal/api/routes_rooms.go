@@ -46,6 +46,16 @@ func registerRoomRoutes(api huma.API, svc *Service) {
 	}, func(ctx context.Context, input *GetRoomRequest) (*GetRoomResponse, error) {
 		return svc.getRoom(ctx, input)
 	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "update-room",
+		Method:      http.MethodPatch,
+		Path:        "/api/rooms/{room_id}",
+		Summary:     "Update room metadata",
+		Tags:        []string{"Rooms"},
+	}, func(ctx context.Context, input *UpdateRoomRequest) (*UpdateRoomResponse, error) {
+		return svc.updateRoom(ctx, input)
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -122,6 +132,23 @@ func (svc *Service) getRoom(ctx context.Context, input *GetRoomRequest) (*GetRoo
 	}
 
 	resp := &GetRoomResponse{}
+	resp.Body = toRoomResponse(*r)
+	return resp, nil
+}
+
+func (svc *Service) updateRoom(ctx context.Context, input *UpdateRoomRequest) (*UpdateRoomResponse, error) {
+	r, err := svc.rooms.GetRoom(ctx, input.RoomID)
+	if err != nil {
+		return nil, huma.Error404NotFound("room not found")
+	}
+
+	r.Name = input.Body.Name
+
+	if err := svc.rooms.UpdateRoom(ctx, r); err != nil {
+		return nil, huma.Error500InternalServerError("failed to update room: " + err.Error())
+	}
+
+	resp := &UpdateRoomResponse{}
 	resp.Body = toRoomResponse(*r)
 	return resp, nil
 }

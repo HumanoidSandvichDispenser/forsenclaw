@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue';
-import { PhGear } from '@phosphor-icons/vue';
+import { computed, nextTick, ref } from 'vue';
+import { PhPencilSimple } from '@phosphor-icons/vue';
 
 import type { RoomResponse } from '@/client';
 import { roomName } from '@/stores/rooms';
@@ -9,31 +9,63 @@ const props = defineProps<{
   room: RoomResponse;
 }>();
 
-defineEmits<{
-  (e: 'settings'): void;
+const emit = defineEmits<{
+  (e: 'rename', name: string): void;
 }>();
 
 const name = computed(() => roomName(props.room));
+
+const editing = ref(false);
+const draft = ref('');
+const inputEl = ref<HTMLInputElement | null>(null);
+
+async function startEditing() {
+  draft.value = props.room.name;
+  editing.value = true;
+  await nextTick();
+  inputEl.value?.focus();
+  inputEl.value?.select();
+}
+
+function commit() {
+  if (!editing.value) return;
+  editing.value = false;
+  const next = draft.value.trim();
+  if (next !== props.room.name) emit('rename', next);
+}
+
+function cancel() {
+  editing.value = false;
+}
 </script>
 
 <template>
   <header class="room-header">
     <div class="title-block">
-      <h1 class="title">{{ name }}</h1>
+      <input
+        v-if="editing"
+        ref="inputEl"
+        v-model="draft"
+        class="title title-input"
+        type="text"
+        placeholder="Room name"
+        @keydown.enter="commit"
+        @keydown.esc="cancel"
+        @blur="commit"
+      />
+      <button
+        v-else
+        class="title title-button"
+        type="button"
+        title="Rename room"
+        @click="startEditing"
+      >
+        <span class="title-text">{{ name }}</span>
+        <PhPencilSimple class="edit-hint" :size="16" weight="light" />
+      </button>
       <p class="meta">
         <span class="text-tertiary">Clearance {{ room.clearance }}</span>
       </p>
-    </div>
-
-    <div class="actions">
-      <button
-        class="icon-button"
-        type="button"
-        aria-label="Room settings"
-        @click="$emit('settings')"
-      >
-        <PhGear :size="20" weight="light" />
-      </button>
     </div>
   </header>
 </template>
@@ -49,6 +81,7 @@ const name = computed(() => roomName(props.room));
 }
 
 .title-block {
+  width: 100%;
   min-width: 0;
 }
 
@@ -62,19 +95,52 @@ const name = computed(() => roomName(props.room));
   text-overflow: ellipsis;
 }
 
-.meta {
-  margin: 0.25rem 0 0;
-  font-size: var(--body-sm-size);
+.title-button {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  max-width: 100%;
+  padding: 0.125rem 0.375rem;
+  margin-left: -0.375rem;
+  border: none;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: text;
 }
 
-.dot {
-  margin: 0 0.5rem;
+.title-button:hover {
+  background: var(--bg-secondary);
+}
+
+.title-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.edit-hint {
+  flex-shrink: 0;
+  opacity: 0;
   color: var(--fg-muted);
 }
 
-.actions {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+.title-button:hover .edit-hint {
+  opacity: 1;
+}
+
+.title-input {
+  width: 100%;
+  padding: 0.125rem 0.375rem;
+  margin-left: -0.375rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.375rem;
+  background: var(--bg-base);
+  color: var(--fg-primary);
+}
+
+.meta {
+  margin: 0.25rem 0 0;
+  font-size: var(--body-sm-size);
 }
 </style>

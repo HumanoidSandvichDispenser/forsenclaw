@@ -25,6 +25,19 @@ type CreateRoomResponse struct {
 	Body RoomResponse
 }
 
+// UpdateRoomRequest is the input for PATCH /api/rooms/{room_id}.
+type UpdateRoomRequest struct {
+	RoomID int64 `path:"room_id" validate:"required" doc:"Room ID"`
+	Body   struct {
+		Name string `json:"name" doc:"Human-readable room name" example:"Alice's Kitchen"`
+	}
+}
+
+// UpdateRoomResponse is the output for PATCH /api/rooms/{room_id}.
+type UpdateRoomResponse struct {
+	Body RoomResponse
+}
+
 // GetRoomRequest is the input for GET /api/rooms/{room_id}.
 type GetRoomRequest struct {
 	RoomID int64 `path:"room_id" validate:"required" doc:"Room ID"`

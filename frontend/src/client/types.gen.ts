@@ -448,6 +448,17 @@ export type ToolCallRecord = {
     tool_name: string;
 };
 
+export type UpdateRoomRequestBody = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    /**
+     * Human-readable room name
+     */
+    name: string;
+};
+
 export type Usage = {
     input_tokens: number;
     output_tokens: number;
@@ -723,6 +734,13 @@ export type SendMessageRequestBodyWritable = {
     sender: string;
 };
 
+export type UpdateRoomRequestBodyWritable = {
+    /**
+     * Human-readable room name
+     */
+    name: string;
+};
+
 export type UserResponseWritable = {
     /**
      * User ID
@@ -970,6 +988,36 @@ export type GetRoomResponses = {
 };
 
 export type GetRoomResponse = GetRoomResponses[keyof GetRoomResponses];
+
+export type UpdateRoomData = {
+    body: UpdateRoomRequestBodyWritable;
+    path: {
+        /**
+         * Room ID
+         */
+        room_id: number;
+    };
+    query?: never;
+    url: '/api/rooms/{room_id}';
+};
+
+export type UpdateRoomErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type UpdateRoomError = UpdateRoomErrors[keyof UpdateRoomErrors];
+
+export type UpdateRoomResponses = {
+    /**
+     * OK
+     */
+    200: RoomResponse;
+};
+
+export type UpdateRoomResponse = UpdateRoomResponses[keyof UpdateRoomResponses];
 
 export type PreviewContextData = {
     body?: never;

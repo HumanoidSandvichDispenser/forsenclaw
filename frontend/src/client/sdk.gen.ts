@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { CompactRoomData, CompactRoomErrors, CompactRoomResponses, CreateRoomData, CreateRoomErrors, CreateRoomResponses, EditMessageData, EditMessageErrors, EditMessageResponses, GetAgentDagData, GetAgentDagErrors, GetAgentDagResponses, GetAgentData, GetAgentErrors, GetAgentMemoryData, GetAgentMemoryErrors, GetAgentMemoryResponses, GetAgentResponses, GetCompactionStatsData, GetCompactionStatsErrors, GetCompactionStatsResponses, GetMeData, GetMeErrors, GetMeResponses, GetRoomData, GetRoomErrors, GetRoomResponses, ListAgentsData, ListAgentsErrors, ListAgentsResponses, ListConfirmationsData, ListConfirmationsErrors, ListConfirmationsResponses, ListMessagesData, ListMessagesErrors, ListMessagesResponses, ListRoomsData, ListRoomsErrors, ListRoomsResponses, PreviewContextData, PreviewContextErrors, PreviewContextResponses, RespondConfirmationData, RespondConfirmationErrors, RespondConfirmationResponses, RetryMessageData, RetryMessageErrors, RetryMessageResponses, SendMessageData, SendMessageErrors, SendMessageResponses, SwitchBranchData, SwitchBranchErrors, SwitchBranchResponses } from './types.gen';
+import type { CompactRoomData, CompactRoomErrors, CompactRoomResponses, CreateRoomData, CreateRoomErrors, CreateRoomResponses, EditMessageData, EditMessageErrors, EditMessageResponses, GetAgentDagData, GetAgentDagErrors, GetAgentDagResponses, GetAgentData, GetAgentErrors, GetAgentMemoryData, GetAgentMemoryErrors, GetAgentMemoryResponses, GetAgentResponses, GetCompactionStatsData, GetCompactionStatsErrors, GetCompactionStatsResponses, GetMeData, GetMeErrors, GetMeResponses, GetRoomData, GetRoomErrors, GetRoomResponses, ListAgentsData, ListAgentsErrors, ListAgentsResponses, ListConfirmationsData, ListConfirmationsErrors, ListConfirmationsResponses, ListMessagesData, ListMessagesErrors, ListMessagesResponses, ListRoomsData, ListRoomsErrors, ListRoomsResponses, PreviewContextData, PreviewContextErrors, PreviewContextResponses, RespondConfirmationData, RespondConfirmationErrors, RespondConfirmationResponses, RetryMessageData, RetryMessageErrors, RetryMessageResponses, SendMessageData, SendMessageErrors, SendMessageResponses, SwitchBranchData, SwitchBranchErrors, SwitchBranchResponses, UpdateRoomData, UpdateRoomErrors, UpdateRoomResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -64,6 +64,18 @@ export const createRoom = <ThrowOnError extends boolean = false>(options: Option
  * Get room details
  */
 export const getRoom = <ThrowOnError extends boolean = false>(options: Options<GetRoomData, ThrowOnError>) => (options.client ?? client).get<GetRoomResponses, GetRoomErrors, ThrowOnError>({ url: '/api/rooms/{room_id}', ...options });
+
+/**
+ * Update room metadata
+ */
+export const updateRoom = <ThrowOnError extends boolean = false>(options: Options<UpdateRoomData, ThrowOnError>) => (options.client ?? client).patch<UpdateRoomResponses, UpdateRoomErrors, ThrowOnError>({
+    url: '/api/rooms/{room_id}',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
 
 /**
  * Preview agent context window

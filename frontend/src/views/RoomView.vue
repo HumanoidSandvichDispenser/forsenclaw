@@ -304,7 +304,11 @@ async function send() {
 
 <template>
   <section class="room-layout">
-    <RoomHeader v-if="room" :room="room" @settings="() => {}" />
+    <RoomHeader
+      v-if="room"
+      :room="room"
+      @rename="(name) => roomsStore.renameRoom(room!.id, name)"
+    />
 
     <main class="room-main">
       <section class="chat">

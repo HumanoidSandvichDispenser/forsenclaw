@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 
-import { createRoom, getRoom, listRooms, type RoomResponse } from '@/client';
+import { createRoom, getRoom, listRooms, updateRoom, type RoomResponse } from '@/client';
 import { useClientStore } from '@/stores/client';
 import { agentNameFromId, isAgentId } from '@/utils/actor';
 
@@ -63,6 +63,25 @@ export const useRoomsStore = defineStore('rooms', () => {
     }
   }
 
+  async function renameRoom(roomId: number, name: string) {
+    error.value = null;
+    try {
+      const res = await updateRoom({
+        client: clientStore.client,
+        path: { room_id: roomId },
+        body: { name },
+        throwOnError: true,
+      });
+      const r = (res as any)?.data ?? res;
+      const idx = rooms.value.findIndex((x) => x.id === r.id);
+      if (idx !== -1) rooms.value[idx] = r;
+      return r;
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e);
+      return null;
+    }
+  }
+
   async function createFreeformRoom(participantIds: string[]) {
     error.value = null;
     // backend currently enforces exactly 2 participants.
@@ -86,6 +105,7 @@ export const useRoomsStore = defineStore('rooms', () => {
     error,
     fetchRooms,
     fetchRoom,
+    renameRoom,
     createFreeformRoom,
   };
 });
