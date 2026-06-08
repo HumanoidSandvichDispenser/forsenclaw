@@ -363,6 +363,14 @@ async function send() {
   height: 100vh;
 }
 
+/* On mobile the shell (RootView) owns the viewport height and places a top bar
+   above this view, so fill the parent rather than the full viewport. */
+@media (max-width: 768px) {
+  .room-layout {
+    height: 100%;
+  }
+}
+
 .room-main {
   display: flex;
   min-height: 0;

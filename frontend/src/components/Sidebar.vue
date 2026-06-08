@@ -8,10 +8,14 @@ import CreateRoomModal from '@/components/CreateRoomModal.vue';
 
 import { useAgentsStore } from '@/stores/agents';
 import { roomAgentName, roomName, useRoomsStore } from '@/stores/rooms';
+import { useSidebar } from '@/composables/useSidebar';
 
 const router = useRouter();
 const roomsStore = useRoomsStore();
 const agentsStore = useAgentsStore();
+// Destructured so `drawerOpen` is a top-level ref binding Vue auto-unwraps in
+// the template; a nested `sidebar.open` would always be truthy.
+const { open: drawerOpen } = useSidebar();
 
 const createOpen = ref(false);
 
@@ -46,7 +50,7 @@ function onRoomCreated(roomId: string) {
 </script>
 
 <template>
-  <aside class="sidebar">
+  <aside class="sidebar" :class="{ open: drawerOpen }">
     <h3 class="title display-2 padding">forsenClaw</h3>
     <div class="title-divider" aria-hidden="true"></div>
 
@@ -86,6 +90,24 @@ function onRoomCreated(roomId: string) {
   height: 100vh;
   border-right: 1px solid var(--border-subtle);
   background: var(--bg-elevated);
+}
+
+/* Below the breakpoint the sidebar is an off-canvas drawer: fixed, slid out by
+   default, and revealed (above the scrim) when the shared open state is set. */
+@media (max-width: 768px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 50;
+    width: min(16rem, 82vw);
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+  }
+
+  .sidebar.open {
+    transform: none;
+  }
 }
 
 .sidebar .display-2 {

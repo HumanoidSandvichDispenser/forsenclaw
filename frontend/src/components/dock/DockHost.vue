@@ -84,6 +84,20 @@ const activePanel = computed(() => props.panels.find((p) => p.id === activeId.va
   border-right: 1px solid var(--border-subtle);
 }
 
+/* On mobile a 22rem side column would not fit; the open panel takes over the
+   screen instead, dismissed via its existing close button. The icon rail stays
+   in flow as the entry point. */
+@media (max-width: 768px) {
+  .dock-panel {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    z-index: 45;
+    border-right: none;
+    background: var(--bg-elevated);
+  }
+}
+
 .dock-panel-header {
   display: flex;
   align-items: center;
