@@ -1,22 +1,27 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { PhGear } from '@phosphor-icons/vue';
 
-defineProps<{
-  participantCount: number;
-  title: string;
+import type { RoomResponse } from '@/client';
+import { roomName } from '@/stores/rooms';
+
+const props = defineProps<{
+  room: RoomResponse;
 }>();
 
 defineEmits<{
   (e: 'settings'): void;
 }>();
+
+const name = computed(() => roomName(props.room));
 </script>
 
 <template>
   <header class="room-header">
     <div class="title-block">
-      <h1 class="title">{{ title }}</h1>
+      <h1 class="title">{{ name }}</h1>
       <p class="meta">
-        <span class="text-tertiary">{{ participantCount }} participants</span>
+        <span class="text-tertiary">Clearance {{ room.clearance }}</span>
       </p>
     </div>
 

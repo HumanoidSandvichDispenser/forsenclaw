@@ -3,6 +3,20 @@ import { defineStore } from 'pinia';
 
 import { createRoom, getRoom, listRooms, type RoomResponse } from '@/client';
 import { useClientStore } from '@/stores/client';
+import { agentNameFromId, isAgentId } from '@/utils/actor';
+
+export function roomName(room: RoomResponse): string {
+  return (
+    room.name ||
+    (room.participants ?? []).map((p) => p.name).join(' · ') ||
+    String(room.id)
+  );
+}
+
+export function roomAgentName(room: RoomResponse): string {
+  const agent = (room.participants ?? []).find((p) => isAgentId(p.id));
+  return agent ? agentNameFromId(agent.id) : '';
+}
 
 export const useRoomsStore = defineStore('rooms', () => {
   const clientStore = useClientStore();

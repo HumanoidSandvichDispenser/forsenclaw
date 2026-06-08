@@ -93,8 +93,6 @@ const meActorId = computed(() => {
   return firstUser?.id ?? byName ?? userId('local');
 });
 
-const members = computed(() => room.value?.participants ?? []);
-
 const agentDag = useAgentDag();
 
 // The agent to preview. Prefer a participant, but fall back to scanning message
@@ -306,11 +304,7 @@ async function send() {
 
 <template>
   <section class="room-layout">
-    <RoomHeader
-      :title="members.map((m) => m.name).join(' · ') || roomId"
-      :participant-count="members.length"
-      @settings="() => {}"
-    />
+    <RoomHeader v-if="room" :room="room" @settings="() => {}" />
 
     <main class="room-main">
       <section class="chat">

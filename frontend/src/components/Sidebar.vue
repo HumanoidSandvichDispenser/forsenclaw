@@ -7,7 +7,7 @@ import SidebarTab from '@/components/SidebarTab.vue';
 import CreateRoomModal from '@/components/CreateRoomModal.vue';
 
 import { useAgentsStore } from '@/stores/agents';
-import { useRoomsStore } from '@/stores/rooms';
+import { roomAgentName, roomName, useRoomsStore } from '@/stores/rooms';
 
 const router = useRouter();
 const roomsStore = useRoomsStore();
@@ -23,18 +23,12 @@ onMounted(() => {
 const roomTabs = computed(() =>
   roomsStore.rooms
     .filter((r) => Boolean(r && r.id))
-    .map((r) => {
-      const participants = r.participants ?? [];
-      const title =
-        participants.length > 0
-          ? participants.map((p) => p.name).join(' · ')
-          : r.id;
-      return {
-        id: r.id,
-        title,
-        subtitle: '',
-      };
-    }),
+    .map((r) => ({
+      id: r.id,
+      title: roomName(r),
+      agent: roomAgentName(r),
+      clearance: r.clearance,
+    })),
 );
 
 const agentTabs = computed(() =>
@@ -64,7 +58,11 @@ function onRoomCreated(roomId: string) {
       <div class="group scrollable-container">
         <SidebarList label="Rooms" class="padding">
           <SidebarTab v-for="r in roomTabs" :key="r.id" :to="`/rooms/${r.id}`">
-            {{ r.title }}
+            <span class="room-title">{{ r.title }}</span>
+            <span class="room-subtitle text-tertiary">
+              <span v-if="r.agent" class="room-agent">{{ r.agent }}</span>
+              <span class="room-clearance">Clearance {{ r.clearance }}</span>
+            </span>
           </SidebarTab>
         </SidebarList>
 
@@ -123,5 +121,30 @@ function onRoomCreated(roomId: string) {
 .create-room-btn {
   display: block;
   width: 100%;
+}
+
+.room-title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.room-subtitle {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: var(--body-sm-size);
+  overflow: hidden;
+}
+
+.room-subtitle > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.room-agent + .room-clearance::before {
+  content: '·';
+  margin-right: 0.375rem;
+  color: var(--fg-muted);
 }
 </style>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue';
 
-import { useRoomsStore } from '@/stores/rooms';
+import { roomName, useRoomsStore } from '@/stores/rooms';
 
 const roomsStore = useRoomsStore();
 
@@ -29,7 +29,7 @@ const rooms = computed(() => roomsStore.rooms);
         class="row"
         :to="`/rooms/${r.id}`"
       >
-        <div class="title">{{ (r.participants ?? []).map((p) => p.name).join(' · ') || r.id }}</div>
+        <div class="title">{{ roomName(r) }}</div>
       </RouterLink>
     </div>
   </section>
