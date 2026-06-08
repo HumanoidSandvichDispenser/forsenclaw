@@ -47,6 +47,10 @@ func (t *compactTool) Definition() inference.ToolDefinition {
 					"type":        "string",
 					"description": "Optional target size in bytes, as an integer (e.g. \"4000\").",
 				},
+				"instructions": map[string]interface{}{
+					"type":        "string",
+					"description": "Optional guidance for the summary, e.g. what to emphasize.",
+				},
 			},
 		},
 	}
@@ -73,7 +77,7 @@ func (t *compactTool) Invoke(ctx context.Context, inv tool.Invocation, params ma
 		target = v
 	}
 
-	if err := t.compactor.Compact(ctx, ag, inv.RoomID, target); err != nil {
+	if err := t.compactor.Compact(ctx, ag, inv.RoomID, target, params["instructions"]); err != nil {
 		return "", err
 	}
 	return "Compacted.", nil

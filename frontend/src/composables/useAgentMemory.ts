@@ -66,8 +66,8 @@ export function useAgentMemory(agentName: Ref<string>, roomId: Ref<number>) {
   }
 
   // targetBytes omitted (or 0) lets the backend fall back to the configured
-  // automatic target.
-  async function compact(targetBytes?: number) {
+  // automatic target. instructions, when set, steer what the summary emphasizes.
+  async function compact(targetBytes?: number, instructions?: string) {
     if (!agentName.value || !roomId.value) return;
     compacting.value = true;
     error.value = '';
@@ -78,6 +78,7 @@ export function useAgentMemory(agentName: Ref<string>, roomId: Ref<number>) {
         body: {
           agent: agentName.value,
           ...(targetBytes && targetBytes > 0 ? { target: targetBytes } : {}),
+          ...(instructions?.trim() ? { instructions: instructions.trim() } : {}),
         },
       });
       await refresh();

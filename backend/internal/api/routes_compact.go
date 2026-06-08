@@ -12,8 +12,9 @@ import (
 type CompactRoomRequest struct {
 	RoomID int64 `path:"room_id" validate:"required" doc:"Room ID"`
 	Body   struct {
-		Agent  string `json:"agent"            validate:"required" doc:"Agent whose transcript to compact" example:"housewife"`
-		Target int    `json:"target,omitempty"                     doc:"Target size in bytes; omit for the configured default"`
+		Agent        string `json:"agent"                  validate:"required" doc:"Agent whose transcript to compact" example:"housewife"`
+		Target       int    `json:"target,omitempty"                           doc:"Target size in bytes; omit for the configured default"`
+		Instructions string `json:"instructions,omitempty"                     doc:"Optional guidance for the summary, e.g. what to emphasize"`
 	}
 }
 
@@ -103,7 +104,7 @@ func (svc *Service) compactRoom(ctx context.Context, input *CompactRoomRequest) 
 	if ag == nil {
 		return nil, huma.Error404NotFound("agent not found")
 	}
-	if err := svc.compactor.Compact(ctx, ag, input.RoomID, input.Body.Target); err != nil {
+	if err := svc.compactor.Compact(ctx, ag, input.RoomID, input.Body.Target, input.Body.Instructions); err != nil {
 		return nil, huma.Error500InternalServerError("compact transcript", err)
 	}
 	resp := &CompactRoomResponse{}

@@ -182,6 +182,7 @@ type e2eEnv struct {
 // e2eOptions tunes a test environment; defaults match the common case.
 type e2eOptions struct {
 	userClearance int
+	dailyNotes    bool
 }
 
 type e2eOption func(*e2eOptions)
@@ -190,6 +191,12 @@ type e2eOption func(*e2eOptions)
 // the DAG clearance gate's deny path.
 func withUserClearance(c int) e2eOption {
 	return func(o *e2eOptions) { o.userClearance = c }
+}
+
+// withDailyNotes enables the agent's daily-notes feature flag, so compaction
+// summarizes dropped messages into the agent's notes.
+func withDailyNotes() e2eOption {
+	return func(o *e2eOptions) { o.dailyNotes = true }
 }
 
 func newE2EEnv(t *testing.T, mcpClients []mcp.NamedMCPClient, mcpClearances map[string]int, opts ...e2eOption) *e2eEnv {
@@ -214,7 +221,7 @@ func newE2EEnv(t *testing.T, mcpClients []mcp.NamedMCPClient, mcpClearances map[
 	if err := os.MkdirAll(agentDir, 0o755); err != nil {
 		t.Fatalf("mkdir agent config dir: %v", err)
 	}
-	const agentYAML = `name: testbot
+	agentYAML := fmt.Sprintf(`name: testbot
 role_description: "Test agent for E2E tests"
 models:
   primary: test-model
@@ -222,13 +229,13 @@ models:
   sensitive: test-model
 feature_flags:
   identity_continuity: false
-  daily_notes: false
+  daily_notes: %t
   proactive_triggers: false
   dreaming: false
 clearance: 5
 permissions:
   - "tool:invoke/**"
-`
+`, cfg.dailyNotes)
 	if err := os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte(agentYAML), 0o644); err != nil {
 		t.Fatalf("write agent.yaml: %v", err)
 	}
@@ -314,8 +321,15 @@ permissions:
 	// Dispatcher
 	dispatcher := dispatch.NewDispatcher(agentMgr)
 
+	// Compactor + memory inspector, wired as production does so the compact route
+	// and the agent-memory read are exercised end-to-end.
+	compactor := memory.NewCompactor(
+		p, sqliteStore, sqliteStore, registry,
+		serverCfg.Context.CompactionTrigger, serverCfg.Context.CompactionTarget,
+	)
+
 	// API service + router + real HTTP server
-	svc := api.NewService(dispatcher, sqliteStore, sqliteStore, agentMgr, assembler, mcpExec, nil, nil, hub, userActor)
+	svc := api.NewService(dispatcher, sqliteStore, sqliteStore, agentMgr, assembler, mcpExec, compactor, memory.NewInspector(p), hub, userActor)
 	router := chi.NewRouter()
 	router.Use(api.AuthMiddleware("test"))
 	api.NewAPI(router, svc)
@@ -966,5 +980,145 @@ func TestE2E_AgentDAGForbiddenBelowClearance(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("expected 403 for under-cleared viewer, got %d", resp.StatusCode)
+	}
+}
+
+// TestE2E_RenameRoom renames a room via PATCH and verifies the new name both in
+// the PATCH response and on a subsequent GET.
+func TestE2E_RenameRoom(t *testing.T) {
+	env := newE2EEnv(t, nil, nil)
+
+	roomID := createRoom(t, env.serverURL)
+
+	body, _ := json.Marshal(map[string]any{"name": "Alice's Kitchen"})
+	req, _ := http.NewRequest(
+		http.MethodPatch,
+		fmt.Sprintf("%s/api/rooms/%d", env.serverURL, roomID),
+		bytes.NewReader(body),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("patch room: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("patch room: status %d: %s", resp.StatusCode, b)
+	}
+	var patched struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&patched); err != nil {
+		t.Fatalf("decode patch response: %v", err)
+	}
+	if patched.Name != "Alice's Kitchen" {
+		t.Fatalf("patch response name = %q, want %q", patched.Name, "Alice's Kitchen")
+	}
+
+	getResp, err := http.Get(fmt.Sprintf("%s/api/rooms/%d", env.serverURL, roomID))
+	if err != nil {
+		t.Fatalf("get room: %v", err)
+	}
+	defer getResp.Body.Close()
+	var got struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(getResp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode get response: %v", err)
+	}
+	if got.Name != "Alice's Kitchen" {
+		t.Fatalf("persisted name = %q, want %q", got.Name, "Alice's Kitchen")
+	}
+}
+
+// TestE2E_CompactWritesDailyNote drives an on-demand compaction with custom
+// instructions and verifies the resulting summary lands in the agent's daily
+// notes, wrapped with the room anchor so it stays interpretable cross-room.
+func TestE2E_CompactWritesDailyNote(t *testing.T) {
+	env := newE2EEnv(t, nil, nil, withDailyNotes())
+
+	// Create a named room so the note's anchor is the room name.
+	roomBody, _ := json.Marshal(map[string]any{
+		"participant_ids": []string{"user:alice", "agent:testbot"},
+		"clearance":       5,
+		"name":            "Test Kitchen",
+	})
+	roomResp, err := http.Post(env.serverURL+"/api/rooms", "application/json", bytes.NewReader(roomBody))
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+	defer roomResp.Body.Close()
+	var room struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.NewDecoder(roomResp.Body).Decode(&room); err != nil {
+		t.Fatalf("decode room: %v", err)
+	}
+
+	// Build a transcript: two user turns, each with an awaited agent reply, so the
+	// messages are persisted before we compact.
+	conn := connectWS(t, env.serverURL)
+	subscribeRoom(t, conn, room.ID)
+	for i, content := range []string{"first question", "second question"} {
+		env.infer.enqueue(sseTextResponse(fmt.Sprintf("reply %d", i+1)))
+		sendMessage(t, env.serverURL, room.ID, "user:alice", content)
+		awaitEvent(t, conn, "message.created")
+	}
+
+	// The summarize call (routine model) consumes the next queued response.
+	const summary = "I answered Alice's two questions about the kitchen."
+	env.infer.enqueue(sseTextResponse(summary))
+
+	// Force compaction to a tiny target so the oldest messages are dropped.
+	compactBody, _ := json.Marshal(map[string]any{
+		"agent":        "testbot",
+		"target":       1,
+		"instructions": "emphasize what Alice asked",
+	})
+	compactResp, err := http.Post(
+		fmt.Sprintf("%s/api/rooms/%d/compact", env.serverURL, room.ID),
+		"application/json",
+		bytes.NewReader(compactBody),
+	)
+	if err != nil {
+		t.Fatalf("compact: %v", err)
+	}
+	defer compactResp.Body.Close()
+	if compactResp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(compactResp.Body)
+		t.Fatalf("compact: status %d: %s", compactResp.StatusCode, b)
+	}
+
+	// Read the agent's memory and find the daily note carrying the summary.
+	memResp, err := http.Get(env.serverURL + "/api/agents/testbot/memory")
+	if err != nil {
+		t.Fatalf("get memory: %v", err)
+	}
+	defer memResp.Body.Close()
+	var mem struct {
+		Levels []struct {
+			Notes []struct {
+				Content string `json:"content"`
+			} `json:"notes"`
+		} `json:"levels"`
+	}
+	if err := json.NewDecoder(memResp.Body).Decode(&mem); err != nil {
+		t.Fatalf("decode memory: %v", err)
+	}
+
+	var noteContent string
+	for _, lvl := range mem.Levels {
+		for _, n := range lvl.Notes {
+			if strings.Contains(n.Content, summary) {
+				noteContent = n.Content
+			}
+		}
+	}
+	if noteContent == "" {
+		t.Fatalf("no daily note contains the summary; levels = %+v", mem.Levels)
+	}
+	if !strings.Contains(noteContent, "**Test Kitchen**") {
+		t.Errorf("note missing room anchor; got:\n%s", noteContent)
 	}
 }

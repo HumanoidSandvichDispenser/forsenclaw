@@ -12,13 +12,41 @@ import (
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/store"
 )
 
-// compactionSummaryPrompt instructs the routine model to condense the messages
-// that are leaving the context window into a durable summary.
-const compactionSummaryPrompt = "You are compacting an agent's conversation history. " +
-	"Summarize the following earlier messages into a concise record that preserves " +
-	"durable facts, decisions, open questions, and commitments. Drop pleasantries and " +
-	"transient back-and-forth. Write in past tense as a third-person recap. Output only " +
-	"the summary."
+// buildCompactionPrompt builds the system prompt for the routine model that
+// condenses messages leaving the context window. The note is written in the
+// agent's own first-person voice — it is read back as the agent's recollection,
+// in this room and (as a byproduct of cross-room note loading) in others — so it
+// is anchored to its room and carries durable facts, decisions, and open threads
+// rather than narrating the compaction mechanism. Caller-supplied instructions,
+// when present, steer what to emphasize.
+func buildCompactionPrompt(ag *agent.Agent, roomLabel, instructions string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "You are %s", ag.Name())
+	if role := ag.Definition.RoleDescription; role != "" {
+		fmt.Fprintf(&b, ", %s", role)
+	}
+	fmt.Fprintf(&b,
+		". Summarize the earlier messages below from %s into a first-person note in your "+
+			"own voice, recording what happened for your future self. Preserve durable facts, "+
+			"decisions, open questions, and commitments; drop pleasantries and transient "+
+			"back-and-forth. Write in past tense (\"I …\"). Output only the note.",
+		roomLabel,
+	)
+	if instructions = strings.TrimSpace(instructions); instructions != "" {
+		fmt.Fprintf(&b, "\n\nAdditional instructions: %s", instructions)
+	}
+	return b.String()
+}
+
+// roomLabel is a stable, human-readable anchor for a room, used both in the
+// summary prompt and the note header so the note stays interpretable when it
+// surfaces in another room.
+func roomLabel(r *room.Room) string {
+	if r.Name != "" {
+		return r.Name
+	}
+	return fmt.Sprintf("room #%d", r.ID)
+}
 
 // Compactor advances an agent's per-room compaction offset when the post-offset
 // transcript outgrows the configured trigger. When the agent has daily notes
@@ -66,24 +94,25 @@ func (c *Compactor) MaybeCompact(ctx context.Context, ag *agent.Agent, roomID in
 	if c.trigger <= 0 {
 		return nil
 	}
-	return c.compact(ctx, ag, roomID, c.trigger, c.target)
+	return c.compact(ctx, ag, roomID, c.trigger, c.target, "")
 }
 
 // Compact forces compaction now, down to the given target, regardless of the
 // configured trigger — the entry point for an on-demand compact command. A
-// non-positive target falls back to the configured target.
-func (c *Compactor) Compact(ctx context.Context, ag *agent.Agent, roomID int64, target int) error {
+// non-positive target falls back to the configured target. instructions, when
+// present, steer what the summary emphasizes.
+func (c *Compactor) Compact(ctx context.Context, ag *agent.Agent, roomID int64, target int, instructions string) error {
 	if target <= 0 {
 		target = c.target
 	}
 	// trigger == target: compact whenever the transcript exceeds the target,
 	// i.e. always bring it under the requested size.
-	return c.compact(ctx, ag, roomID, target, target)
+	return c.compact(ctx, ag, roomID, target, target, instructions)
 }
 
 // compact drops the oldest messages until the post-offset transcript is under
 // target, but only when it currently exceeds trigger.
-func (c *Compactor) compact(ctx context.Context, ag *agent.Agent, roomID int64, trigger, target int) error {
+func (c *Compactor) compact(ctx context.Context, ag *agent.Agent, roomID int64, trigger, target int, instructions string) error {
 	if roomID == 0 || c.messages == nil || c.rooms == nil {
 		return nil
 	}
@@ -130,14 +159,12 @@ func (c *Compactor) compact(ctx context.Context, ag *agent.Agent, roomID int64, 
 	effClear := min(ag.Definition.Clearance, r.Clearance)
 
 	if ag.Definition.FeatureFlags.DailyNotes {
-		summary, err := c.summarize(ctx, ag, dropped)
+		label := roomLabel(r)
+		summary, err := c.summarize(ctx, ag, label, dropped, instructions)
 		if err != nil {
 			return fmt.Errorf("summarize: %w", err)
 		}
-		note := fmt.Sprintf(
-			"Compacted %d earlier message(s) from room %d:\n\n%s",
-			len(dropped), roomID, summary,
-		)
+		note := fmt.Sprintf("**%s**\n\n%s", label, summary)
 		if err := WriteDailyNote(c.paths.AgentClearanceDir(ag.Name(), effClear), note); err != nil {
 			return fmt.Errorf("write daily note: %w", err)
 		}
@@ -183,8 +210,15 @@ func (c *Compactor) Stats(ctx context.Context, ag *agent.Agent, roomID int64) (C
 	return stats, nil
 }
 
-// summarize condenses the dropped messages with the agent's routine model.
-func (c *Compactor) summarize(ctx context.Context, ag *agent.Agent, msgs []room.Message) (string, error) {
+// summarize condenses the dropped messages with the agent's routine model,
+// writing in the agent's first-person voice and anchored to roomLabel.
+func (c *Compactor) summarize(
+	ctx context.Context,
+	ag *agent.Agent,
+	roomLabel string,
+	msgs []room.Message,
+	instructions string,
+) (string, error) {
 	provider, modelID, err := c.registry.ResolveTier(ag.Definition, inference.TierRoutine)
 	if err != nil {
 		return "", fmt.Errorf("resolve routine model: %w", err)
@@ -203,7 +237,7 @@ func (c *Compactor) summarize(ctx context.Context, ag *agent.Agent, msgs []room.
 
 	summary, _, err := inference.InferSync(ctx, provider, inference.ContextPayload{
 		Model:        modelID,
-		SystemPrompt: compactionSummaryPrompt,
+		SystemPrompt: buildCompactionPrompt(ag, roomLabel, instructions),
 		Request:      b.String(),
 	})
 	if err != nil {

@@ -79,6 +79,10 @@ export type CompactRoomRequestBody = {
      */
     agent: string;
     /**
+     * Optional guidance for the summary, e.g. what to emphasize
+     */
+    instructions?: string;
+    /**
      * Target size in bytes; omit for the configured default
      */
     target?: number;
@@ -519,6 +523,10 @@ export type CompactRoomRequestBodyWritable = {
      * Agent whose transcript to compact
      */
     agent: string;
+    /**
+     * Optional guidance for the summary, e.g. what to emphasize
+     */
+    instructions?: string;
     /**
      * Target size in bytes; omit for the configured default
      */

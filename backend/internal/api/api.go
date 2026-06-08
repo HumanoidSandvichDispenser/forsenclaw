@@ -18,7 +18,7 @@ import (
 // Satisfied by *memory.Compactor; may be nil (e.g. in tests), in which case the
 // compact route reports the feature as unavailable.
 type Compactor interface {
-	Compact(ctx context.Context, ag *agent.Agent, roomID int64, target int) error
+	Compact(ctx context.Context, ag *agent.Agent, roomID int64, target int, instructions string) error
 	Stats(ctx context.Context, ag *agent.Agent, roomID int64) (memory.CompactionStats, error)
 }
 

@@ -92,7 +92,7 @@ func TestCompactor_ForceTarget(t *testing.T) {
 		t.Fatalf("auto path compacted below trigger: offset %d", offset)
 	}
 
-	if err := c.Compact(ctx, ag, r.ID, 150); err != nil {
+	if err := c.Compact(ctx, ag, r.ID, 150, ""); err != nil {
 		t.Fatalf("Compact: %v", err)
 	}
 	offset, err := store.GetCompactionOffset(ctx, "housewife", r.ID)

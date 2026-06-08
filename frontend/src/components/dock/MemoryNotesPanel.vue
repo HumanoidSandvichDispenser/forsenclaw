@@ -3,6 +3,7 @@ import { computed, ref, toRef } from 'vue';
 
 import { renderMarkdown } from '@/utils/markdown';
 import { useAgentMemory } from '@/composables/useAgentMemory';
+import CompactModal from '@/components/dock/CompactModal.vue';
 
 // Memory & daily-notes inspection panel. Shows the agent's memory broken out by
 // clearance level (only the levels the viewer is cleared to read — the backend
@@ -37,27 +38,17 @@ function fmtTokens(bytes: number): string {
   return `${(t / 1000).toFixed(1)}k`;
 }
 
-// Manual target override, in KB. Empty = use the configured automatic target
-// (shown as the placeholder). The backend treats a 0/omitted target as "default".
-const targetKb = ref('');
+// The Compact button opens a modal for target size + additional instructions.
+const compactOpen = ref(false);
 
-// The configured automatic target, in KB, for the input placeholder.
+// The configured automatic target, in KB, for the modal's target placeholder.
 const autoTargetKb = computed(() =>
   stats.value?.target ? String(Math.round(stats.value.target / 1024)) : '',
 );
 
-const parsedTarget = computed(() => {
-  const kb = Number(targetKb.value);
-  return Number.isFinite(kb) && kb > 0 ? kb : 0;
-});
-
-const compactLabel = computed(() => {
-  if (compacting.value) return 'Compacting…';
-  return parsedTarget.value > 0 ? `Compact to ${parsedTarget.value} KB` : 'Compact now';
-});
-
-function runCompact() {
-  compact(parsedTarget.value > 0 ? parsedTarget.value * 1024 : undefined);
+async function runCompact(payload: { targetBytes?: number; instructions?: string }) {
+  await compact(payload.targetBytes, payload.instructions);
+  compactOpen.value = false;
 }
 </script>
 
@@ -81,28 +72,25 @@ function runCompact() {
     </div>
 
     <div class="compact-row">
-      <label class="target">
-        <input
-          v-model="targetKb"
-          class="target-input"
-          type="number"
-          min="1"
-          inputmode="numeric"
-          :placeholder="autoTargetKb"
-          :disabled="compacting"
-        />
-        <span class="target-unit">KB</span>
-      </label>
       <button
         class="compact-btn"
         type="button"
         :disabled="compacting || !roomId"
-        title="Compact this agent's transcript in this room (blank target = configured default)"
-        @click="runCompact"
+        title="Compact this agent's transcript in this room"
+        @click="compactOpen = true"
       >
-        {{ compactLabel }}
+        {{ compacting ? 'Compacting…' : 'Compact…' }}
       </button>
     </div>
+
+    <CompactModal
+      :open="compactOpen"
+      :agent-name="agentName"
+      :auto-target-kb="autoTargetKb"
+      :compacting="compacting"
+      @close="compactOpen = false"
+      @submit="runCompact"
+    />
 
     <p v-if="loading" class="muted">Loading memory…</p>
     <p v-else-if="forbidden" class="muted">Not cleared to view this agent’s memory.</p>
@@ -169,29 +157,6 @@ function runCompact() {
 .compact-row {
   display: flex;
   gap: 0.4rem;
-}
-
-.target {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  flex: 0 0 auto;
-}
-
-.target-input {
-  width: 4.5rem;
-  padding: 0.5rem 0.5rem;
-  border: 1px var(--border-default) solid;
-  border-radius: var(--border-radius);
-  background-color: var(--bg-primary);
-  color: var(--fg-primary);
-  font-family: var(--code-family);
-  font-size: var(--body-sm-size);
-}
-
-.target-unit {
-  font-size: var(--body-xs-size);
-  color: var(--fg-tertiary);
 }
 
 .compact-btn {
