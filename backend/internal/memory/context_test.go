@@ -106,8 +106,37 @@ func TestAssembler_Assemble_BasicContext(t *testing.T) {
 	if !strings.Contains(payload.SystemPrompt, "clearance level 5") {
 		t.Errorf("system prompt missing clearance notice: %q", payload.SystemPrompt)
 	}
+	if !strings.Contains(payload.SystemPrompt, "You are in room #") {
+		t.Errorf("system prompt missing room identity: %q", payload.SystemPrompt)
+	}
 	if !strings.Contains(payload.Memory, "likes tea") {
 		t.Errorf("memory missing expected content: %q", payload.Memory)
+	}
+}
+
+// TestAssembler_Assemble_RoomName verifies a named room surfaces its display
+// name (in addition to the ID) in the system-prompt identity line.
+func TestAssembler_Assemble_RoomName(t *testing.T) {
+	assembler, store, p := newTestAssembler(t)
+	ag := newTestAgent(t, p, "housewife", 5)
+
+	alice := room.Actor{ID: "user:alice", Type: room.ActorUser, Clearance: 5, Name: "Alice"}
+	r := newTestRoom(t, store, 5, alice)
+	r.Name = "Kitchen"
+	if err := store.UpdateRoom(context.Background(), &r); err != nil {
+		t.Fatalf("UpdateRoom: %v", err)
+	}
+
+	payload, err := assembler.Assemble(context.Background(), ag, agent.Request{
+		ID: "req-1", Target: "housewife", Source: agent.SourceRoom,
+		Payload: agent.RequestPayload{RoomID: r.ID},
+	}, nil)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	if !strings.Contains(payload.SystemPrompt, `"Kitchen"`) {
+		t.Errorf("system prompt missing room name: %q", payload.SystemPrompt)
 	}
 }
 

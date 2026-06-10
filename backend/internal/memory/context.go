@@ -42,10 +42,11 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req agent.Req
 	var history []room.Message
 	// No room context means the agent operates at its configured ceiling.
 	effectiveClearance := ag.Definition.Clearance
+	var roomName string
 
 	if req.Payload.RoomID != 0 && a.rooms != nil && a.messages != nil {
 		var err error
-		history, effectiveClearance, err = a.loadRoomHistory(ctx, ag, req.Payload.RoomID)
+		history, effectiveClearance, roomName, err = a.loadRoomHistory(ctx, ag, req.Payload.RoomID)
 		if err != nil {
 			return inference.ContextPayload{}, err
 		}
@@ -61,11 +62,17 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req agent.Req
 		return inference.ContextPayload{}, err
 	}
 
-	// Inject clearance notice at the top of the system prompt.
+	// Inject a room-identity and clearance notice at the top of the system
+	// prompt. The room is constant for the whole conversation, so it lives here
+	// once rather than per message.
 	if req.Payload.RoomID != 0 {
+		roomLine := fmt.Sprintf("You are in room #%d.", req.Payload.RoomID)
+		if roomName != "" {
+			roomLine = fmt.Sprintf("You are in room #%d %q.", req.Payload.RoomID, roomName)
+		}
 		notice := fmt.Sprintf(
-			"You are operating at clearance level %d. Higher-clearance context exists but is not available in this context. If a question requires deeper personal context, say so rather than guessing.",
-			effectiveClearance,
+			"%s You are operating at clearance level %d. Higher-clearance context exists but is not available in this context. If a question requires deeper personal context, say so rather than guessing.",
+			roomLine, effectiveClearance,
 		)
 		assembled.SystemPrompt = notice + "\n\n" + assembled.SystemPrompt
 	}
@@ -76,18 +83,18 @@ func (a *Assembler) Assemble(ctx context.Context, ag *agent.Agent, req agent.Req
 // loadRoomHistory loads the windowed, clearance-filtered tail of a room's
 // transcript for an agent. Messages above the agent's effective clearance are
 // dropped (structural filter); lower-clearance messages are annotated with a
-// soft-Biba trust label. It returns the history and the effective clearance
-// used (min(agent.Clearance, room.Clearance)).
-func (a *Assembler) loadRoomHistory(ctx context.Context, ag *agent.Agent, roomID int64) ([]room.Message, int, error) {
+// soft-Biba trust label. It returns the history, the effective clearance used
+// (min(agent.Clearance, room.Clearance)), and the room's display name.
+func (a *Assembler) loadRoomHistory(ctx context.Context, ag *agent.Agent, roomID int64) ([]room.Message, int, string, error) {
 	r, err := a.rooms.GetRoom(ctx, roomID)
 	if err != nil {
-		return nil, 0, fmt.Errorf("get room: %w", err)
+		return nil, 0, "", fmt.Errorf("get room: %w", err)
 	}
 	effectiveClearance := min(ag.Definition.Clearance, r.Clearance)
 
 	offset, err := a.messages.GetCompactionOffset(ctx, ag.Name(), roomID)
 	if err != nil {
-		return nil, 0, fmt.Errorf("get compaction offset: %w", err)
+		return nil, 0, "", fmt.Errorf("get compaction offset: %w", err)
 	}
 
 	msgs, err := a.messages.GetMessages(ctx, roomID, store.ReadOpts{
@@ -95,7 +102,7 @@ func (a *Assembler) loadRoomHistory(ctx context.Context, ag *agent.Agent, roomID
 		CompactionID: offset,
 	})
 	if err != nil {
-		return nil, 0, fmt.Errorf("get messages: %w", err)
+		return nil, 0, "", fmt.Errorf("get messages: %w", err)
 	}
 
 	var history []room.Message
@@ -113,7 +120,7 @@ func (a *Assembler) loadRoomHistory(ctx context.Context, ag *agent.Agent, roomID
 		}
 		history = append(history, m)
 	}
-	return history, effectiveClearance, nil
+	return history, effectiveClearance, r.Name, nil
 }
 
 // EffectiveClearance returns min(agent.Clearance, room.Clearance) for the
