@@ -248,11 +248,14 @@ func (o *OpenAICompatibleAdapter) readStream(body io.ReadCloser, ch chan<- Strea
 			out.FinishReason = *choice.FinishReason
 			out.Usage = usage
 
-			// Populate ToolCalls from the accumulator whenever there are
-			// accumulated entries, regardless of finish_reason. Some providers
-			// (e.g. Gemini via OpenAI-compat) return finish_reason="stop"
-			// instead of "tool_calls" even when making tool calls.
-			if len(accumulator) > 0 {
+			// Emit the accumulated tool calls exactly once. Some providers
+			// (e.g. SiliconFlow via OpenRouter) send two finish_reason chunks —
+			// one to finish, a second carrying only usage — and the consumer
+			// appends ToolCalls cumulatively, so re-emitting would duplicate every
+			// call. sentFinal guards the second pass. Populating regardless of the
+			// reason value also covers providers that return "stop" instead of
+			// "tool_calls" even when making tool calls.
+			if !sentFinal && len(accumulator) > 0 {
 				indices := make([]int, 0, len(accumulator))
 				for idx := range accumulator {
 					indices = append(indices, idx)

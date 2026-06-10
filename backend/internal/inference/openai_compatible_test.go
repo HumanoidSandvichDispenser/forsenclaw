@@ -193,6 +193,61 @@ func TestOpenAICompatibleAdapter_XMLToolModeHistory(t *testing.T) {
 	}
 }
 
+// TestOpenAICompatibleAdapter_DoubleFinishChunk reproduces a SiliconFlow (via
+// OpenRouter) stream that sends two finish_reason="tool_calls" chunks — one to
+// finish, a second carrying only usage. The adapter must emit the accumulated
+// tool call exactly once; re-emitting duplicates it (identical IDs) downstream.
+func TestOpenAICompatibleAdapter_DoubleFinishChunk(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		chunks := []string{
+			`{"choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_abc","type":"function","function":{"name":"forsen_line","arguments":""}}]},"finish_reason":null}]}`,
+			`{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{}"}}]},"finish_reason":null}]}`,
+			`{"choices":[{"index":0,"delta":{"content":""},"finish_reason":"tool_calls"}]}`,
+			`{"choices":[{"index":0,"delta":{"content":""},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}`,
+		}
+		for _, c := range chunks {
+			fmt.Fprintf(w, "data: %s\n\n", c)
+		}
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		w.(http.Flusher).Flush()
+	}))
+	defer server.Close()
+
+	adapter, err := NewOpenAICompatibleAdapter(server.URL, "", "native")
+	if err != nil {
+		t.Fatalf("NewOpenAICompatibleAdapter failed: %v", err)
+	}
+
+	ch, err := adapter.Infer(context.Background(), ContextPayload{Model: "test", Request: "hi"})
+	if err != nil {
+		t.Fatalf("Infer failed: %v", err)
+	}
+
+	var toolCalls []ToolCallWire
+	var usage Usage
+	for chunk := range ch {
+		toolCalls = append(toolCalls, chunk.ToolCalls...)
+		if chunk.Usage.TotalTokens > 0 {
+			usage = chunk.Usage
+		}
+	}
+
+	if len(toolCalls) != 1 {
+		t.Fatalf("expected exactly 1 tool call, got %d: %+v", len(toolCalls), toolCalls)
+	}
+	if toolCalls[0].ID != "call_abc" || toolCalls[0].Function.Name != "forsen_line" {
+		t.Errorf("unexpected tool call: %+v", toolCalls[0])
+	}
+	if toolCalls[0].Function.Arguments != "{}" {
+		t.Errorf("expected accumulated arguments %q, got %q", "{}", toolCalls[0].Function.Arguments)
+	}
+	if usage.TotalTokens != 12 {
+		t.Errorf("expected usage from second finish chunk, got %d", usage.TotalTokens)
+	}
+}
+
 func TestOpenAICompatibleAdapter_Validation(t *testing.T) {
 	tests := []struct {
 		name    string
