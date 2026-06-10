@@ -109,9 +109,19 @@ func TestAssembler_Assemble_BasicContext(t *testing.T) {
 	if !strings.Contains(payload.SystemPrompt, "You are in room #") {
 		t.Errorf("system prompt missing room identity: %q", payload.SystemPrompt)
 	}
-	if !strings.Contains(payload.Memory, "likes tea") {
-		t.Errorf("memory missing expected content: %q", payload.Memory)
+	if !strings.Contains(joinMemory(payload.Memory), "likes tea") {
+		t.Errorf("memory missing expected content: %v", payload.Memory)
 	}
+}
+
+// joinMemory flattens memory entry contents for substring assertions.
+func joinMemory(entries []inference.MemoryEntry) string {
+	var b strings.Builder
+	for _, e := range entries {
+		b.WriteString(e.Content)
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 // TestAssembler_Assemble_RoomName verifies a named room surfaces its display
@@ -376,8 +386,8 @@ func TestAssembler_Assemble_DailyNotes(t *testing.T) {
 	if len(payload.DailyNotes) != 1 {
 		t.Fatalf("expected 1 daily note, got %d", len(payload.DailyNotes))
 	}
-	if !strings.Contains(payload.DailyNotes[0], "Today's observation") {
-		t.Errorf("daily note content: %q", payload.DailyNotes[0])
+	if !strings.Contains(payload.DailyNotes[0].Content, "Today's observation") {
+		t.Errorf("daily note content: %q", payload.DailyNotes[0].Content)
 	}
 }
 
@@ -432,8 +442,8 @@ func TestAssembler_Assemble_MemoryTruncation(t *testing.T) {
 		t.Fatalf("Assemble: %v", err)
 	}
 
-	if len(payload.Memory) > 100 {
-		t.Errorf("memory not truncated: got %d chars", len(payload.Memory))
+	if n := len(joinMemory(payload.Memory)); n > 100 {
+		t.Errorf("memory not truncated: got %d chars", n)
 	}
 }
 

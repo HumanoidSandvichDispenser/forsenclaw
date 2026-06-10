@@ -7,7 +7,26 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 )
+
+// MemoryEntry is one clearance level's MEMORY.md content. Memory is partitioned
+// into a separate file per clearance level (plus an unleveled legacy baseline at
+// clearance 0), so the level is carried through to the prompt — an agent needs to
+// know which clearance wrote a fact to reconcile stale or wrong lower-level info.
+type MemoryEntry struct {
+	Clearance int
+	Content   string
+}
+
+// DailyNoteEntry is one day's working notes at a single clearance level. Notes
+// are stored one file per day per clearance directory, so a day can appear at
+// multiple levels; date and clearance together identify the source.
+type DailyNoteEntry struct {
+	Date      time.Time
+	Clearance int
+	Content   string
+}
 
 // Role represents the role of a message in a conversation.
 type Role string
@@ -166,8 +185,8 @@ type ContextMessage struct {
 type ContextPayload struct {
 	Model              string
 	SystemPrompt       string
-	Memory             string
-	DailyNotes         []string
+	Memory             []MemoryEntry
+	DailyNotes         []DailyNoteEntry
 	RAGResults         []string
 	ToolSchemas        []string         // for XML tool-mode fallback
 	ToolDefinitions    []ToolDefinition // for native tool calling adapters
@@ -243,7 +262,7 @@ func ValidateContextPayload(payload ContextPayload) error {
 		return fmt.Errorf("model is required")
 	}
 	hasContent := payload.SystemPrompt != "" ||
-		payload.Memory != "" ||
+		len(payload.Memory) > 0 ||
 		len(payload.DailyNotes) > 0 ||
 		len(payload.RAGResults) > 0 ||
 		len(payload.ToolSchemas) > 0 ||

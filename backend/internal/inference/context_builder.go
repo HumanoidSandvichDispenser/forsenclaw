@@ -1,10 +1,19 @@
 package inference
 
-import "strings"
+import (
+	"encoding/xml"
+	"strconv"
+	"strings"
+)
 
 // BuildSystemPrompt assembles the full system prompt string from the payload.
-// It includes the system prompt, memory, daily notes, RAG results, and tool
-// schemas (only when toolMode is "xml").
+// The agent's own instructions (payload.SystemPrompt) lead as a plain preamble
+// so the cacheable prefix stays stable; the variable, data-classified payload
+// (memory, daily notes, RAG, and — in "xml" tool mode — tool schemas) follows
+// as a nested <context> tree. Each section is an explicitly closed tag, so the
+// hierarchy is unambiguous and user-authored content (which may itself contain
+// "##" headers or stray "<"/"&") cannot forge or break out of a level: all
+// payload text is XML-escaped.
 func BuildSystemPrompt(payload ContextPayload, toolMode string) string {
 	if toolMode == "" {
 		toolMode = "native"
@@ -13,39 +22,65 @@ func BuildSystemPrompt(payload ContextPayload, toolMode string) string {
 	var b strings.Builder
 	b.WriteString(payload.SystemPrompt)
 
-	if payload.Memory != "" {
-		b.WriteString("\n\n## Memory\n\n")
-		b.WriteString(payload.Memory)
-	}
-	if len(payload.DailyNotes) > 0 {
-		b.WriteString("\n\n## Daily Notes\n\n")
-		for i, note := range payload.DailyNotes {
-			if i > 0 {
-				b.WriteString("\n\n")
-			}
-			b.WriteString(note)
-		}
-	}
-	if len(payload.RAGResults) > 0 {
-		b.WriteString("\n\n## Relevant Context\n\n")
-		for i, r := range payload.RAGResults {
-			if i > 0 {
-				b.WriteString("\n\n")
-			}
-			b.WriteString(r)
-		}
-	}
-	if toolMode == "xml" && len(payload.ToolSchemas) > 0 {
-		b.WriteString("\n\n## Available Tools\n\n")
-		for i, tool := range payload.ToolSchemas {
-			if i > 0 {
-				b.WriteString("\n\n")
-			}
-			b.WriteString(tool)
-		}
+	includeTools := toolMode == "xml" && len(payload.ToolSchemas) > 0
+	if len(payload.Memory) == 0 && len(payload.DailyNotes) == 0 &&
+		len(payload.RAGResults) == 0 && !includeTools {
+		return b.String()
 	}
 
+	b.WriteString("\n\n<context>")
+
+	if len(payload.Memory) > 0 {
+		b.WriteString("\n<memory>")
+		for _, m := range payload.Memory {
+			b.WriteString("\n<entry clearance=\"")
+			b.WriteString(strconv.Itoa(m.Clearance))
+			b.WriteString("\">")
+			writeEscaped(&b, m.Content)
+			b.WriteString("</entry>")
+		}
+		b.WriteString("\n</memory>")
+	}
+	if len(payload.DailyNotes) > 0 {
+		b.WriteString("\n<daily_notes>")
+		for _, note := range payload.DailyNotes {
+			b.WriteString("\n<note date=\"")
+			b.WriteString(note.Date.Format("2006-01-02"))
+			b.WriteString("\" clearance=\"")
+			b.WriteString(strconv.Itoa(note.Clearance))
+			b.WriteString("\">")
+			writeEscaped(&b, note.Content)
+			b.WriteString("</note>")
+		}
+		b.WriteString("\n</daily_notes>")
+	}
+	if len(payload.RAGResults) > 0 {
+		b.WriteString("\n<relevant_context>")
+		for _, r := range payload.RAGResults {
+			b.WriteString("\n<result>")
+			writeEscaped(&b, r)
+			b.WriteString("</result>")
+		}
+		b.WriteString("\n</relevant_context>")
+	}
+	if includeTools {
+		b.WriteString("\n<available_tools>")
+		for _, tool := range payload.ToolSchemas {
+			b.WriteString("\n<tool>")
+			writeEscaped(&b, tool)
+			b.WriteString("</tool>")
+		}
+		b.WriteString("\n</available_tools>")
+	}
+
+	b.WriteString("\n</context>")
 	return b.String()
+}
+
+// writeEscaped writes s into b with XML metacharacters escaped, so payload
+// content cannot break out of its enclosing tag.
+func writeEscaped(b *strings.Builder, s string) {
+	_ = xml.EscapeText(b, []byte(s))
 }
 
 // BuildMessageSequence returns the ordered message sequence (not including

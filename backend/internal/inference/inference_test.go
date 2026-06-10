@@ -77,12 +77,12 @@ func TestValidateContextPayload(t *testing.T) {
 		},
 		{
 			name:    "valid with memory only",
-			payload: ContextPayload{Model: "test", Memory: "Some memory."},
+			payload: ContextPayload{Model: "test", Memory: []MemoryEntry{{Content: "Some memory."}}},
 			wantErr: "",
 		},
 		{
 			name:    "valid with daily notes only",
-			payload: ContextPayload{Model: "test", DailyNotes: []string{"note"}},
+			payload: ContextPayload{Model: "test", DailyNotes: []DailyNoteEntry{{Content: "note"}}},
 			wantErr: "",
 		},
 		{

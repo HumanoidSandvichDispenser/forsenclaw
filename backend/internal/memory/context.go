@@ -170,11 +170,13 @@ type assembledContext struct {
 	// by Assemble before this reaches toContextPayload).
 	SystemPrompt string
 
-	// Memory is the injected MEMORY.md content (possibly truncated).
-	Memory string
+	// Memory is the injected MEMORY.md content (possibly truncated), one entry
+	// per clearance level.
+	Memory []inference.MemoryEntry
 
-	// DailyNotes are today's and yesterday's notes.
-	DailyNotes []string
+	// DailyNotes are today's and yesterday's notes, one entry per day per
+	// clearance level.
+	DailyNotes []inference.DailyNoteEntry
 
 	// RAGResults are retrieved chunks from the search index.
 	RAGResults []string
@@ -251,38 +253,81 @@ func agentMemoryDirsUpTo(p *paths.Paths, name string, clearance int) []string {
 	return dirs
 }
 
-// readMemoryUpTo concatenates MEMORY.md across memoryDirsUpTo, lowest level
-// first. Truncation to the agent budget is applied by the caller on the whole.
-func (a *Assembler) readMemoryUpTo(name string, clearance int) (string, error) {
-	var b strings.Builder
-	for _, dir := range a.memoryDirsUpTo(name, clearance) {
+// readMemoryUpTo reads MEMORY.md from each level in memoryDirsUpTo, lowest level
+// first, as one entry per clearance. memoryDirsUpTo is ordered [legacy, c1, c2,
+// …]; the legacy flat dir is the unleveled baseline at clearance 0 and each
+// subsequent dir is its level. Truncation to the agent budget is applied by the
+// caller across entries.
+func (a *Assembler) readMemoryUpTo(name string, clearance int) ([]inference.MemoryEntry, error) {
+	var entries []inference.MemoryEntry
+	for level, dir := range a.memoryDirsUpTo(name, clearance) {
 		content, err := ReadMemory(dir)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		if content == "" {
 			continue
 		}
-		if b.Len() > 0 {
-			b.WriteString("\n\n")
-		}
-		b.WriteString(content)
+		entries = append(entries, inference.MemoryEntry{Clearance: level, Content: content})
 	}
-	return b.String(), nil
+	return entries, nil
 }
 
 // readDailyNotesUpTo gathers today's and yesterday's notes across
-// memoryDirsUpTo, lowest level first.
-func (a *Assembler) readDailyNotesUpTo(name string, clearance int) ([]DailyNote, error) {
-	var notes []DailyNote
-	for _, dir := range a.memoryDirsUpTo(name, clearance) {
+// memoryDirsUpTo, lowest level first, tagging each with the level it came from.
+func (a *Assembler) readDailyNotesUpTo(name string, clearance int) ([]inference.DailyNoteEntry, error) {
+	var entries []inference.DailyNoteEntry
+	for level, dir := range a.memoryDirsUpTo(name, clearance) {
 		dirNotes, err := ReadDailyNotes(dir, true)
 		if err != nil {
 			return nil, err
 		}
-		notes = append(notes, dirNotes...)
+		for _, n := range dirNotes {
+			entries = append(entries, inference.DailyNoteEntry{
+				Date:      n.Date,
+				Clearance: level,
+				Content:   n.Content,
+			})
+		}
 	}
-	return notes, nil
+	return entries, nil
+}
+
+// truncateMemoryEntries enforces a token budget across memory entries while
+// preserving per-level structure. Entries are ordered lowest-clearance first;
+// the budget keeps from the front (matching the prior whole-blob behaviour,
+// where curated content is organised top-down), truncating the entry that
+// crosses the budget from its end and dropping any entries past it.
+func truncateMemoryEntries(entries []inference.MemoryEntry, budget int) []inference.MemoryEntry {
+	if budget <= 0 {
+		return nil
+	}
+	var (
+		out  []inference.MemoryEntry
+		used int
+	)
+	for _, e := range entries {
+		remaining := budget - used
+		if remaining <= 0 {
+			break
+		}
+		cost := DefaultCounter.Count(e.Content)
+		if cost <= remaining {
+			out = append(out, e)
+			used += cost
+			continue
+		}
+		clipped := Truncate(e.Content, TruncateOptions{
+			Budget:    remaining,
+			Counter:   DefaultCounter,
+			FromStart: false,
+		})
+		if clipped != "" {
+			out = append(out, inference.MemoryEntry{Clearance: e.Clearance, Content: clipped})
+		}
+		break
+	}
+	return out
 }
 
 func (a *Assembler) memoryBudgetForAgent(ag *agent.Agent) int {
@@ -307,18 +352,11 @@ func (a *Assembler) assemble(ctx context.Context, ag *agent.Agent, req assembleR
 
 	// 1. MEMORY.md — aggregated over the legacy flat file plus clearance levels
 	//    1..operating, then truncated as a whole to the agent's budget.
-	memContent, err := a.readMemoryUpTo(ag.Name(), req.EffectiveClearance)
+	memEntries, err := a.readMemoryUpTo(ag.Name(), req.EffectiveClearance)
 	if err != nil {
 		return nil, fmt.Errorf("read memory: %w", err)
 	}
-	if memContent != "" {
-		memContent = Truncate(memContent, TruncateOptions{
-			Budget:    a.memoryBudgetForAgent(ag),
-			Counter:   DefaultCounter,
-			FromStart: false,
-		})
-	}
-	result.Memory = memContent
+	result.Memory = truncateMemoryEntries(memEntries, a.memoryBudgetForAgent(ag))
 
 	// 2. Daily notes (today + yesterday), aggregated over the same levels.
 	if ag.Definition.FeatureFlags.DailyNotes {
@@ -326,9 +364,7 @@ func (a *Assembler) assemble(ctx context.Context, ag *agent.Agent, req assembleR
 		if err != nil {
 			return nil, fmt.Errorf("read daily notes: %w", err)
 		}
-		for _, n := range notes {
-			result.DailyNotes = append(result.DailyNotes, n.Content)
-		}
+		result.DailyNotes = notes
 	}
 
 	// 3. Current room history → formatted strings for size tracking.

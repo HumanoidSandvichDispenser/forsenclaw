@@ -505,14 +505,14 @@ func TestPreviewContext_HeadersMatchProviderRendering(t *testing.T) {
 		t.Fatalf("expected context messages, got none")
 	}
 
-	// The first message is the system message; it should contain section headers
-	// matching how the Anthropic adapter renders them.
+	// The first message is the system message; it should contain the context
+	// tree sections matching how the provider adapters render them.
 	sysContent := body.Messages[0].Content
-	if !strings.Contains(sysContent, "## Memory") {
-		t.Errorf("system message missing '## Memory' header")
+	if !strings.Contains(sysContent, "<memory>") {
+		t.Errorf("system message missing <memory> section")
 	}
-	if !strings.Contains(sysContent, "## Daily Notes") {
-		t.Errorf("system message missing '## Daily Notes' header")
+	if !strings.Contains(sysContent, "<daily_notes>") {
+		t.Errorf("system message missing <daily_notes> section")
 	}
 }
 

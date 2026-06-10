@@ -33,7 +33,7 @@ func TestOpenAICompatibleAdapter_SystemPromptWithContext(t *testing.T) {
 	payload := ContextPayload{
 		Model:        "gemma",
 		SystemPrompt: "You are an assistant. Use <thinking> tags.",
-		Memory:       "User said: 5 < 10 && 10 > 5",
+		Memory:       []MemoryEntry{{Clearance: 1, Content: "User said: 5 < 10 && 10 > 5"}},
 		Request:      "What about <script>alert(1)</script>?",
 	}
 
@@ -66,11 +66,12 @@ func TestOpenAICompatibleAdapter_SystemPromptWithContext(t *testing.T) {
 	if !strings.Contains(sysContent, "You are an assistant. Use <thinking> tags.") {
 		t.Errorf("system prompt missing base text")
 	}
-	if !strings.Contains(sysContent, "## Memory") {
+	if !strings.Contains(sysContent, "<memory>") {
 		t.Errorf("memory section missing in system prompt")
 	}
-	if !strings.Contains(sysContent, "User said: 5 < 10 && 10 > 5") {
-		t.Errorf("memory content missing in system prompt")
+	// Memory content is XML-escaped so it cannot break out of its element.
+	if !strings.Contains(sysContent, "User said: 5 &lt; 10 &amp;&amp; 10 &gt; 5") {
+		t.Errorf("escaped memory content missing in system prompt: %q", sysContent)
 	}
 
 	// messages[1] is the Request as a plain user message.

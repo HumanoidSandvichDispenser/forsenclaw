@@ -158,10 +158,11 @@ func TestAssembler_ClearanceMemoryAggregation(t *testing.T) {
 		t.Fatalf("Assemble: %v", err)
 	}
 
-	if !strings.Contains(payload.Memory, "alpha-fact") {
-		t.Errorf("memory missing c1 content at operating clearance 2: %q", payload.Memory)
+	mem := joinMemory(payload.Memory)
+	if !strings.Contains(mem, "alpha-fact") {
+		t.Errorf("memory missing c1 content at operating clearance 2: %q", mem)
 	}
-	if strings.Contains(payload.Memory, "gamma-fact") {
-		t.Errorf("memory leaked c3 content at operating clearance 2: %q", payload.Memory)
+	if strings.Contains(mem, "gamma-fact") {
+		t.Errorf("memory leaked c3 content at operating clearance 2: %q", mem)
 	}
 }
