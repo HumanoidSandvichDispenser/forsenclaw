@@ -385,13 +385,13 @@ func (a *Assembler) assemble(ctx context.Context, ag *agent.Agent, req assembleR
 	if len(req.Interjections) > 0 {
 		rfcContent.WriteString("# Interjections (requests during non turns)\n\n")
 		for _, m := range req.Interjections {
-			rfcContent.WriteString(fmt.Sprintf("%s: %s\n\n", m.Sender.Name, m.Content))
+			rfcContent.WriteString(fmt.Sprintf("[%s] %s: %s\n\n", formatTimestamp(m.Timestamp), m.Sender.Name, m.Content))
 		}
 	}
 	if reqIdx >= 0 {
 		m := req.CurrentRoomHistory[reqIdx]
 		result.RequestName = m.Sender.Name
-		rfcContent.WriteString(fmt.Sprintf("%s: ", m.Sender.Name))
+		rfcContent.WriteString(fmt.Sprintf("[%s] %s: ", formatTimestamp(m.Timestamp), m.Sender.Name))
 		rfcContent.WriteString(m.Content)
 	}
 	result.Request = rfcContent.String()
@@ -458,7 +458,7 @@ func buildHistoryMessages(msgs []room.Message, agentID string) []inference.Histo
 			}
 			content := m.Content
 			if role == inference.RoleUser {
-				content = fmt.Sprintf("%s: %s", m.Sender.Name, m.Content)
+				content = fmt.Sprintf("[%s] %s: %s", formatTimestamp(m.Timestamp), m.Sender.Name, m.Content)
 			}
 			history = append(history, inference.HistoryMessage{
 				Role:    role,
@@ -518,6 +518,15 @@ func trimLeadingNonUserHistory(history []inference.HistoryMessage) []inference.H
 		}
 	}
 	return nil
+}
+
+// formatTimestamp renders an absolute, creation-frozen timestamp for inclusion
+// in message content. Absolute (not relative) so a given message renders
+// identically on every turn, keeping the history prefix byte-stable for the
+// provider's prompt cache; a relative rendering would re-shift the same message
+// each turn and defeat caching.
+func formatTimestamp(t time.Time) string {
+	return t.UTC().Format("2006-01-02 15:04 UTC")
 }
 
 // formatRelativeTime returns a human-readable relative time string.

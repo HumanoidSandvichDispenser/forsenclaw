@@ -236,8 +236,16 @@ func TestAssembler_Assemble_RoomHistoryRoles(t *testing.T) {
 	if payload.History[1].Role != inference.RoleAssistant {
 		t.Errorf("history[1] role: got %q, want assistant", payload.History[1].Role)
 	}
-	if !strings.Contains(payload.Request, "How are you?") {
-		t.Errorf("Request missing last message content: %q", payload.Request)
+	// Incoming messages carry an absolute timestamp prefix; the agent's own
+	// turns are left raw so it doesn't learn to imitate the prefix in replies.
+	if !strings.HasPrefix(payload.History[0].Content, "[") || !strings.Contains(payload.History[0].Content, "Alice: Hello") {
+		t.Errorf("user history missing timestamped prefix: %q", payload.History[0].Content)
+	}
+	if payload.History[1].Content != "Hi there" {
+		t.Errorf("assistant history should be unprefixed: %q", payload.History[1].Content)
+	}
+	if !strings.HasPrefix(payload.Request, "[") || !strings.Contains(payload.Request, "Alice: How are you?") {
+		t.Errorf("Request missing timestamped prefix or content: %q", payload.Request)
 	}
 	if payload.RequestName != "Alice" {
 		t.Errorf("RequestName: got %q, want Alice", payload.RequestName)
