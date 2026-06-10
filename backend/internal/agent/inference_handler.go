@@ -208,6 +208,15 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 		}
 		response := content.String()
 
+		// A cancelled context closes the stream early, so the drain above ends
+		// with whatever partial content arrived. Treat that as a failed turn
+		// rather than a final response: returning the error routes through the
+		// runtime's fail path (StreamAgentError), and the partial deltas already
+		// streamed are never persisted.
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
+
 		if len(toolCalls) == 0 {
 			return nil, &dag.Result{
 				Status:       dag.StatusAllowed,

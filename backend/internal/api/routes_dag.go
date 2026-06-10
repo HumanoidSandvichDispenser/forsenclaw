@@ -17,6 +17,37 @@ func registerDAGRoutes(api huma.API, svc *Service) {
 	}, func(ctx context.Context, input *GetAgentDAGRequest) (*GetAgentDAGResponse, error) {
 		return svc.getAgentDAG(ctx, input)
 	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "cancel-agent-node",
+		Method:      http.MethodPost,
+		Path:        "/api/agents/{agent_name}/dag/{node_id}/cancel",
+		Summary:     "Cancel a single in-flight DAG node (e.g. a running inference)",
+		Tags:        []string{"Agents"},
+	}, func(ctx context.Context, input *CancelAgentNodeRequest) (*CancelAgentNodeResponse, error) {
+		return svc.cancelAgentNode(ctx, input)
+	})
+}
+
+// cancelAgentNode aborts one in-flight node of an agent's request DAG, selected
+// by node ID. Cancellation is gated by the same Bell-LaPadula read rule as the
+// DAG snapshot: a caller must be cleared to the agent's clearance to learn —
+// and act on — its internal work. The node's handler observes the cancellation
+// and fails the turn through the runtime's normal path.
+func (svc *Service) cancelAgentNode(_ context.Context, input *CancelAgentNodeRequest) (*CancelAgentNodeResponse, error) {
+	ag := svc.agentMgr.Get(input.AgentName)
+	rt := svc.agentMgr.Runtime(input.AgentName)
+	if ag == nil || rt == nil {
+		return nil, huma.Error404NotFound("agent has no runtime")
+	}
+
+	if !clearedToReadDAG(svc.user.Clearance, ag.Clearance()) {
+		return nil, huma.Error403Forbidden("insufficient clearance to control this agent")
+	}
+
+	resp := &CancelAgentNodeResponse{}
+	resp.Body.Cancelled = rt.Cancel(input.NodeID)
+	return resp, nil
 }
 
 // getAgentDAG returns a snapshot of the agent's live request DAG. Settled nodes

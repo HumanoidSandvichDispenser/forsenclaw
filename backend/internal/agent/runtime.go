@@ -119,6 +119,14 @@ type AgentRuntime struct {
 	// work is pulsed when new work may be available.
 	work chan struct{}
 
+	// cancels holds the cancel func for each node whose handler is currently
+	// running, keyed by node ID. Populated in runNode and cleared when the
+	// handler returns. Cancel(nodeID) looks a node up here to abort just that
+	// node's in-flight work (e.g. a streaming inference) without touching the
+	// agent's other nodes. Guarded by cancelMu, independent of mu.
+	cancelMu sync.Mutex
+	cancels  map[string]context.CancelFunc
+
 	// idle is broadcast whenever the runtime has no pending or in-progress nodes.
 	idle *sync.Cond
 }
@@ -141,6 +149,7 @@ func NewAgentRuntime(agent *Agent, deps RuntimeDeps) *AgentRuntime {
 		now:                  time.Now,
 		timing:               make(map[string]*nodeTiming),
 		work:                 make(chan struct{}, 1),
+		cancels:              make(map[string]context.CancelFunc),
 	}
 	r.idle = sync.NewCond(&r.mu)
 	r.dag.Observe(r.observe)
@@ -188,6 +197,23 @@ func (r *AgentRuntime) Respond(nodeID string, result dag.Result) bool {
 		return false
 	}
 	h.Respond(result)
+	return true
+}
+
+// Cancel aborts the in-flight work of a single node by ID, cancelling its
+// handler's context. For an inference root this stops the streaming turn; the
+// handler observes the cancellation, returns an error, and the node is failed
+// through the normal run-loop path (which also streams the error to the room).
+// Returns false if the node has no handler currently running — it already
+// settled, is only pending, or does not exist.
+func (r *AgentRuntime) Cancel(nodeID string) bool {
+	r.cancelMu.Lock()
+	cancel, ok := r.cancels[nodeID]
+	r.cancelMu.Unlock()
+	if !ok {
+		return false
+	}
+	cancel()
 	return true
 }
 
@@ -317,7 +343,26 @@ func (r *AgentRuntime) FailExternal(nodeID string, err error) {
 // runNode executes one node in a goroutine and acts on the result.
 func (r *AgentRuntime) runNode(ctx context.Context, node *dag.Node) {
 	childResults := r.collectChildResults(node)
+
+	// Give each node its own cancellable context derived from the run context
+	// so Cancel(nodeID) can abort this node alone. Registered before the
+	// goroutine starts so a Cancel racing the launch still finds it.
+	nodeCtx, cancel := context.WithCancel(ctx)
+	r.cancelMu.Lock()
+	if r.cancels == nil {
+		r.cancels = make(map[string]context.CancelFunc)
+	}
+	r.cancels[node.ID] = cancel
+	r.cancelMu.Unlock()
+
 	go func() {
+		defer func() {
+			r.cancelMu.Lock()
+			delete(r.cancels, node.ID)
+			r.cancelMu.Unlock()
+			cancel()
+		}()
+		ctx := nodeCtx
 		deps, result, err := node.Handler.Handle(ctx, childResults)
 		switch {
 		case err != nil:

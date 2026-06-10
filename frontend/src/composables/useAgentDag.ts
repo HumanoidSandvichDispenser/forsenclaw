@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue';
 
-import { getAgentDag } from '@/client';
+import { cancelAgentNode, getAgentDag } from '@/client';
 import type { DagNode } from '@/client';
 import { useClientStore } from '@/stores/client';
 import type { DagUpdatePayload, useWebSocket } from '@/composables/useWebSocket';
@@ -121,6 +121,32 @@ export function bindAgentDag(ws: WS, agentName: string) {
   loadSnapshot(agentName);
 }
 
+// cancelling tracks node IDs with an in-flight cancel request so the button can
+// disable itself. The streamed dag.update transition (the node going failed)
+// clears the visual state; we just guard against double-clicks here.
+const cancelling = ref<Set<string>>(new Set());
+
+// cancelNode aborts a single in-flight node of the bound agent. The backend
+// fails the node and streams the transition, so we don't mutate nodes locally.
+async function cancelNode(nodeID: string) {
+  if (!boundAgent || cancelling.value.has(nodeID)) return;
+  const next = new Set(cancelling.value);
+  next.add(nodeID);
+  cancelling.value = next;
+  try {
+    await cancelAgentNode({
+      client: useClientStore().client,
+      path: { agent_name: boundAgent, node_id: nodeID },
+    });
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'failed to cancel node';
+  } finally {
+    const done = new Set(cancelling.value);
+    done.delete(nodeID);
+    cancelling.value = done;
+  }
+}
+
 function fmtKind(kind?: string): string {
   return kind && kind.length ? kind : 'node';
 }
@@ -137,5 +163,5 @@ function elapsed(n: DagNode): string {
 }
 
 export function useAgentDag() {
-  return { nodes, loading, error, forbidden, liveCount, elapsed, fmtKind };
+  return { nodes, loading, error, forbidden, liveCount, elapsed, fmtKind, cancelNode, cancelling };
 }

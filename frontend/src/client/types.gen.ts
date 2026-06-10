@@ -69,6 +69,17 @@ export type AgentResponse = {
     sensitive_model: string;
 };
 
+export type CancelAgentNodeResponseBody = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    /**
+     * Whether an in-flight node was cancelled
+     */
+    cancelled: boolean;
+};
+
 export type CompactRoomRequestBody = {
     /**
      * A URL to the JSON Schema for this object.
@@ -542,6 +553,13 @@ export type AgentResponseWritable = {
     sensitive_model: string;
 };
 
+export type CancelAgentNodeResponseBodyWritable = {
+    /**
+     * Whether an in-flight node was cancelled
+     */
+    cancelled: boolean;
+};
+
 export type CompactRoomRequestBodyWritable = {
     /**
      * Agent whose transcript to compact
@@ -842,6 +860,40 @@ export type GetAgentDagResponses = {
 };
 
 export type GetAgentDagResponse = GetAgentDagResponses[keyof GetAgentDagResponses];
+
+export type CancelAgentNodeData = {
+    body?: never;
+    path: {
+        /**
+         * Agent name
+         */
+        agent_name: string;
+        /**
+         * DAG node ID to cancel
+         */
+        node_id: string;
+    };
+    query?: never;
+    url: '/api/agents/{agent_name}/dag/{node_id}/cancel';
+};
+
+export type CancelAgentNodeErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type CancelAgentNodeError = CancelAgentNodeErrors[keyof CancelAgentNodeErrors];
+
+export type CancelAgentNodeResponses = {
+    /**
+     * OK
+     */
+    200: CancelAgentNodeResponseBody;
+};
+
+export type CancelAgentNodeResponse = CancelAgentNodeResponses[keyof CancelAgentNodeResponses];
 
 export type GetAgentMemoryData = {
     body?: never;

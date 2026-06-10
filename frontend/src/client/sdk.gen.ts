@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { CompactRoomData, CompactRoomErrors, CompactRoomResponses, CreateRoomData, CreateRoomErrors, CreateRoomResponses, EditMessageData, EditMessageErrors, EditMessageResponses, GetAgentDagData, GetAgentDagErrors, GetAgentDagResponses, GetAgentData, GetAgentErrors, GetAgentMemoryData, GetAgentMemoryErrors, GetAgentMemoryResponses, GetAgentResponses, GetCompactionStatsData, GetCompactionStatsErrors, GetCompactionStatsResponses, GetMeData, GetMeErrors, GetMeResponses, GetRoomData, GetRoomErrors, GetRoomResponses, ListAgentsData, ListAgentsErrors, ListAgentsResponses, ListConfirmationsData, ListConfirmationsErrors, ListConfirmationsResponses, ListMessagesData, ListMessagesErrors, ListMessagesResponses, ListRoomsData, ListRoomsErrors, ListRoomsResponses, PreviewContextData, PreviewContextErrors, PreviewContextResponses, RespondConfirmationData, RespondConfirmationErrors, RespondConfirmationResponses, RetryMessageData, RetryMessageErrors, RetryMessageResponses, SendMessageData, SendMessageErrors, SendMessageResponses, SwitchBranchData, SwitchBranchErrors, SwitchBranchResponses, UpdateRoomData, UpdateRoomErrors, UpdateRoomResponses } from './types.gen';
+import type { CancelAgentNodeData, CancelAgentNodeErrors, CancelAgentNodeResponses, CompactRoomData, CompactRoomErrors, CompactRoomResponses, CreateRoomData, CreateRoomErrors, CreateRoomResponses, EditMessageData, EditMessageErrors, EditMessageResponses, GetAgentDagData, GetAgentDagErrors, GetAgentDagResponses, GetAgentData, GetAgentErrors, GetAgentMemoryData, GetAgentMemoryErrors, GetAgentMemoryResponses, GetAgentResponses, GetCompactionStatsData, GetCompactionStatsErrors, GetCompactionStatsResponses, GetMeData, GetMeErrors, GetMeResponses, GetRoomData, GetRoomErrors, GetRoomResponses, ListAgentsData, ListAgentsErrors, ListAgentsResponses, ListConfirmationsData, ListConfirmationsErrors, ListConfirmationsResponses, ListMessagesData, ListMessagesErrors, ListMessagesResponses, ListRoomsData, ListRoomsErrors, ListRoomsResponses, PreviewContextData, PreviewContextErrors, PreviewContextResponses, RespondConfirmationData, RespondConfirmationErrors, RespondConfirmationResponses, RetryMessageData, RetryMessageErrors, RetryMessageResponses, SendMessageData, SendMessageErrors, SendMessageResponses, SwitchBranchData, SwitchBranchErrors, SwitchBranchResponses, UpdateRoomData, UpdateRoomErrors, UpdateRoomResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -27,6 +27,11 @@ export const listAgents = <ThrowOnError extends boolean = false>(options?: Optio
  * Get an agent's current request DAG
  */
 export const getAgentDag = <ThrowOnError extends boolean = false>(options: Options<GetAgentDagData, ThrowOnError>) => (options.client ?? client).get<GetAgentDagResponses, GetAgentDagErrors, ThrowOnError>({ url: '/api/agents/{agent_name}/dag', ...options });
+
+/**
+ * Cancel a single in-flight DAG node (e.g. a running inference)
+ */
+export const cancelAgentNode = <ThrowOnError extends boolean = false>(options: Options<CancelAgentNodeData, ThrowOnError>) => (options.client ?? client).post<CancelAgentNodeResponses, CancelAgentNodeErrors, ThrowOnError>({ url: '/api/agents/{agent_name}/dag/{node_id}/cancel', ...options });
 
 /**
  * Inspect an agent's memory and daily notes by clearance

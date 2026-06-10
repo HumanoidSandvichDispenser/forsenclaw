@@ -379,3 +379,43 @@ func TestRuntime_NilStreamWriter_DoesNotPanic(t *testing.T) {
 		t.Fatalf("node state = %s, want resolved", n.State)
 	}
 }
+
+// blockingHandler blocks until its context is cancelled, then returns the
+// context error — modelling an inference that aborts mid-stream on Cancel.
+type blockingHandler struct {
+	started chan struct{}
+}
+
+func (h *blockingHandler) Handle(ctx context.Context, _ map[string]dag.Result) ([]dag.Dep, *dag.Result, error) {
+	close(h.started)
+	<-ctx.Done()
+	return nil, nil, ctx.Err()
+}
+
+// TestCancel_FailsRunningNode: Cancel(nodeID) aborts only the named in-flight
+// node, which then fails through the normal run-loop path.
+func TestCancel_FailsRunningNode(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	r := newTestRuntime()
+	r.agent, _ = NewAgent(&config.AgentDefinition{Name: "test"})
+	started := make(chan struct{})
+	r.dag.Add("inference", &blockingHandler{started: started}, "")
+	r.pulse()
+
+	go r.Run(ctx)
+
+	<-started // node is running
+	if !r.Cancel("inference") {
+		t.Fatal("Cancel returned false for a running node")
+	}
+	r.WaitIdle()
+
+	if n := r.dag.Get("inference"); n.State != dag.NodeFailed {
+		t.Fatalf("inference state = %s, want failed", n.State)
+	}
+	if r.Cancel("inference") {
+		t.Fatal("Cancel returned true for an already-settled node")
+	}
+}

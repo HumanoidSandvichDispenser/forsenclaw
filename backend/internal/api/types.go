@@ -179,6 +179,23 @@ type GetAgentDAGResponse struct {
 	}
 }
 
+// CancelAgentNodeRequest is the input for
+// POST /api/agents/{agent_name}/dag/{node_id}/cancel: the specific DAG node
+// (e.g. an inference root) whose in-flight work should be aborted.
+type CancelAgentNodeRequest struct {
+	AgentName string `path:"agent_name" validate:"required" doc:"Agent name"`
+	NodeID    string `path:"node_id"    validate:"required" doc:"DAG node ID to cancel"`
+}
+
+// CancelAgentNodeResponse reports whether a node was actually running and got
+// cancelled. False means the node had already settled, was only pending, or
+// does not exist.
+type CancelAgentNodeResponse struct {
+	Body struct {
+		Cancelled bool `json:"cancelled" doc:"Whether an in-flight node was cancelled"`
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Agent endpoints
 // ---------------------------------------------------------------------------

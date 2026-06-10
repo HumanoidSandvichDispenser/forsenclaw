@@ -5,7 +5,8 @@ import { useAgentDag } from '@/composables/useAgentDag';
 // and renders it. agentName is display-only — a subheading under the dock title.
 defineProps<{ agentName?: string }>();
 
-const { nodes, loading, error, forbidden, liveCount, elapsed, fmtKind } = useAgentDag();
+const { nodes, loading, error, forbidden, liveCount, elapsed, fmtKind, cancelNode, cancelling } =
+  useAgentDag();
 </script>
 
 <template>
@@ -29,6 +30,15 @@ const { nodes, loading, error, forbidden, liveCount, elapsed, fmtKind } = useAge
           <span class="label">{{ n.label || n.id }}</span>
           <span class="state">{{ n.state }}</span>
           <span class="elapsed">{{ elapsed(n) }}</span>
+          <button
+            v-if="n.state === 'in_progress'"
+            class="cancel"
+            :disabled="cancelling.has(n.id)"
+            :title="`Cancel ${fmtKind(n.kind)}`"
+            @click="cancelNode(n.id)"
+          >
+            {{ cancelling.has(n.id) ? '…' : 'Stop' }}
+          </button>
         </div>
         <div v-if="n.waiting_on" class="waiting">waiting on: {{ n.waiting_on }}</div>
         <div v-if="n.blocked_by && n.blocked_by.length" class="edges">
@@ -144,6 +154,27 @@ const { nodes, loading, error, forbidden, liveCount, elapsed, fmtKind } = useAge
   font-family: var(--code-family);
   font-size: var(--body-xs-size);
   color: var(--fg-tertiary);
+}
+
+.cancel {
+  font-size: var(--body-xs-size);
+  font-family: var(--code-family);
+  color: var(--error);
+  background: transparent;
+  border: 1px solid var(--error);
+  border-radius: 0.35rem;
+  padding: 0.05rem 0.4rem;
+  cursor: pointer;
+}
+
+.cancel:hover:not(:disabled) {
+  background: var(--error);
+  color: var(--bg-primary);
+}
+
+.cancel:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .waiting {
