@@ -148,6 +148,29 @@ export type ContextMessageResponse = {
      * Message role
      */
     role: string;
+    /**
+     * Correlates a tool result with the call it answers
+     */
+    tool_call_id?: string;
+    /**
+     * Native tool calls carried by an assistant message
+     */
+    tool_calls?: Array<ContextToolCallResponse> | null;
+};
+
+export type ContextToolCallResponse = {
+    /**
+     * JSON-encoded arguments
+     */
+    arguments: string;
+    /**
+     * Tool call ID
+     */
+    id: string;
+    /**
+     * Tool name
+     */
+    name: string;
 };
 
 export type ContextToolResponse = {

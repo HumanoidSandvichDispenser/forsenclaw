@@ -91,10 +91,21 @@ func (svc *Service) previewContext(
 		Content: systemPrompt,
 	})
 	for _, m := range msgSeq {
+		var toolCalls []ContextToolCallResponse
+		for _, tc := range m.ToolCalls {
+			toolCalls = append(toolCalls, ContextToolCallResponse{
+				ID:        tc.ID,
+				Name:      tc.Function.Name,
+				Arguments: tc.Function.Arguments,
+			})
+			bytes += len(tc.Function.Arguments)
+		}
 		msgs = append(msgs, ContextMessageResponse{
-			Role:    m.Role,
-			Content: m.Content,
-			Name:    m.Name,
+			Role:       m.Role,
+			Content:    m.Content,
+			Name:       m.Name,
+			ToolCalls:  toolCalls,
+			ToolCallID: m.ToolCallID,
 		})
 		bytes += len(m.Content)
 	}

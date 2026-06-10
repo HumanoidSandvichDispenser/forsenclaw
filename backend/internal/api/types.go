@@ -245,9 +245,18 @@ type MessageResponse struct {
 
 // ContextMessageResponse is a simplified message representation for context previews.
 type ContextMessageResponse struct {
-	Role    string `json:"role" doc:"Message role" example:"user"`
-	Content string `json:"content" doc:"Message content"`
-	Name    string `json:"name,omitempty" doc:"Tool or actor name if provided"`
+	Role       string                    `json:"role" doc:"Message role" example:"user"`
+	Content    string                    `json:"content" doc:"Message content"`
+	Name       string                    `json:"name,omitempty" doc:"Tool or actor name if provided"`
+	ToolCalls  []ContextToolCallResponse `json:"tool_calls,omitempty" doc:"Native tool calls carried by an assistant message"`
+	ToolCallID string                    `json:"tool_call_id,omitempty" doc:"Correlates a tool result with the call it answers"`
+}
+
+// ContextToolCallResponse is a native tool call as surfaced in a context preview.
+type ContextToolCallResponse struct {
+	ID        string `json:"id" doc:"Tool call ID"`
+	Name      string `json:"name" doc:"Tool name"`
+	Arguments string `json:"arguments" doc:"JSON-encoded arguments"`
 }
 
 // ActorResponse is the API representation of an actor.

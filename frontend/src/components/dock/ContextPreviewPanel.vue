@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue';
 
-import { PhArrowClockwise } from '@phosphor-icons/vue';
+import { PhArrowClockwise, PhHash } from '@phosphor-icons/vue';
 
 import { previewContext } from '@/client';
 import type { GetContextPreviewResponseBody } from '@/client';
@@ -95,8 +95,20 @@ function fmtBytes(n: number): string {
           <div class="msg-head">
             <span class="role" :class="`role-${m.role}`">{{ m.role }}</span>
             <span v-if="m.name" class="msg-name">{{ m.name }}</span>
+            <span v-if="m.tool_call_id" class="msg-id">
+              <PhHash :size="11" weight="bold" />{{ m.tool_call_id }}
+            </span>
           </div>
-          <pre class="msg-content">{{ m.content }}</pre>
+          <pre v-if="m.content" class="msg-content">{{ m.content }}</pre>
+          <div v-for="tc in m.tool_calls ?? []" :key="tc.id" class="tool-call">
+            <div class="tool-call-head">
+              <code class="tool-call-name">{{ tc.name }}</code>
+              <span v-if="tc.id" class="msg-id">
+                <PhHash :size="11" weight="bold" />{{ tc.id }}
+              </span>
+            </div>
+            <pre class="msg-content">{{ tc.arguments }}</pre>
+          </div>
         </div>
       </section>
     </template>
@@ -213,6 +225,33 @@ function fmtBytes(n: number): string {
   color: var(--fg-tertiary);
   font-size: var(--body-xs-size);
   font-family: var(--code-family);
+}
+
+.msg-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1rem;
+  margin-left: auto;
+  color: var(--fg-muted);
+  font-size: var(--body-xs-size);
+  font-family: var(--code-family);
+}
+
+.tool-call {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.tool-call-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+}
+
+.tool-call-name {
+  font-family: var(--code-family);
+  font-size: var(--body-sm-size);
+  color: var(--warning);
 }
 
 .msg-content {
