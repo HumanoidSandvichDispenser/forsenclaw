@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/audit"
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/inference"
@@ -69,12 +70,18 @@ func NewExecutor(auditLogger *audit.Logger, tools ...Tool) *Executor {
 	return &Executor{tools: m, audit: auditLogger}
 }
 
-// AllDefinitions returns the definitions of every registered tool.
+// AllDefinitions returns the definitions of every registered tool, sorted by
+// name. The sort makes the tool list byte-stable across requests: map iteration
+// order is randomized, so without it the prompt prefix would reshuffle every
+// turn and never hit the provider's prompt cache.
 func (e *Executor) AllDefinitions() []inference.ToolDefinition {
 	defs := make([]inference.ToolDefinition, 0, len(e.tools))
 	for _, t := range e.tools {
 		defs = append(defs, t.Definition())
 	}
+	sort.Slice(defs, func(i, j int) bool {
+		return defs[i].Name < defs[j].Name
+	})
 	return defs
 }
 
