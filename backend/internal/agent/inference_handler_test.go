@@ -498,6 +498,32 @@ func TestToolEffect_DenyOverridesAllow(t *testing.T) {
 	}
 }
 
+// TestDeniedToolResultMessage verifies a denial renders an actionable,
+// reason-specific message rather than a bare "not permitted", so the cause is
+// visible in the transcript and to the model.
+func TestDeniedToolResultMessage(t *testing.T) {
+	tests := []struct {
+		reason policy.Reason
+		want   string // substring the message must contain
+	}{
+		{policy.ReasonDefaultDeny, "not granted"},
+		{policy.ReasonExplicitDeny, "explicitly denied"},
+		{policy.ReasonReadUp, "read-up"},
+		{policy.Reason("something_else"), "something_else"},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.reason), func(t *testing.T) {
+			msg := deniedToolResultMessage("create_room", policy.Decision{Effect: policy.Deny, Reason: tt.reason})
+			if !strings.Contains(msg, "create_room") {
+				t.Errorf("message %q omits tool name", msg)
+			}
+			if !strings.Contains(msg, tt.want) {
+				t.Errorf("message %q missing %q", msg, tt.want)
+			}
+		})
+	}
+}
+
 // TestToolEffect_PerCallResourceClearance verifies that when the executor
 // resolves a per-call resource clearance (e.g. create_room's target ceiling),
 // it overrides the static tool clearance and drives the BLP decision.

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/humanoidsandvichdispenser/hearth/backend/internal/audit"
@@ -261,12 +262,24 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 				}
 
 			case policy.Deny:
+				msg := deniedToolResultMessage(tc.Function.Name, decision)
+				log.Printf(
+					"agent %s: denied tool %q in room %d: %s",
+					h.agent.Name(), tc.Function.Name, h.req.Payload.RoomID, decision.Reason,
+				)
 				h.turnHistory = append(h.turnHistory, inference.HistoryMessage{
 					Role:       inference.RoleTool,
-					Content:    "Action not permitted.",
+					Content:    msg,
 					Name:       tc.Function.Name,
 					ToolCallID: tc.ID,
 				})
+				// Persist and stream the denial like the allow path so it shows in
+				// the transcript instead of the action vanishing with no trace.
+				if h.responseWriter != nil {
+					if werr := h.responseWriter.WriteToolResult(ctx, h.req.Payload.RoomID, h.agent.Name(), tc.ID, tc.Function.Name, msg); werr != nil {
+						return nil, nil, fmt.Errorf("writing denied tool result: %w", werr)
+					}
+				}
 
 			case policy.Confirm:
 				h.turnCount++
@@ -351,6 +364,32 @@ func (h *InferenceHandler) toolEffect(call inference.ToolCallWire) policy.Decisi
 		})
 	}
 	return h.policy.EvaluateAll(queries...)
+}
+
+// deniedToolResultMessage renders a policy denial into a message the model and
+// the user can act on, keyed off the decision reason. It is fed back to the
+// model (so it can self-correct or explain) and shown verbatim in the room, so
+// the cause is visible rather than a bare "not permitted".
+func deniedToolResultMessage(toolName string, d policy.Decision) string {
+	switch d.Reason {
+	case policy.ReasonDefaultDeny:
+		return fmt.Sprintf(
+			"Not permitted: %q is not granted to you. Add a permission for it to invoke it. (default deny: no matching permission statement)",
+			toolName,
+		)
+	case policy.ReasonExplicitDeny:
+		return fmt.Sprintf(
+			"Not permitted: %q is explicitly denied by a permission statement.",
+			toolName,
+		)
+	case policy.ReasonReadUp:
+		return fmt.Sprintf(
+			"Not permitted: %q targets a clearance above yours; reading up is blocked. (Bell-LaPadula read-up)",
+			toolName,
+		)
+	default:
+		return fmt.Sprintf("Not permitted: %q was denied (%s).", toolName, d.Reason)
+	}
 }
 
 // filterToolsByClearance applies BLP rules to a set of tool definitions to
