@@ -66,11 +66,14 @@ func (svc *Service) sendMessage(ctx context.Context, input *SendMessageRequest) 
 		Content:      input.Body.Content,
 	}
 
-	// Write message (number assigned by DB)
-	_, err = svc.messages.AppendMessage(ctx, r.ID, msg)
+	// Write message (number assigned by DB). AppendMessage mutates only its own
+	// by-value copy, so take the returned ID back onto our msg — otherwise the
+	// response (and the optimistic frontend row) carries ID 0 until a refresh.
+	id, err := svc.messages.AppendMessage(ctx, r.ID, msg)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to write message: " + err.Error())
 	}
+	msg.ID = id
 
 	// Submit to dispatcher for each agent participant
 	svc.dispatchToAgents(r, msg)

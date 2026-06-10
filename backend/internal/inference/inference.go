@@ -67,6 +67,11 @@ type StreamingChunk struct {
 	FinishReason string         `json:"finish_reason,omitempty"`
 	Usage        Usage          `json:"usage,omitempty"`
 	ToolCalls    []ToolCallWire `json:"tool_calls,omitempty"` // populated by adapters using native tool calling
+	// Error carries an in-stream provider error. Some gateways (e.g. OpenRouter)
+	// return HTTP 200 and then stream a data chunk whose body is an error object
+	// with empty choices — the request "succeeded" but the turn produced nothing.
+	// When set, the caller should fail the turn with this message.
+	Error string `json:"error,omitempty"`
 }
 
 // HistoryMessage is a pre-role-assigned message in the conversation history.

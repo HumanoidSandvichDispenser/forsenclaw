@@ -193,8 +193,13 @@ func (o *OpenAICompatibleAdapter) readStream(body io.ReadCloser, ch chan<- Strea
 	// Native mode: accumulate streaming tool calls per index.
 	accumulator := make(map[int]*openaiToolCall)
 
+	debug := os.Getenv("HEARTH_DEBUG_INFERENCE") == "1"
+
 	for scanner.Scan() {
 		line := scanner.Text()
+		if debug && strings.TrimSpace(line) != "" {
+			log.Printf("inference stream <= %s", line)
+		}
 		if !strings.HasPrefix(line, "data: ") {
 			continue
 		}
@@ -206,6 +211,13 @@ func (o *OpenAICompatibleAdapter) readStream(body io.ReadCloser, ch chan<- Strea
 		var chunk openaiCompatStreamChunk
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			continue
+		}
+
+		// In-stream provider error (HTTP 200 + error body, empty choices). Surface
+		// it and stop: there is no content coming.
+		if chunk.Error != nil && chunk.Error.Message != "" {
+			ch <- StreamingChunk{Error: chunk.Error.Message}
+			return
 		}
 
 		if len(chunk.Choices) == 0 {
@@ -290,6 +302,10 @@ func (o *OpenAICompatibleAdapter) readStream(body io.ReadCloser, ch chan<- Strea
 		if out.Content != "" || out.FinishReason != "" {
 			ch <- out
 		}
+	}
+
+	if err := scanner.Err(); err != nil && debug {
+		log.Printf("inference stream scanner error: %v", err)
 	}
 
 	if !sentFinal && usage.TotalTokens > 0 {
@@ -408,6 +424,14 @@ type openaiCompatStreamChunk struct {
 	Model   string               `json:"model"`
 	Choices []openaiCompatChoice `json:"choices"`
 	Usage   *openaiCompatUsage   `json:"usage,omitempty"`
+	Error   *openaiStreamError   `json:"error,omitempty"`
+}
+
+// openaiStreamError is an error object embedded in a streamed data chunk by
+// gateways that return HTTP 200 and report failures in-band.
+type openaiStreamError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
 }
 
 type openaiCompatChoice struct {

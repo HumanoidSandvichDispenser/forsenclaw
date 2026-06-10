@@ -189,11 +189,19 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 		var content strings.Builder
 		var toolCalls []inference.ToolCallWire
 		var usage inference.Usage
+		var finishReason string
+		var streamErr string
 		for chunk := range ch {
 			content.WriteString(chunk.Content)
 			toolCalls = append(toolCalls, chunk.ToolCalls...)
 			if chunk.Usage.TotalTokens > 0 {
 				usage = chunk.Usage
+			}
+			if chunk.FinishReason != "" {
+				finishReason = chunk.FinishReason
+			}
+			if chunk.Error != "" {
+				streamErr = chunk.Error
 			}
 
 			// stream delta to clients as it arrives
@@ -217,7 +225,26 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 			return nil, nil, err
 		}
 
+		// A provider reported an error mid-stream (HTTP 200 + error body). Fail the
+		// turn with the provider's own message so the user sees the real cause.
+		if streamErr != "" {
+			return nil, nil, fmt.Errorf("inference provider error: %s", streamErr)
+		}
+
 		if len(toolCalls) == 0 {
+			// A final turn with neither text nor tool calls would resolve the node
+			// green while delivering nothing (runNode only persists non-empty
+			// content), leaving the user with a silent, completed turn. This shows
+			// up with providers that emit finish_reason="tool_calls" but stream no
+			// usable tool-call deltas. Fail the turn instead so it surfaces, and
+			// log the finish reason to pin down which provider quirk caused it.
+			if response == "" {
+				log.Printf(
+					"agent %s: empty inference turn in room %d (finish_reason=%q, no content, no tool calls)",
+					h.agent.Name(), h.req.Payload.RoomID, finishReason,
+				)
+				return nil, nil, fmt.Errorf("inference produced no content (finish_reason=%q)", finishReason)
+			}
 			return nil, &dag.Result{
 				Status:       dag.StatusAllowed,
 				Content:      response,

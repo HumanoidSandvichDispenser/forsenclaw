@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -173,10 +175,15 @@ func (a *AnthropicAdapter) readStream(body io.ReadCloser, ch chan<- StreamingChu
 	var toolArgs strings.Builder
 	var toolCalls []ToolCallWire
 
+	debug := os.Getenv("HEARTH_DEBUG_INFERENCE") == "1"
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {
 			continue
+		}
+		if debug {
+			log.Printf("inference stream <= %s", line)
 		}
 
 		// SSE format: "event: <type>" followed by "data: <json>"
@@ -269,6 +276,10 @@ func (a *AnthropicAdapter) readStream(body io.ReadCloser, ch chan<- StreamingChu
 			}
 			return
 		}
+	}
+
+	if err := scanner.Err(); err != nil && debug {
+		log.Printf("inference stream scanner error: %v", err)
 	}
 
 	// If scanner ended without message_stop, still try to emit what we have.
