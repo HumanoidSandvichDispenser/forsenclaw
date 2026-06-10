@@ -487,6 +487,7 @@ export type UpdateRoomRequestBody = {
 };
 
 export type Usage = {
+    cached_tokens: number;
     input_tokens: number;
     output_tokens: number;
 };

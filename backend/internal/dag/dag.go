@@ -23,6 +23,7 @@ type Result struct {
 	EditedArgs   string // non-empty: use these JSON args instead of original (edit-args confirmation)
 	InputTokens  int
 	OutputTokens int
+	CachedTokens int
 }
 
 // Handler is the interface implemented by each node type. The runtime calls

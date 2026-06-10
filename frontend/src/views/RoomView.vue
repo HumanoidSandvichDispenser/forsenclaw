@@ -198,6 +198,14 @@ onMounted(() => {
           tool_calls: p.tool_calls,
           tool_call_id: p.tool_call_id,
           tool_name: p.tool_name,
+          usage:
+            p.usage_input_tokens || p.usage_output_tokens
+              ? {
+                  input_tokens: p.usage_input_tokens ?? 0,
+                  output_tokens: p.usage_output_tokens ?? 0,
+                  cached_tokens: p.usage_cached_tokens ?? 0,
+                }
+              : undefined,
         };
         if (p.type === 'tool_call') {
           messagesStore.appendMessage(roomId.value, msg);

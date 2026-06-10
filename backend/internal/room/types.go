@@ -124,6 +124,9 @@ type ToolCallRecord struct {
 type Usage struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
+	// CachedTokens is the portion of InputTokens served from the provider's
+	// prompt cache. Zero when no cache hit was reported.
+	CachedTokens int `json:"cached_tokens"`
 }
 
 // Message is a single record in a room transcript. Messages are immutable
@@ -161,6 +164,10 @@ type Message struct {
 	// UsageOutputTokens records output token consumption for agent responses.
 	UsageOutputTokens int `json:"usage_output_tokens" gorm:"default:0"`
 
+	// UsageCachedTokens records how many input tokens were served from the
+	// provider's prompt cache for this response.
+	UsageCachedTokens int `json:"usage_cached_tokens" gorm:"default:0"`
+
 	// ToolCalls carries structured tool call records for MessageToolCall messages
 	// in native tool-calling mode. Empty for XML-mode tool call messages.
 	ToolCalls []ToolCallRecord `json:"tool_calls,omitempty" gorm:"serializer:json"`
@@ -186,6 +193,7 @@ func (m Message) Usage() *Usage {
 	return &Usage{
 		InputTokens:  m.UsageInputTokens,
 		OutputTokens: m.UsageOutputTokens,
+		CachedTokens: m.UsageCachedTokens,
 	}
 }
 

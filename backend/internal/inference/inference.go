@@ -50,6 +50,10 @@ type Usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
+	// CachedTokens is the portion of PromptTokens served from the provider's
+	// prompt cache (a prefix hit). Zero when the provider reports no cache use
+	// or does not support caching.
+	CachedTokens int `json:"cached_tokens"`
 }
 
 // StreamingChunk represents a single chunk from a streaming inference response.

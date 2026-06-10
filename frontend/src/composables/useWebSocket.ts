@@ -13,6 +13,7 @@ export type MessageCreatedPayload = {
   content: string;
   usage_input_tokens?: number;
   usage_output_tokens?: number;
+  usage_cached_tokens?: number;
   tool_calls?: Array<{ id?: string; tool_name: string; arguments?: string }>;
   tool_call_id?: string;
   tool_name?: string;

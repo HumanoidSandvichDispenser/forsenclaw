@@ -27,6 +27,7 @@ const canonicalMessagesDDL = "CREATE TABLE `messages` (" +
 	"`content` text," +
 	"`usage_input_tokens` integer DEFAULT 0," +
 	"`usage_output_tokens` integer DEFAULT 0," +
+	"`usage_cached_tokens` integer DEFAULT 0," +
 	"`tool_calls` text," +
 	"`tool_call_id` text DEFAULT \"\"," +
 	"`tool_name` text DEFAULT \"\")"

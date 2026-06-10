@@ -214,6 +214,7 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 				Content:      response,
 				InputTokens:  usage.PromptTokens,
 				OutputTokens: usage.CompletionTokens,
+				CachedTokens: usage.CachedTokens,
 			}, nil
 		}
 
@@ -232,8 +233,7 @@ func (h *InferenceHandler) inferenceLoop(ctx context.Context) ([]dag.Dep, *dag.R
 				h.agent.Name(),
 				response,
 				toolCalls,
-				usage.PromptTokens,
-				usage.CompletionTokens,
+				usage,
 			)
 			if werr != nil {
 				return nil, nil, fmt.Errorf("writing tool call message: %w", werr)

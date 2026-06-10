@@ -15,7 +15,7 @@ import (
 // ResponseWriter persists completed agent responses to the room transcript.
 // Defined here as an interface to avoid an import cycle with the store/api packages.
 type ResponseWriter interface {
-	WriteAgentResponse(ctx context.Context, roomID int64, agentName string, content string, toolCalls []inference.ToolCallWire, inputTokens, outputTokens int) error
+	WriteAgentResponse(ctx context.Context, roomID int64, agentName string, content string, toolCalls []inference.ToolCallWire, usage inference.Usage) error
 	WriteToolResult(ctx context.Context, roomID int64, agentName string, toolCallID string, toolName string, result string) error
 }
 
@@ -341,8 +341,11 @@ func (r *AgentRuntime) runNode(ctx context.Context, node *dag.Node) {
 						r.agent.Name(),
 						result.Content,
 						nil,
-						result.InputTokens,
-						result.OutputTokens,
+						inference.Usage{
+							PromptTokens:     result.InputTokens,
+							CompletionTokens: result.OutputTokens,
+							CachedTokens:     result.CachedTokens,
+						},
 					)
 					if werr != nil {
 						log.Printf("agent %s: failed to write response: %v", r.agent.Name(), werr)

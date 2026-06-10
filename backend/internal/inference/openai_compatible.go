@@ -218,6 +218,7 @@ func (o *OpenAICompatibleAdapter) readStream(body io.ReadCloser, ch chan<- Strea
 			usage.PromptTokens = chunk.Usage.PromptTokens
 			usage.CompletionTokens = chunk.Usage.CompletionTokens
 			usage.TotalTokens = chunk.Usage.TotalTokens
+			usage.CachedTokens = chunk.Usage.PromptTokensDetails.CachedTokens
 		}
 
 		out := StreamingChunk{
@@ -422,7 +423,10 @@ type openaiCompatDelta struct {
 }
 
 type openaiCompatUsage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
+	PromptTokens        int `json:"prompt_tokens"`
+	CompletionTokens    int `json:"completion_tokens"`
+	TotalTokens         int `json:"total_tokens"`
+	PromptTokensDetails struct {
+		CachedTokens int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details"`
 }

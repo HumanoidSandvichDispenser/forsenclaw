@@ -28,7 +28,7 @@ func NewAgentResponseWriter(rooms store.RoomRepository, messages store.MessageRe
 
 // WriteAgentResponse looks up the room, appends the agent message, and
 // broadcasts a message.created event to subscribers.
-func (w *AgentResponseWriter) WriteAgentResponse(ctx context.Context, roomID int64, agentName string, content string, toolCalls []inference.ToolCallWire, inputTokens, outputTokens int) error {
+func (w *AgentResponseWriter) WriteAgentResponse(ctx context.Context, roomID int64, agentName string, content string, toolCalls []inference.ToolCallWire, usage inference.Usage) error {
 	msgType := room.MessageText
 	var records []room.ToolCallRecord
 	if len(toolCalls) > 0 {
@@ -46,8 +46,9 @@ func (w *AgentResponseWriter) WriteAgentResponse(ctx context.Context, roomID int
 		Type:              msgType,
 		Content:           content,
 		ToolCalls:         records,
-		UsageInputTokens:  inputTokens,
-		UsageOutputTokens: outputTokens,
+		UsageInputTokens:  usage.PromptTokens,
+		UsageOutputTokens: usage.CompletionTokens,
+		UsageCachedTokens: usage.CachedTokens,
 	})
 }
 

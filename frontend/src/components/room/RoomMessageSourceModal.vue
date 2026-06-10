@@ -21,6 +21,10 @@ const emit = defineEmits<{
         <span>{{ props.message.usage.input_tokens }} input tokens</span>
         &middot;
         <span>{{ props.message.usage.output_tokens }} output tokens</span>
+        <template v-if="props.message.usage.cached_tokens">
+          &middot;
+          <span>{{ props.message.usage.cached_tokens }} cached</span>
+        </template>
       </div>
     </template>
 

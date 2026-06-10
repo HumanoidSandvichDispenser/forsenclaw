@@ -199,6 +199,14 @@ func (a *AnthropicAdapter) readStream(body io.ReadCloser, ch chan<- StreamingChu
 		}
 
 		switch event.Type {
+		case "message_start":
+			// Cache-read tokens and the authoritative input count arrive here;
+			// message_delta only carries the running output count afterward.
+			if event.Message != nil && event.Message.Usage != nil {
+				usage.PromptTokens = event.Message.Usage.InputTokens
+				usage.CachedTokens = event.Message.Usage.CacheReadInputTokens
+			}
+
 		case "content_block_start":
 			if event.ContentBlock != nil && event.ContentBlock.Type == "tool_use" {
 				toolUseAccumulating = true
@@ -241,9 +249,14 @@ func (a *AnthropicAdapter) readStream(body io.ReadCloser, ch chan<- StreamingChu
 				}
 			}
 			if event.Usage != nil {
-				usage.PromptTokens = event.Usage.InputTokens
+				// message_delta repeats only the running output count; the input
+				// and cache-read counts were set at message_start, so don't let a
+				// zero here overwrite them.
+				if event.Usage.InputTokens > 0 {
+					usage.PromptTokens = event.Usage.InputTokens
+				}
 				usage.CompletionTokens = event.Usage.OutputTokens
-				usage.TotalTokens = event.Usage.InputTokens + event.Usage.OutputTokens
+				usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 			}
 
 		case "message_stop":
@@ -309,6 +322,14 @@ type anthropicEvent struct {
 	ContentBlock *anthropicContentBlock `json:"content_block,omitempty"`
 	Delta        *anthropicDelta        `json:"delta,omitempty"`
 	Usage        *anthropicUsage        `json:"usage,omitempty"`
+	Message      *anthropicStreamStart  `json:"message,omitempty"`
+}
+
+// anthropicStreamStart is the message envelope on a message_start event. Its
+// usage carries the initial input-token count and the cache-read hit, which the
+// per-token deltas (message_delta) never repeat.
+type anthropicStreamStart struct {
+	Usage *anthropicUsage `json:"usage,omitempty"`
 }
 
 type anthropicDelta struct {
@@ -319,6 +340,7 @@ type anthropicDelta struct {
 }
 
 type anthropicUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens          int `json:"input_tokens"`
+	OutputTokens         int `json:"output_tokens"`
+	CacheReadInputTokens int `json:"cache_read_input_tokens"`
 }
