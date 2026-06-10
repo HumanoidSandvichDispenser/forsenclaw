@@ -62,6 +62,12 @@ func WriteDailyNote(agentDataDir string, content string) error {
 	return nil
 }
 
+// ReadDailyNoteForDate reads a single day's note for the agent. Content is
+// empty (with no error) when no note exists for that date.
+func ReadDailyNoteForDate(agentDataDir string, date time.Time) (DailyNote, error) {
+	return readDailyNote(filepath.Join(agentDataDir, dailyNotesSubdir), date)
+}
+
 func readDailyNote(notesDir string, date time.Time) (DailyNote, error) {
 	path := dailyNotePath(notesDir, date)
 	data, err := os.ReadFile(path)

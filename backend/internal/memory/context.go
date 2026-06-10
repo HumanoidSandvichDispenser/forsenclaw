@@ -236,9 +236,17 @@ func (a *assembledContext) toContextPayload() inference.ContextPayload {
 // levels 1..clearance. Levels above the operating clearance are never opened, so
 // the result is a true filtered view rather than a redacted one.
 func (a *Assembler) memoryDirsUpTo(name string, clearance int) []string {
-	dirs := []string{a.paths.AgentDataDir(name)}
+	return agentMemoryDirsUpTo(a.paths, name, clearance)
+}
+
+// agentMemoryDirsUpTo returns the agent data directories to read for an agent
+// operating at the given clearance, lowest first: the legacy flat dir followed
+// by clearance levels 1..clearance. Shared by the assembler and the note tools
+// so the read-scoping rule lives in one place.
+func agentMemoryDirsUpTo(p *paths.Paths, name string, clearance int) []string {
+	dirs := []string{p.AgentDataDir(name)}
 	for lvl := 1; lvl <= clearance; lvl++ {
-		dirs = append(dirs, a.paths.AgentClearanceDir(name, lvl))
+		dirs = append(dirs, p.AgentClearanceDir(name, lvl))
 	}
 	return dirs
 }

@@ -211,7 +211,7 @@ func startServer(cfg *config.ServerConfig, p *paths.Paths) {
 	compactTool := memory.NewCompactTool(compactor)
 	toolExecutor := tool.NewExecutor(
 		auditLogger,
-		append(mcp.Tools(mcpRegistry), memory.NewNoteTool(p), compactTool)...,
+		append(mcp.Tools(mcpRegistry), memory.NewNoteTool(p), memory.NewFetchNotesTool(p), compactTool)...,
 	)
 	dagStream := api.NewHubDAGStream(hub)
 	agentMgr, err := agent.NewManager(p, cfg, agent.ManagerDeps{
