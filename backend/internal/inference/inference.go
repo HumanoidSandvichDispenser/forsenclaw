@@ -166,7 +166,6 @@ type ContextPayload struct {
 	RAGResults         []string
 	ToolSchemas        []string         // for XML tool-mode fallback
 	ToolDefinitions    []ToolDefinition // for native tool calling adapters
-	CrossRoomFeed      []string         // pre-formatted strings, one per message
 	History            []HistoryMessage // room conversation history, static for the request
 	CurrentTurnHistory []HistoryMessage // tool exchanges accumulated this inference turn
 	Request            string
@@ -243,7 +242,6 @@ func ValidateContextPayload(payload ContextPayload) error {
 		len(payload.DailyNotes) > 0 ||
 		len(payload.RAGResults) > 0 ||
 		len(payload.ToolSchemas) > 0 ||
-		len(payload.CrossRoomFeed) > 0 ||
 		len(payload.History) > 0 ||
 		payload.Request != ""
 	if !hasContent {

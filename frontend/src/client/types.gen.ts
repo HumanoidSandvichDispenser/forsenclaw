@@ -1065,10 +1065,6 @@ export type PreviewContextData = {
     };
     query?: {
         /**
-         * Include cross-room feed
-         */
-        include_cross_room?: boolean;
-        /**
          * Include queued interjections
          */
         include_interjections?: boolean;

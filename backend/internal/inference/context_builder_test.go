@@ -7,12 +7,11 @@ import (
 
 func TestBuildSystemPrompt(t *testing.T) {
 	payload := ContextPayload{
-		SystemPrompt:  "You are helpful.",
-		Memory:        "Key fact.",
-		DailyNotes:    []string{"Note one.", "Note two."},
-		RAGResults:    []string{"Result A.", "Result B."},
-		CrossRoomFeed: []string{"[#room1 — 5m ago] Alice: Hello"},
-		ToolSchemas:   []string{"tool1 schema", "tool2 schema"},
+		SystemPrompt: "You are helpful.",
+		Memory:       "Key fact.",
+		DailyNotes:   []string{"Note one.", "Note two."},
+		RAGResults:   []string{"Result A.", "Result B."},
+		ToolSchemas:  []string{"tool1 schema", "tool2 schema"},
 	}
 
 	// Native mode: no tool schemas in system prompt.
@@ -28,9 +27,6 @@ func TestBuildSystemPrompt(t *testing.T) {
 	}
 	if !strings.Contains(sys, "## Relevant Context") {
 		t.Error("missing RAG section")
-	}
-	if !strings.Contains(sys, "## Cross-room activity") {
-		t.Error("missing cross-room section")
 	}
 	if strings.Contains(sys, "## Available Tools") {
 		t.Error("native mode should not include tool schemas in system prompt")

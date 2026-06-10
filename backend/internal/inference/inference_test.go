@@ -96,11 +96,6 @@ func TestValidateContextPayload(t *testing.T) {
 			wantErr: "",
 		},
 		{
-			name:    "valid with cross-room feed only",
-			payload: ContextPayload{Model: "test", CrossRoomFeed: []string{"feed"}},
-			wantErr: "",
-		},
-		{
 			name:    "valid with history only",
 			payload: ContextPayload{Model: "test", History: []HistoryMessage{{Role: RoleUser, Content: "hi"}}},
 			wantErr: "",

@@ -3,8 +3,8 @@ package inference
 import "strings"
 
 // BuildSystemPrompt assembles the full system prompt string from the payload.
-// It includes the system prompt, memory, daily notes, RAG results, cross-room
-// feed, and tool schemas (only when toolMode is "xml").
+// It includes the system prompt, memory, daily notes, RAG results, and tool
+// schemas (only when toolMode is "xml").
 func BuildSystemPrompt(payload ContextPayload, toolMode string) string {
 	if toolMode == "" {
 		toolMode = "native"
@@ -33,13 +33,6 @@ func BuildSystemPrompt(payload ContextPayload, toolMode string) string {
 				b.WriteString("\n\n")
 			}
 			b.WriteString(r)
-		}
-	}
-	if len(payload.CrossRoomFeed) > 0 {
-		b.WriteString("\n\n## Cross-room activity\n\n")
-		for _, line := range payload.CrossRoomFeed {
-			b.WriteString(line)
-			b.WriteString("\n\n")
 		}
 	}
 	if toolMode == "xml" && len(payload.ToolSchemas) > 0 {

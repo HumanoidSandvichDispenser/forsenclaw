@@ -130,12 +130,6 @@ func (a *Assembler) EffectiveClearance(ctx context.Context, ag *agent.Agent, roo
 	return min(ag.Definition.Clearance, r.Clearance), nil
 }
 
-// crossRoomMessage is a message from another room, labeled with its room ID.
-type crossRoomMessage struct {
-	Message room.Message
-	RoomID  int64
-}
-
 // assembleRequest captures the inputs needed for internal context assembly.
 type assembleRequest struct {
 	// RoomID is the target room for this invocation.
@@ -145,9 +139,6 @@ type assembleRequest struct {
 	// (min(agent, room), or the agent's configured clearance with no room). It
 	// bounds which per-clearance memory and daily-note levels are read.
 	EffectiveClearance int
-
-	// CrossRoomFeed is recent messages from other rooms the agent participates in.
-	CrossRoomFeed []crossRoomMessage
 
 	// CurrentRoomHistory is the windowed tail of the target room's transcript,
 	// already clearance-filtered and soft-Biba annotated.
@@ -187,9 +178,6 @@ type assembledContext struct {
 	// ToolDefinitions are the structured tool definitions for native tool calling.
 	ToolDefinitions []inference.ToolDefinition
 
-	// CrossRoomFeed is the formatted recent transcript from other rooms.
-	CrossRoomFeed []string
-
 	// CurrentRoomHistory is the formatted windowed tail of the target room.
 	CurrentRoomHistory []string
 
@@ -228,7 +216,6 @@ func (a *assembledContext) toContextPayload() inference.ContextPayload {
 		RAGResults:         a.RAGResults,
 		ToolSchemas:        a.ToolSchemas,
 		ToolDefinitions:    a.ToolDefinitions,
-		CrossRoomFeed:      a.CrossRoomFeed,
 		History:            a.History,
 		CurrentTurnHistory: a.CurrentTurnHistory,
 		Request:            a.Request,
@@ -329,13 +316,7 @@ func (a *Assembler) assemble(ctx context.Context, ag *agent.Agent, req assembleR
 		}
 	}
 
-	// 3. Cross-room feed → formatted strings with relative timestamps
-	for _, crm := range req.CrossRoomFeed {
-		relTime := formatRelativeTime(crm.Message.Timestamp)
-		result.CrossRoomFeed = append(result.CrossRoomFeed, fmt.Sprintf("[#%d %s][%s] %s", crm.RoomID, relTime, crm.Message.Sender.Name, crm.Message.Content))
-	}
-
-	// 4. Current room history → formatted strings for size tracking.
+	// 3. Current room history → formatted strings for size tracking.
 	// Tool call/result messages are excluded from formatted strings; they only
 	// appear in the structured History slice below.
 	for _, m := range req.CurrentRoomHistory {
@@ -345,7 +326,7 @@ func (a *Assembler) assemble(ctx context.Context, ag *agent.Agent, req assembleR
 		result.CurrentRoomHistory = append(result.CurrentRoomHistory, fmt.Sprintf("%s: %s", m.Sender.Name, m.Content))
 	}
 
-	// 5. Locate the triggering message: the last non-tool (text) message, which
+	// 4. Locate the triggering message: the last non-tool (text) message, which
 	//    becomes the Request. Splitting at its index — rather than blindly
 	//    dropping the last transcript entry — keeps it out of History even when
 	//    the transcript ends with tool messages (e.g. an assistant tool call
@@ -380,7 +361,7 @@ func (a *Assembler) assemble(ctx context.Context, ag *agent.Agent, req assembleR
 	// visible to assembly-only consumers like the preview.
 	result.CurrentTurnHistory = buildHistoryMessages(currentTurnMsgs, agentID)
 
-	// 6. Build Request: interjections + the triggering message.
+	// 5. Build Request: interjections + the triggering message.
 	var rfcContent strings.Builder
 	if len(req.Interjections) > 0 {
 		rfcContent.WriteString("# Interjections (requests during non turns)\n\n")
@@ -527,21 +508,4 @@ func trimLeadingNonUserHistory(history []inference.HistoryMessage) []inference.H
 // each turn and defeat caching.
 func formatTimestamp(t time.Time) string {
 	return t.UTC().Format("2006-01-02 15:04 UTC")
-}
-
-// formatRelativeTime returns a human-readable relative time string.
-func formatRelativeTime(t time.Time) string {
-	delta := time.Since(t)
-	switch {
-	case delta < time.Minute:
-		return "just now"
-	case delta < time.Hour:
-		return fmt.Sprintf("%dm ago", int(delta.Minutes()))
-	case delta < 24*time.Hour:
-		return fmt.Sprintf("%dh ago", int(delta.Hours()))
-	case delta < 7*24*time.Hour:
-		return fmt.Sprintf("%dd ago", int(delta.Hours()/24))
-	default:
-		return t.Format("2006-01-02")
-	}
 }

@@ -145,7 +145,6 @@ type RetryMessageResponse struct{}
 type GetContextPreviewRequest struct {
 	RoomID               int64  `path:"room_id"               validate:"required" doc:"Room ID"`
 	AgentName            string `path:"agent_name"            validate:"required" doc:"Agent name"`
-	IncludeCrossRoom     bool   `query:"include_cross_room"     default:"true" doc:"Include cross-room feed"`
 	IncludeInterjections bool   `query:"include_interjections" default:"false" doc:"Include queued interjections"`
 }
 
